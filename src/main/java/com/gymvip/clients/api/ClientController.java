@@ -48,11 +48,6 @@ public class ClientController {
             boolean marketingWhatsAppAccepted
     ) {}
 
-    public record UpdateContactsRequest(
-            String phone,
-            String email
-    ) {}
-
     @GetMapping
     @PreAuthorize("hasAnyRole('RECEPCION', 'ADMIN', 'SUPERADMIN')")
     public ResponseEntity<Page<Client>> listClients(
@@ -95,15 +90,5 @@ public class ClientController {
                 actor
         );
         return ResponseEntity.status(HttpStatus.CREATED).body(registered);
-    }
-
-    @PatchMapping("/{id}/contacts")
-    @PreAuthorize("hasAnyRole('RECEPCION', 'ADMIN', 'SUPERADMIN')")
-    public ResponseEntity<Client> updateContacts(@PathVariable UUID id,
-                                                 @RequestBody UpdateContactsRequest request,
-                                                 Authentication authentication) {
-        String actor = authentication != null ? authentication.getName() : "anonimo";
-        Client updated = clientService.updateContacts(id, request.phone(), request.email(), actor);
-        return ResponseEntity.ok(updated);
     }
 }
