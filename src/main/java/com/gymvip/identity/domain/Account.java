@@ -56,7 +56,16 @@ public class Account {
     public boolean isMfaEnabled() { return mfaEnabled; }
     public void setMfaEnabled(boolean mfaEnabled) { this.mfaEnabled = mfaEnabled; }
     public Set<String> getRoles() { return roles; }
-    public void setRoles(Set<String> roles) { this.roles = roles; }
+    public void setRoles(Set<String> roles) {
+        if (this.roles == null) {
+            this.roles = new HashSet<>();
+        }
+        this.roles.clear();
+        if (roles != null) {
+            this.roles.addAll(roles);
+        }
+    }
     public LocalDateTime getCreatedAt() { return createdAt; }
     public LocalDateTime getUpdatedAt() { return updatedAt; }
+    public void setUpdatedAt(LocalDateTime updatedAt) { this.updatedAt = updatedAt; }
 }

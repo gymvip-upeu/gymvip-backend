@@ -63,6 +63,13 @@ public class AuthService {
         }
     }
 
+    @Transactional
+    public void revokeSessionsForAccount(UUID accountId) {
+        if (accountId != null) {
+            sessionRepository.deleteByAccountId(accountId);
+        }
+    }
+
     @Transactional(readOnly = true)
     public Optional<Account> findAccountByToken(String token) {
         if (token == null || token.isBlank()) {
@@ -76,7 +83,8 @@ public class AuthService {
         if (session.getExpiresAt().isBefore(LocalDateTime.now())) {
             return Optional.empty();
         }
-        return accountRepository.findById(session.getAccountId());
+        return accountRepository.findById(session.getAccountId())
+                .filter(account -> "ACTIVO".equalsIgnoreCase(account.getStatus()));
     }
 
     public static class LoginResult {
