@@ -109,4 +109,99 @@ public class PlanIntegrationTest {
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isBadRequest());
     }
+
+    @Test
+    @DisplayName("Regla de negocio: plan con denominación mensual debe tener exactamente 30 días (HU-06)")
+    void monthlyPlanMustHaveExactly30Days() throws Exception {
+        // Con 31 días debe fallar
+        PlanController.CreatePlanRequest invalidMonthly = new PlanController.CreatePlanRequest(
+                "Plan Mensual Invalido " + UUID.randomUUID().toString().substring(0, 6),
+                "Duración incorrecta de 31 días",
+                31,
+                new BigDecimal("130.00"),
+                "Beneficios"
+        );
+
+        mockMvc.perform(post("/api/v1/plans")
+                        .header("Authorization", "Bearer " + adminToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(invalidMonthly)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message", containsString("30 días")));
+
+        // Con 30 días exactos debe ser creado
+        String validName = "Plan Mensual Exacto " + UUID.randomUUID().toString().substring(0, 6);
+        PlanController.CreatePlanRequest validMonthly = new PlanController.CreatePlanRequest(
+                validName,
+                "Duración correcta de 30 días exactos",
+                30,
+                new BigDecimal("130.00"),
+                "Beneficios"
+        );
+
+        mockMvc.perform(post("/api/v1/plans")
+                        .header("Authorization", "Bearer " + adminToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(validMonthly)))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.name").value(validName))
+                .andExpect(jsonPath("$.durationDays").value(30));
+    }
+
+    @Test
+    @DisplayName("Edición de plan incrementa número de versión y cambio de estado a INACTIVO (HU-06)")
+    void updatePlanIncrementsVersionAndInactivates() throws Exception {
+        String planName = "Plan Pilates " + UUID.randomUUID().toString().substring(0, 6);
+        PlanController.CreatePlanRequest createReq = new PlanController.CreatePlanRequest(
+                planName,
+                "Version inicial",
+                60,
+                new BigDecimal("180.00"),
+                "Acceso"
+        );
+
+        String createResp = mockMvc.perform(post("/api/v1/plans")
+                        .header("Authorization", "Bearer " + adminToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(createReq)))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.version").value(1))
+                .andReturn().getResponse().getContentAsString();
+
+        String planId = objectMapper.readTree(createResp).get("id").asText();
+
+        // Actualizar plan
+        PlanController.CreatePlanRequest updateReq = new PlanController.CreatePlanRequest(
+                planName + " Actualizado",
+                "Segunda version",
+                60,
+                new BigDecimal("200.00"),
+                "Acceso ampliado"
+        );
+
+        mockMvc.perform(put("/api/v1/plans/" + planId)
+                        .header("Authorization", "Bearer " + adminToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(updateReq)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.version").value(2))
+                .andExpect(jsonPath("$.pricePen").value(200.00));
+
+        // Inactivar plan
+        mockMvc.perform(patch("/api/v1/plans/" + planId + "/status")
+                        .header("Authorization", "Bearer " + adminToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new PlanController.UpdateStatusRequest("INACTIVO"))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("INACTIVO"));
+    }
+
+    @Test
+    @DisplayName("RECEPCION puede consultar el catálogo de planes (HU-06)")
+    void recepcionCanListPlans() throws Exception {
+        mockMvc.perform(get("/api/v1/plans")
+                        .header("Authorization", "Bearer " + recepcionToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$").isArray());
+    }
 }

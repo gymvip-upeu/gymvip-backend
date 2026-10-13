@@ -47,11 +47,13 @@ public class PlanController {
     ) {}
 
     @GetMapping
+    @PreAuthorize("hasAnyRole('RECEPCION', 'ADMIN', 'SUPERADMIN')")
     public ResponseEntity<List<Plan>> listPlans(@RequestParam(value = "status", required = false) String status) {
         return ResponseEntity.ok(planService.findAll(status));
     }
 
     @GetMapping("/{id}")
+    @PreAuthorize("hasAnyRole('RECEPCION', 'ADMIN', 'SUPERADMIN')")
     public ResponseEntity<Plan> getPlan(@PathVariable UUID id) {
         return ResponseEntity.ok(planService.findById(id));
     }

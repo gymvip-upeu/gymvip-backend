@@ -55,6 +55,9 @@ public class PlanService {
         if (durationDays <= 0) {
             throw new IllegalArgumentException("La duración debe ser de al menos 1 día");
         }
+        if (name.toLowerCase().contains("mensual") && durationDays != 30) {
+            throw new IllegalArgumentException("La duración de un plan mensual debe ser exactamente de 30 días");
+        }
 
         Plan plan = new Plan(name.trim(), description, durationDays, pricePen, benefits);
         Plan savedPlan = planRepository.save(plan);
@@ -88,6 +91,9 @@ public class PlanService {
         }
         if (durationDays <= 0) {
             throw new IllegalArgumentException("La duración debe ser de al menos 1 día");
+        }
+        if (name.toLowerCase().contains("mensual") && durationDays != 30) {
+            throw new IllegalArgumentException("La duración de un plan mensual debe ser exactamente de 30 días");
         }
 
         int newVersion = plan.getVersion() + 1;

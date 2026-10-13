@@ -25,7 +25,7 @@ public class PlanVersion {
     @Column(name = "duration_days", nullable = false)
     private int durationDays;
 
-    @Column(name = "price_pen", nullable = false, precision = 10, scale = 2)
+    @Column(name = "price_pen", nullable = false, precision = 12, scale = 2)
     private BigDecimal pricePen;
 
     @Column(length = 1000)
