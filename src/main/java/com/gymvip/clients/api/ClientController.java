@@ -1,11 +1,14 @@
 package com.gymvip.clients.api;
 
-import com.gymvip.clients.application.ClientService;
-import com.gymvip.clients.domain.Client;
+import com.gymvip.clients.api.dto.ClientDetailResponse;
+import com.gymvip.clients.api.dto.ClientResponse;
+import com.gymvip.clients.api.dto.RegisterClientRequest;
+import com.gymvip.clients.api.mapper.ClientApiMapper;
+import com.gymvip.clients.application.port.in.RegisterClientUseCase;
+import com.gymvip.clients.application.port.in.SearchClientsUseCase;
+import com.gymvip.clients.domain.model.Client;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
-import jakarta.validation.constraints.NotBlank;
-import jakarta.validation.constraints.NotNull;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
@@ -15,65 +18,54 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
-import java.time.LocalDate;
 import java.util.UUID;
 
 @RestController
 @RequestMapping("/api/v1/clients")
 public class ClientController {
 
-    private final ClientService clientService;
+    private final RegisterClientUseCase registerClientUseCase;
+    private final SearchClientsUseCase searchClientsUseCase;
 
-    public ClientController(ClientService clientService) {
-        this.clientService = clientService;
+    public ClientController(RegisterClientUseCase registerClientUseCase,
+                            SearchClientsUseCase searchClientsUseCase) {
+        this.registerClientUseCase = registerClientUseCase;
+        this.searchClientsUseCase = searchClientsUseCase;
     }
-
-    public record RegisterClientRequest(
-            @NotBlank(message = "El nombre es obligatorio")
-            String firstName,
-            @NotBlank(message = "Los apellidos son obligatorios")
-            String lastName,
-            @NotNull(message = "La fecha de nacimiento es obligatoria")
-            LocalDate birthDate,
-            String countryCode,
-            @NotBlank(message = "El tipo de documento es obligatorio (DNI, CE, PASAPORTE)")
-            String documentType,
-            @NotBlank(message = "El número de documento es obligatorio")
-            String documentNumber,
-            String phone,
-            String email,
-            boolean termsAccepted,
-            boolean privacyAccepted,
-            boolean marketingEmailAccepted,
-            boolean marketingWhatsAppAccepted
-    ) {}
 
     @GetMapping
     @PreAuthorize("hasAnyRole('RECEPCION', 'ADMIN', 'SUPERADMIN')")
-    public ResponseEntity<Page<Client>> listClients(
+    public ResponseEntity<Page<ClientResponse>> listClients(
             @RequestParam(value = "query", required = false) String query,
             @RequestParam(value = "page", defaultValue = "0") int page,
             @RequestParam(value = "size", defaultValue = "20") int size
     ) {
-        Page<Client> result = clientService.searchClients(query, PageRequest.of(page, size, Sort.by("createdAt").descending()));
-        return ResponseEntity.ok(result);
+        Page<Client> domainPage = searchClientsUseCase.searchClients(
+                query,
+                PageRequest.of(page, size, Sort.by("createdAt").descending())
+        );
+        Page<ClientResponse> responsePage = domainPage.map(ClientApiMapper::toResponse);
+        return ResponseEntity.ok(responsePage);
     }
 
     @GetMapping("/{id}")
     @PreAuthorize("hasAnyRole('RECEPCION', 'ADMIN', 'SUPERADMIN')")
-    public ResponseEntity<Client> getClient(@PathVariable UUID id) {
-        return ResponseEntity.ok(clientService.findById(id));
+    public ResponseEntity<ClientDetailResponse> getClient(@PathVariable UUID id) {
+        Client client = searchClientsUseCase.getClientById(id);
+        return ResponseEntity.ok(ClientApiMapper.toDetailResponse(client));
     }
 
     @PostMapping
     @PreAuthorize("hasAnyRole('RECEPCION', 'ADMIN', 'SUPERADMIN')")
-    public ResponseEntity<Client> registerAdultClient(@Valid @RequestBody RegisterClientRequest request,
-                                                      HttpServletRequest httpRequest,
-                                                      Authentication authentication) {
+    public ResponseEntity<ClientResponse> registerAdultClient(
+            @Valid @RequestBody RegisterClientRequest request,
+            HttpServletRequest httpRequest,
+            Authentication authentication
+    ) {
         String actor = authentication != null ? authentication.getName() : "anonimo";
         String ip = httpRequest.getRemoteAddr();
 
-        Client registered = clientService.registerAdultClient(
+        RegisterClientUseCase.RegisterClientCommand command = new RegisterClientUseCase.RegisterClientCommand(
                 request.firstName(),
                 request.lastName(),
                 request.birthDate(),
@@ -81,14 +73,10 @@ public class ClientController {
                 request.documentType(),
                 request.documentNumber(),
                 request.phone(),
-                request.email(),
-                request.termsAccepted(),
-                request.privacyAccepted(),
-                request.marketingEmailAccepted(),
-                request.marketingWhatsAppAccepted(),
-                ip,
-                actor
+                request.email()
         );
-        return ResponseEntity.status(HttpStatus.CREATED).body(registered);
+
+        Client registered = registerClientUseCase.registerClient(command, actor, ip);
+        return ResponseEntity.status(HttpStatus.CREATED).body(ClientApiMapper.toResponse(registered));
     }
 }

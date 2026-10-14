@@ -1,8 +1,10 @@
 package com.gymvip.plans;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.gymvip.identity.application.AuthService;
-import com.gymvip.plans.api.PlanController;
+import com.gymvip.identity.application.port.in.AuthUseCase;
+import com.gymvip.plans.api.dto.CreatePlanRequest;
+import com.gymvip.plans.api.dto.UpdatePlanRequest;
+import com.gymvip.plans.api.dto.UpdateStatusRequest;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -30,25 +32,25 @@ public class PlanIntegrationTest {
     private ObjectMapper objectMapper;
 
     @Autowired
-    private AuthService authService;
+    private AuthUseCase authUseCase;
 
     private String adminToken;
     private String recepcionToken;
 
     @BeforeEach
     void setUp() {
-        AuthService.LoginResult adminLogin = authService.login("admin@vipcenterfit.pe", "Admin123!", "127.0.0.1");
-        adminToken = adminLogin.getToken();
+        AuthUseCase.LoginResult adminLogin = authUseCase.login("admin@vipcenterfit.pe", "Admin123!", "127.0.0.1");
+        adminToken = adminLogin.token();
 
-        AuthService.LoginResult recepcionLogin = authService.login("recepcion@vipcenterfit.pe", "Recepcion123!", "127.0.0.1");
-        recepcionToken = recepcionLogin.getToken();
+        AuthUseCase.LoginResult recepcionLogin = authUseCase.login("recepcion@vipcenterfit.pe", "Recepcion123!", "127.0.0.1");
+        recepcionToken = recepcionLogin.token();
     }
 
     @Test
     @DisplayName("Admin puede crear un plan y consultarlo en el catálogo (HU-06 P0)")
     void adminCanCreateAndListPlan() throws Exception {
         String uniqueName = "Plan Crossfit " + UUID.randomUUID().toString().substring(0, 8);
-        PlanController.CreatePlanRequest request = new PlanController.CreatePlanRequest(
+        CreatePlanRequest request = new CreatePlanRequest(
                 uniqueName,
                 "Acceso exclusivo al box de crossfit",
                 45,
@@ -77,7 +79,7 @@ public class PlanIntegrationTest {
     @Test
     @DisplayName("Recepción NO puede crear un plan (HTTP 403 Forbidden - HU-04)")
     void recepcionCannotCreatePlan() throws Exception {
-        PlanController.CreatePlanRequest request = new PlanController.CreatePlanRequest(
+        CreatePlanRequest request = new CreatePlanRequest(
                 "Plan Ilegal Recepcion " + UUID.randomUUID(),
                 "Intento no autorizado",
                 30,
@@ -95,7 +97,7 @@ public class PlanIntegrationTest {
     @Test
     @DisplayName("Validación: precio o duración negativa rechaza con 400")
     void invalidPlanValuesReturnBadRequest() throws Exception {
-        PlanController.CreatePlanRequest request = new PlanController.CreatePlanRequest(
+        CreatePlanRequest request = new CreatePlanRequest(
                 "Plan Invalido",
                 "Precio negativo",
                 -5,
@@ -114,7 +116,7 @@ public class PlanIntegrationTest {
     @DisplayName("Regla de negocio: plan con denominación mensual debe tener exactamente 30 días (HU-06)")
     void monthlyPlanMustHaveExactly30Days() throws Exception {
         // Con 31 días debe fallar
-        PlanController.CreatePlanRequest invalidMonthly = new PlanController.CreatePlanRequest(
+        CreatePlanRequest invalidMonthly = new CreatePlanRequest(
                 "Plan Mensual Invalido " + UUID.randomUUID().toString().substring(0, 6),
                 "Duración incorrecta de 31 días",
                 31,
@@ -131,7 +133,7 @@ public class PlanIntegrationTest {
 
         // Con 30 días exactos debe ser creado
         String validName = "Plan Mensual Exacto " + UUID.randomUUID().toString().substring(0, 6);
-        PlanController.CreatePlanRequest validMonthly = new PlanController.CreatePlanRequest(
+        CreatePlanRequest validMonthly = new CreatePlanRequest(
                 validName,
                 "Duración correcta de 30 días exactos",
                 30,
@@ -152,7 +154,7 @@ public class PlanIntegrationTest {
     @DisplayName("Edición de plan incrementa número de versión y cambio de estado a INACTIVO (HU-06)")
     void updatePlanIncrementsVersionAndInactivates() throws Exception {
         String planName = "Plan Pilates " + UUID.randomUUID().toString().substring(0, 6);
-        PlanController.CreatePlanRequest createReq = new PlanController.CreatePlanRequest(
+        CreatePlanRequest createReq = new CreatePlanRequest(
                 planName,
                 "Version inicial",
                 60,
@@ -171,7 +173,7 @@ public class PlanIntegrationTest {
         String planId = objectMapper.readTree(createResp).get("id").asText();
 
         // Actualizar plan
-        PlanController.CreatePlanRequest updateReq = new PlanController.CreatePlanRequest(
+        UpdatePlanRequest updateReq = new UpdatePlanRequest(
                 planName + " Actualizado",
                 "Segunda version",
                 60,
@@ -191,7 +193,7 @@ public class PlanIntegrationTest {
         mockMvc.perform(patch("/api/v1/plans/" + planId + "/status")
                         .header("Authorization", "Bearer " + adminToken)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(new PlanController.UpdateStatusRequest("INACTIVO"))))
+                        .content(objectMapper.writeValueAsString(new UpdateStatusRequest("INACTIVO"))))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("INACTIVO"));
     }

@@ -1,8 +1,8 @@
 package com.gymvip.clients;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.gymvip.clients.api.ClientController;
-import com.gymvip.identity.application.AuthService;
+import com.gymvip.clients.api.dto.RegisterClientRequest;
+import com.gymvip.identity.application.port.in.AuthUseCase;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -13,10 +13,12 @@ import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 
 import java.time.LocalDate;
-import java.util.UUID;
 
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
+import static org.hamcrest.Matchers.startsWith;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -29,21 +31,21 @@ public class ClientIntegrationTest {
     private ObjectMapper objectMapper;
 
     @Autowired
-    private AuthService authService;
+    private AuthUseCase authUseCase;
 
     private String recepcionToken;
 
     @BeforeEach
     void setUp() {
-        AuthService.LoginResult login = authService.login("recepcion@vipcenterfit.pe", "Recepcion123!", "127.0.0.1");
-        recepcionToken = login.getToken();
+        AuthUseCase.LoginResult login = authUseCase.login("recepcion@vipcenterfit.pe", "Recepcion123!", "127.0.0.1");
+        recepcionToken = login.token();
     }
 
     @Test
-    @DisplayName("Alta de socio adulto exitosa con casillas separadas de consentimiento (HU-01)")
+    @DisplayName("Alta de socio adulto exitosa con generación de código MAR-XXXXXX y unicidad (HU-01)")
     void registerAdultClientSuccess() throws Exception {
         String docNumber = "7" + (int)(1000000 + Math.random() * 8999999);
-        ClientController.RegisterClientRequest request = new ClientController.RegisterClientRequest(
+        RegisterClientRequest request = new RegisterClientRequest(
                 "Mariana",
                 "Torres Ramos",
                 LocalDate.of(1996, 5, 20),
@@ -51,48 +53,48 @@ public class ClientIntegrationTest {
                 "DNI",
                 docNumber,
                 "+51988112233",
-                "mariana." + docNumber + "@ejemplo.pe",
-                true,  // Terms
-                true,  // Privacy
-                false, // Marketing Email
-                true   // Marketing WhatsApp
+                "mariana." + docNumber + "@ejemplo.pe"
         );
 
-        mockMvc.perform(post("/api/v1/clients")
+        String responseContent = mockMvc.perform(post("/api/v1/clients")
                         .header("Authorization", "Bearer " + recepcionToken)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.id").isNotEmpty())
+                .andExpect(jsonPath("$.memberCode").value(startsWith("MAR-")))
                 .andExpect(jsonPath("$.firstName").value("Mariana"))
-                .andExpect(jsonPath("$.status").value("ACTIVO"));
+                .andExpect(jsonPath("$.status").value("ACTIVO"))
+                .andReturn().getResponse().getContentAsString();
 
-        // Document duplicate check: same request must return 409 Conflict
+        // 2. Unicidad documental compuesta: mismo documento debe responder 409 Conflict
         mockMvc.perform(post("/api/v1/clients")
                         .header("Authorization", "Bearer " + recepcionToken)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("RESOURCE_CONFLICT"));
+
+        // 3. Consulta paginada y verificación de datos registrados
+        mockMvc.perform(get("/api/v1/clients")
+                        .header("Authorization", "Bearer " + recepcionToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content").isArray());
     }
 
     @Test
-    @DisplayName("Registro de menor de edad es bloqueado con HTTP 400")
+    @DisplayName("Registro de menor de edad es bloqueado con HTTP 400 (HU-01)")
     void registerMinorClientBlocked() throws Exception {
         String docNumber = "6" + (int)(1000000 + Math.random() * 8999999);
-        ClientController.RegisterClientRequest request = new ClientController.RegisterClientRequest(
+        RegisterClientRequest request = new RegisterClientRequest(
                 "Kevin",
                 "Menor Perez",
-                LocalDate.now().minusYears(15), // 15 years old
+                LocalDate.now().minusYears(15), // 15 años
                 "PE",
                 "DNI",
                 docNumber,
                 "+51988000000",
-                "kevin@ejemplo.pe",
-                true,
-                true,
-                false,
-                false
+                "kevin@ejemplo.pe"
         );
 
         mockMvc.perform(post("/api/v1/clients")

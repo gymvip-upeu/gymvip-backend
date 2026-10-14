@@ -1,5 +1,14 @@
 package com.gymvip.shared.exceptions;
 
+import com.gymvip.clients.domain.exception.ClientNotFoundException;
+import com.gymvip.clients.domain.exception.ClientValidationException;
+import com.gymvip.clients.domain.exception.DocumentDuplicateException;
+import com.gymvip.identity.domain.exception.AccountNotFoundException;
+import com.gymvip.identity.domain.exception.InvalidCredentialsException;
+import com.gymvip.identity.domain.exception.LastAdminProtectionException;
+import com.gymvip.plans.domain.exception.DuplicatePlanNameException;
+import com.gymvip.plans.domain.exception.InvalidPlanException;
+import com.gymvip.plans.domain.exception.PlanNotFoundException;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -24,8 +33,8 @@ public class GlobalExceptionHandler {
         return correlationId;
     }
 
-    @ExceptionHandler(ResourceNotFoundException.class)
-    public ResponseEntity<ErrorResponse> handleNotFound(ResourceNotFoundException ex, HttpServletRequest request) {
+    @ExceptionHandler({ResourceNotFoundException.class, ClientNotFoundException.class, PlanNotFoundException.class, AccountNotFoundException.class})
+    public ResponseEntity<ErrorResponse> handleNotFound(RuntimeException ex, HttpServletRequest request) {
         ErrorResponse error = new ErrorResponse(
                 HttpStatus.NOT_FOUND.value(),
                 HttpStatus.NOT_FOUND.getReasonPhrase(),
@@ -37,8 +46,8 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(HttpStatus.NOT_FOUND).body(error);
     }
 
-    @ExceptionHandler(ConflictException.class)
-    public ResponseEntity<ErrorResponse> handleConflict(ConflictException ex, HttpServletRequest request) {
+    @ExceptionHandler({ConflictException.class, DocumentDuplicateException.class, DuplicatePlanNameException.class, LastAdminProtectionException.class})
+    public ResponseEntity<ErrorResponse> handleConflict(RuntimeException ex, HttpServletRequest request) {
         ErrorResponse error = new ErrorResponse(
                 HttpStatus.CONFLICT.value(),
                 HttpStatus.CONFLICT.getReasonPhrase(),
@@ -56,15 +65,15 @@ public class GlobalExceptionHandler {
                 HttpStatus.CONFLICT.value(),
                 HttpStatus.CONFLICT.getReasonPhrase(),
                 "RESOURCE_CONFLICT",
-                "Conflicto de integridad de datos: el registro o documento ya existe en el sistema.",
+                "Conflicto de integridad de datos: el registro, documento o código ya existe en el sistema.",
                 request.getRequestURI(),
                 getCorrelationId(request)
         );
         return ResponseEntity.status(HttpStatus.CONFLICT).body(error);
     }
 
-    @ExceptionHandler(IllegalArgumentException.class)
-    public ResponseEntity<ErrorResponse> handleIllegalArgument(IllegalArgumentException ex, HttpServletRequest request) {
+    @ExceptionHandler({IllegalArgumentException.class, ClientValidationException.class, InvalidPlanException.class})
+    public ResponseEntity<ErrorResponse> handleBadRequest(RuntimeException ex, HttpServletRequest request) {
         ErrorResponse error = new ErrorResponse(
                 HttpStatus.BAD_REQUEST.value(),
                 HttpStatus.BAD_REQUEST.getReasonPhrase(),
@@ -74,6 +83,19 @@ public class GlobalExceptionHandler {
                 getCorrelationId(request)
         );
         return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(error);
+    }
+
+    @ExceptionHandler(InvalidCredentialsException.class)
+    public ResponseEntity<ErrorResponse> handleInvalidCredentials(InvalidCredentialsException ex, HttpServletRequest request) {
+        ErrorResponse error = new ErrorResponse(
+                HttpStatus.UNAUTHORIZED.value(),
+                HttpStatus.UNAUTHORIZED.getReasonPhrase(),
+                "UNAUTHORIZED",
+                ex.getMessage(),
+                request.getRequestURI(),
+                getCorrelationId(request)
+        );
+        return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(error);
     }
 
     @ExceptionHandler(AccessDeniedException.class)

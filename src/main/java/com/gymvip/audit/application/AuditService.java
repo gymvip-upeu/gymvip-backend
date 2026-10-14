@@ -1,23 +1,25 @@
 package com.gymvip.audit.application;
 
-import com.gymvip.audit.domain.AuditEvent;
-import com.gymvip.audit.infrastructure.AuditRepository;
+import com.gymvip.audit.application.port.in.AuditUseCase;
+import com.gymvip.audit.application.port.out.AuditPersistencePort;
+import com.gymvip.audit.domain.model.AuditEvent;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 @Service
-public class AuditService {
+public class AuditService implements AuditUseCase {
 
-    private final AuditRepository auditRepository;
+    private final AuditPersistencePort auditPersistencePort;
 
-    public AuditService(AuditRepository auditRepository) {
-        this.auditRepository = auditRepository;
+    public AuditService(AuditPersistencePort auditPersistencePort) {
+        this.auditPersistencePort = auditPersistencePort;
     }
 
-    @Transactional(propagation = Propagation.REQUIRES_NEW)
-    public void recordEvent(String actorEmail, String action, String entityName, String entityId, String details) {
-        AuditEvent event = new AuditEvent(actorEmail, action, entityName, entityId, details);
-        auditRepository.save(event);
+    @Override
+    @Transactional(propagation = Propagation.REQUIRED)
+    public AuditEvent recordEvent(String actorEmail, String action, String entityName, String entityId, String details) {
+        AuditEvent event = AuditEvent.create(actorEmail, action, entityName, entityId, details);
+        return auditPersistencePort.save(event);
     }
 }

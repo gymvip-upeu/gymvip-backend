@@ -1,6 +1,6 @@
 package com.gymvip.identity.api;
 
-import com.gymvip.identity.application.AccountManagementService;
+import com.gymvip.identity.application.port.in.StaffAccountUseCase;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
@@ -19,10 +19,10 @@ import java.util.UUID;
 @PreAuthorize("hasAnyRole('ADMIN', 'SUPERADMIN')")
 public class AccountController {
 
-    private final AccountManagementService accountManagementService;
+    private final StaffAccountUseCase staffAccountUseCase;
 
-    public AccountController(AccountManagementService accountManagementService) {
-        this.accountManagementService = accountManagementService;
+    public AccountController(StaffAccountUseCase staffAccountUseCase) {
+        this.staffAccountUseCase = staffAccountUseCase;
     }
 
     public record CreateStaffAccountRequest(
@@ -49,57 +49,49 @@ public class AccountController {
     ) {}
 
     @GetMapping
-    public ResponseEntity<List<AccountManagementService.StaffAccountResponse>> listAccounts() {
-        return ResponseEntity.ok(accountManagementService.listStaffAccounts());
+    public ResponseEntity<List<StaffAccountUseCase.StaffAccountDto>> listAccounts() {
+        return ResponseEntity.ok(staffAccountUseCase.listStaffAccounts());
     }
 
     @GetMapping("/{id}")
-    public ResponseEntity<AccountManagementService.StaffAccountResponse> getAccount(@PathVariable UUID id) {
-        return ResponseEntity.ok(accountManagementService.getById(id));
+    public ResponseEntity<StaffAccountUseCase.StaffAccountDto> getAccount(@PathVariable UUID id) {
+        return ResponseEntity.ok(staffAccountUseCase.getById(id));
     }
 
     @PostMapping
-    public ResponseEntity<AccountManagementService.StaffAccountResponse> createStaffAccount(
+    public ResponseEntity<StaffAccountUseCase.StaffAccountDto> createStaffAccount(
             @Valid @RequestBody CreateStaffAccountRequest request,
             Authentication authentication
     ) {
         String actor = authentication != null ? authentication.getName() : "admin_sistema";
-        AccountManagementService.StaffAccountResponse created = accountManagementService.createStaffAccount(
+        StaffAccountUseCase.CreateStaffCommand command = new StaffAccountUseCase.CreateStaffCommand(
                 request.email(),
                 request.password(),
-                request.role(),
-                actor
+                request.role()
         );
+        StaffAccountUseCase.StaffAccountDto created = staffAccountUseCase.createStaffAccount(command, actor);
         return ResponseEntity.status(HttpStatus.CREATED).body(created);
     }
 
     @PatchMapping("/{id}/role")
-    public ResponseEntity<AccountManagementService.StaffAccountResponse> updateRole(
+    public ResponseEntity<StaffAccountUseCase.StaffAccountDto> updateRole(
             @PathVariable UUID id,
             @Valid @RequestBody UpdateRoleRequest request,
             Authentication authentication
     ) {
         String actor = authentication != null ? authentication.getName() : "admin_sistema";
-        AccountManagementService.StaffAccountResponse updated = accountManagementService.updateRole(
-                id,
-                request.role(),
-                actor
-        );
+        StaffAccountUseCase.StaffAccountDto updated = staffAccountUseCase.updateRole(id, request.role(), actor);
         return ResponseEntity.ok(updated);
     }
 
     @PatchMapping("/{id}/status")
-    public ResponseEntity<AccountManagementService.StaffAccountResponse> updateStatus(
+    public ResponseEntity<StaffAccountUseCase.StaffAccountDto> updateStatus(
             @PathVariable UUID id,
             @Valid @RequestBody UpdateStatusRequest request,
             Authentication authentication
     ) {
         String actor = authentication != null ? authentication.getName() : "admin_sistema";
-        AccountManagementService.StaffAccountResponse updated = accountManagementService.updateStatus(
-                id,
-                request.status(),
-                actor
-        );
+        StaffAccountUseCase.StaffAccountDto updated = staffAccountUseCase.updateStatus(id, request.status(), actor);
         return ResponseEntity.ok(updated);
     }
 
@@ -109,7 +101,7 @@ public class AccountController {
             Authentication authentication
     ) {
         String actor = authentication != null ? authentication.getName() : "admin_sistema";
-        accountManagementService.revokeSessions(id, actor);
+        staffAccountUseCase.revokeSessions(id, actor);
         return ResponseEntity.noContent().build();
     }
 }

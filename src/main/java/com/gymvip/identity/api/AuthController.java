@@ -1,7 +1,6 @@
 package com.gymvip.identity.api;
 
-import com.gymvip.identity.application.AuthService;
-import com.gymvip.identity.domain.Account;
+import com.gymvip.identity.application.port.in.AuthUseCase;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
@@ -13,10 +12,10 @@ import java.util.Map;
 @RequestMapping("/api/v1/auth")
 public class AuthController {
 
-    private final AuthService authService;
+    private final AuthUseCase authUseCase;
 
-    public AuthController(AuthService authService) {
-        this.authService = authService;
+    public AuthController(AuthUseCase authUseCase) {
+        this.authUseCase = authUseCase;
     }
 
     public record LoginRequest(String email, String password) {}
@@ -27,14 +26,13 @@ public class AuthController {
             return ResponseEntity.badRequest().body(Map.of("message", "Correo y contraseña son requeridos"));
         }
         String ip = httpRequest.getRemoteAddr();
-        AuthService.LoginResult result = authService.login(request.email().trim(), request.password(), ip);
+        AuthUseCase.LoginResult result = authUseCase.login(request.email().trim(), request.password(), ip);
 
         return ResponseEntity.ok(Map.of(
-                "token", result.getToken(),
-                "accountId", result.getAccountId(),
-                "email", result.getEmail(),
-                "roles", result.getRoles(),
-                "expiresAt", result.getExpiresAt()
+                "token", result.token(),
+                "id", result.id(),
+                "email", result.email(),
+                "roles", result.roles()
         ));
     }
 
@@ -48,7 +46,7 @@ public class AuthController {
             token = customToken;
         }
         if (token != null) {
-            authService.logout(token);
+            authUseCase.logout(token);
         }
         return ResponseEntity.noContent().build();
     }

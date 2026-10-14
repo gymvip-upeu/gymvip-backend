@@ -1,7 +1,7 @@
 package com.gymvip.shared.security;
 
-import com.gymvip.identity.application.AuthService;
-import com.gymvip.identity.domain.Account;
+import com.gymvip.identity.application.port.in.AuthUseCase;
+import com.gymvip.identity.domain.model.Account;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -20,10 +20,10 @@ import java.util.stream.Collectors;
 @Component
 public class TokenAuthenticationFilter extends OncePerRequestFilter {
 
-    private final AuthService authService;
+    private final AuthUseCase authUseCase;
 
-    public TokenAuthenticationFilter(@org.springframework.context.annotation.Lazy AuthService authService) {
-        this.authService = authService;
+    public TokenAuthenticationFilter(@org.springframework.context.annotation.Lazy AuthUseCase authUseCase) {
+        this.authUseCase = authUseCase;
     }
 
     @Override
@@ -33,7 +33,7 @@ public class TokenAuthenticationFilter extends OncePerRequestFilter {
         String token = resolveToken(request);
 
         if (token != null) {
-            Optional<Account> accountOpt = authService.findAccountByToken(token);
+            Optional<Account> accountOpt = authUseCase.findAccountByToken(token);
             if (accountOpt.isPresent()) {
                 Account account = accountOpt.get();
                 List<SimpleGrantedAuthority> authorities = account.getRoles().stream()

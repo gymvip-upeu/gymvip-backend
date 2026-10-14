@@ -2,7 +2,7 @@ package com.gymvip.identity;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.gymvip.identity.api.AccountController;
-import com.gymvip.identity.application.AuthService;
+import com.gymvip.identity.application.port.in.AuthUseCase;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -29,18 +29,18 @@ public class AccountManagementIntegrationTest {
     private ObjectMapper objectMapper;
 
     @Autowired
-    private AuthService authService;
+    private AuthUseCase authUseCase;
 
     private String adminToken;
     private String recepcionToken;
 
     @BeforeEach
     void setUp() {
-        AuthService.LoginResult adminLogin = authService.login("admin@vipcenterfit.pe", "Admin123!", "127.0.0.1");
-        adminToken = adminLogin.getToken();
+        AuthUseCase.LoginResult adminLogin = authUseCase.login("admin@vipcenterfit.pe", "Admin123!", "127.0.0.1");
+        adminToken = adminLogin.token();
 
-        AuthService.LoginResult recepcionLogin = authService.login("recepcion@vipcenterfit.pe", "Recepcion123!", "127.0.0.1");
-        recepcionToken = recepcionLogin.getToken();
+        AuthUseCase.LoginResult recepcionLogin = authUseCase.login("recepcion@vipcenterfit.pe", "Recepcion123!", "127.0.0.1");
+        recepcionToken = recepcionLogin.token();
     }
 
     @Test
@@ -63,10 +63,10 @@ public class AccountManagementIntegrationTest {
     }
 
     @Test
-    @DisplayName("Petición sin autenticación es rechazada (HTTP 401/403)")
+    @DisplayName("Petición sin autenticación es rechazada (HTTP 401)")
     void unauthenticatedForbidden() throws Exception {
         mockMvc.perform(get("/api/v1/accounts"))
-                .andExpect(status().isForbidden());
+                .andExpect(status().isUnauthorized());
     }
 
     @Test
@@ -154,7 +154,6 @@ public class AccountManagementIntegrationTest {
     @Test
     @DisplayName("Protección crítica: se impide inactivar al último administrador activo del sistema")
     void cannotInactivateLastAdmin() throws Exception {
-        // Obtenemos la lista de cuentas y buscamos las activas con rol ADMIN
         String listResp = mockMvc.perform(get("/api/v1/accounts")
                         .header("Authorization", "Bearer " + adminToken))
                 .andExpect(status().isOk())
@@ -177,7 +176,6 @@ public class AccountManagementIntegrationTest {
             }
         }
 
-        // Si solo hay un admin activo, intentar inactivarlo debe devolver 409 Conflict
         if (adminCount == 1 && lastAdminId != null) {
             mockMvc.perform(patch("/api/v1/accounts/" + lastAdminId + "/status")
                             .header("Authorization", "Bearer " + adminToken)
