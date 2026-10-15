@@ -1,24 +1,26 @@
+# ==============================================================================
+# GYM VIP (VIP CENTER FIT) — .gitignore para gymvip-backend
+# ==============================================================================
+
+# 1. Compilación y artefactos de Maven
 target/
 !.mvn/wrapper/maven-wrapper.jar
 !**/src/main/**/target/
 !**/src/test/**/target/
 
-### STS ###
-.apt_generated
-.classpath
-.factorypath
-.project
-.settings
-.springBeans
-.sts4-userId
-
-### IntelliJ IDEA ###
-.idea
+# 2. IDEs y editores de código
+.idea/
 *.iws
 *.iml
 *.ipr
-
-### NetBeans ###
+.vscode/
+.settings/
+.project
+.classpath
+.factorypath
+.apt_generated
+.springBeans
+.sts4-userId
 /nbproject/private/
 /nbbuild/
 /dist/
@@ -28,15 +30,22 @@ build/
 !**/src/main/**/build/
 !**/src/test/**/build/
 
-### Database data ###
-data/
-*.mv.db
-*.trace.db
-
-### Logs ###
-*.log
-
-### Environment files ###
+# 3. Secretos y variables de entorno privadas
 .env
 .env.*
 !.env.example
+!.env.*.example
+
+# 4. Almacenamiento local de base de datos y respaldos
+data/
+*.mv.db
+*.trace.db
+*.dump
+*.backup
+
+# 5. Registros y logs del sistema
+*.log
+
+# 6. Documentación canónica: limitar backend/docs exclusivamente al estado consolidado
+/docs/*
+!/docs/ESTADO_BASE_SPRINT1_ACOSTA.md
