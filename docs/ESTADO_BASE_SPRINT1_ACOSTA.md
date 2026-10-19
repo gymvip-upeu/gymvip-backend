@@ -5,7 +5,7 @@
 > **Fecha de Actualización:** 19 de octubre de 2026  
 > **Rama Oficial de Entrega:** `base-acosta`  
 > **Patrón de Arquitectura:** Backend por Capas Generales (`controller`, `dto`, `entity`, `enums`, `exception`, `mapper`, `repository`, `security`, `service`, `util`)  
-> **Estado Global de la Base:** 100% OPERATIVA Y VERIFICADA EN SU ALCANCE (22/22 pruebas unitarias y de integración superadas)
+> **Estado Global de la Base:** 100% OPERATIVA Y VERIFICADA EN SU ALCANCE (23/23 pruebas unitarias y de integración superadas sobre PostgreSQL 17.11 en Render)
 
 ---
 
@@ -40,7 +40,7 @@ Este incremento técnico corresponde **exclusivamente a la primera porción del 
 | **HU-01: Registrar Clientes** | **APROBADO** | - Formulario web y API REST `POST /api/v1/clients`.<br>- Validación estricta ≥ 18 años (HTTP 400 ante menores).<br>- Unicidad documental `(PE, DNI, número)` con HTTP 409 Conflict.<br>- DNI validado a exactamente 8 dígitos numéricos.<br>- Teléfono y correo opcionales (validados en formato solo si se proveen).<br>- Generación de código `MAR-XXXXXX` / `VIP-XXXXXX`.<br>- Consulta paginada `GET /api/v1/clients`. | `ClientIntegrationTest` (6 tests PASS)<br>- Registro exitoso con código socio.<br>- Bloqueo y 409 en documento repetido.<br>- Rechazo con 400 a menor de edad.<br>- Alta exitosa con teléfono y correo omitidos.<br>- Rechazo con 400 a DNI de 7 dígitos o alfanumérico.<br>- Rechazo con 400 a formato de email inválido. | - Edición y actualización de datos de contacto reservada para HU-02 (Jorge).<br>- Soporte formal de menores con representante legal diferido. |
 | **HU-04: Roles y Personal** | **APROBADO** | - API `/api/v1/accounts` protegida por rol `ADMIN`.<br>- Roles restringidos a `ADMIN` y `RECEPCION` (sin SUPERADMIN).<br>- Listado sin exponer `password_hash`.<br>- Hashing BCrypt con salt.<br>- Inactivación revoca sesiones de `sessions`.<br>- Protección activa del último administrador. | `AccountManagementIntegrationTest` (7 tests PASS)<br>- Autenticación y listado seguro.<br>- 403 Forbidden para rol RECEPCION.<br>- 401 para petición anónima.<br>- Creación de cajero y validación 409.<br>- Rechazo de roles no autorizados (400).<br>- Cambio de rol y estado activo/inactivo.<br>- Bloqueo ante inactivación del último admin. | - Interfaz de recuperación de contraseñas por correo pendiente de servicio SMTP de producción.<br>- Soporte MFA reservado para etapas posteriores. |
 | **HU-06: Catálogo de Planes** | **APROBADO** | - Denominación única case-insensitive (409 Conflict).<br>- Precio PEN positivo con `BigDecimal`.<br>- Regla inquebrantable de 30 días para mensualidades.<br>- Regla inquebrantable de 1 día exacto para pase diario.<br>- Instantánea inmutable en tabla `plan_versions`.<br>- Concurrencia optimista mediante `@Version`.<br>- Inactivación lógica sin borrado físico. | `PlanIntegrationTest` (8 tests PASS)<br>- Admin crea plan y consulta en catálogo.<br>- Recepción recibe 403 al intentar crear.<br>- Rechazo 400 por precio/duración negativos.<br>- Rechazo 400 en mensual con 31 días.<br>- Aprobación de mensual con 30 días exactos.<br>- Pase diario de 1 día aprobado y rechazo a 2 días.<br>- Incremento de versión (v1 -> v2) y comprobación en BD de conservación inmutable de ambas.<br>- Recepción lista catálogo en modo lectura. | - Ninguna en el alcance de planes comerciales. La contratación efectiva corresponde a HU-07 (Alexander). |
-| **Persistencia PostgreSQL** | **PREPARADO / LOCAL TESTED** | - Dialecto PostgreSQL activo en Flyway y Spring Data JPA.<br>- Migraciones `V1__init_schema.sql` y `V2__add_member_code_to_clients.sql` 100% compatibles con PostgreSQL.<br>- Perfil `prod` configurado con `ddl-auto=validate` y HikariCP. | Evaluado con Flyway en PostgreSQL / H2 in-memory en suite de tests de Maven (22/22 PASS). | **PostgreSQL Render: NO VERIFICADO.** Requiere credenciales de instancia activa en la nube para conexión externa. Sin instancia local de PostgreSQL activa en Windows al momento de la prueba. |
+| **Persistencia PostgreSQL** | **APROBADO Y VERIFICADO EN RENDER** | - Motor exclusivo PostgreSQL 17.11 en Render nube (`sslmode=require`).<br>- Dependencia H2 y perfiles de base embebida eliminados.<br>- Migraciones `V1__init_schema.sql` y `V2__add_member_code_to_clients.sql` aplicadas exitosamente por Flyway.<br>- Hibernate configurado con `ddl-auto=validate` y HikariCP optimizado (máx 5 conexiones compartidas).<br>- Aislamiento de tests en esquema independiente `TEST_DB_SCHEMA=gymvip_test`. | Conectividad y suite completa ejecutadas contra PostgreSQL 17.11 en Render: **23/23 tests PASS (0 failures, 0 errors, 0 skipped)**.<br>Persistencia comprobada tras reinicio en backend y frontend. | Ninguna. Conexión externa validada por TLS directo a hostname completo de Render sin exponer credenciales. |
 
 ---
 
@@ -142,33 +142,41 @@ El backend carga `.env` automáticamente mediante `spring.config.import=optional
 
 ```properties
 SPRING_PROFILES_ACTIVE=dev
-PORT=8080
-DB_JDBC_URL=jdbc:postgresql://localhost:5432/gymvip
-DB_USERNAME=postgres
-DB_PASSWORD=postgres
+PORT=8081
+DB_JDBC_URL=jdbc:postgresql://HOST_RENDER:5432/gymvip?sslmode=require
+DB_USERNAME=gymvip_user
+DB_PASSWORD=TU_PASSWORD_AQUI
+DB_POOL_MAX_SIZE=5
+DB_POOL_MIN_IDLE=1
 CORS_ALLOWED_ORIGINS=http://localhost:5173,http://127.0.0.1:5173,http://localhost:3000
 APP_ADMIN_INITIAL_PASSWORD=Admin123!
 APP_RECEPCION_INITIAL_PASSWORD=Recepcion123!
+TEST_DB_SCHEMA=gymvip_test
 ```
 
-### D.2 Configuración para Render (Producción)
+### D.2 Configuración para Render (Desarrollo Compartido / Producción)
 ```properties
-SPRING_PROFILES_ACTIVE=prod
-DB_JDBC_URL=jdbc:postgresql://HOST_RENDER:5432/DATABASE_NAME?sslmode=require
-DB_USERNAME=usuario_render
-DB_PASSWORD=clave_privada_render
+SPRING_PROFILES_ACTIVE=dev
+DB_JDBC_URL=jdbc:postgresql://dpg-dbb4q767bikc73d2uop0-a.oregon-postgres.render.com:5432/gymvip?sslmode=require
+DB_USERNAME=gymvip_user
+DB_PASSWORD=TU_PASSWORD_PRIVADO_EN_ENV
+DB_POOL_MAX_SIZE=5
+DB_POOL_MIN_IDLE=1
+TEST_DB_SCHEMA=gymvip_test
 ```
-- Perfil `prod` activa `spring.jpa.hibernate.ddl-auto=validate`.
-- Flyway aplica automáticamente las migraciones pendientes sobre la BD de Render.
+- Perfil `dev` y `prod` activan `spring.jpa.hibernate.ddl-auto=validate`.
+- Flyway aplica automáticamente las migraciones pendientes sobre la BD de Render (`V1` y `V2`).
+- Las pruebas de Maven se ejecutan de forma aislada en el esquema `gymvip_test` (`TEST_DB_SCHEMA=gymvip_test`), sin colisionar ni alterar las tablas compartidas en `public`.
 
 ### D.3 Variables de Entorno del Frontend (`gymvip-frontend/.env`)
 ```properties
-VITE_API_BASE_URL=http://localhost:8080/api/v1
+VITE_API_BASE_URL=
 ```
+- Al dejarlo vacío, Vite utiliza el proxy configurado en `vite.config.js` redirigiendo `/api/v1` hacia `http://localhost:8081` de forma transparente.
 
 ### D.4 Comandos de Ejecución Local
 ```powershell
-# 1. Ejecutar pruebas unitarias y de integración del backend:
+# 1. Ejecutar pruebas unitarias y de integración del backend (PostgreSQL Render aislado):
 cd gymvip-backend
 .\mvnw.cmd test
 
@@ -187,11 +195,12 @@ npm run dev
 
 ### E.1 Pruebas Automatizadas Ejecutadas
 - **Comando:** `.\mvnw.cmd test`
-- **Resultados:** `Tests run: 22, Failures: 0, Errors: 0, Skipped: 0` (100% PASS).
+- **Resultados:** `Tests run: 23, Failures: 0, Errors: 0, Skipped: 0` (100% PASS en PostgreSQL 17.11 Render).
 - **Desglose de suites:**
-  - `GymVipApplicationTests`: 1 prueba (Arranque de contexto Spring Boot).
+  - `DatabaseConnectivityCheckTest`: 1 prueba (Comprobación de motor PostgreSQL 17.11 en Render, catálogo `gymvip`, esquema Flyway aislado `gymvip_test`).
+  - `GymVipApplicationTests`: 1 prueba (Arranque de contexto Spring Boot con PostgreSQL).
   - `AccountManagementIntegrationTest`: 7 pruebas (Listado, 401, 403, alta personal, duplicados, cambio rol/status, protección último admin).
-  - `ClientIntegrationTest`: 6 pruebas (Alta socio con código `MAR-XXXXXX`, unicidad documental 409, bloqueo menor de edad 400, alta con campos opcionales omitidos, bloqueo de DNI inválido de 7 dígitos/alfanumérico, bloqueo de correo inválido).
+  - `ClientIntegrationTest`: 6 pruebas (Alta socio con código `MAR-XXXXXX` / `JOA-XXXXXX`, unicidad documental 409, bloqueo menor de edad 400, alta con campos opcionales omitidos, bloqueo de DNI inválido de 7 dígitos/alfanumérico, bloqueo de correo inválido).
   - `PlanIntegrationTest`: 8 pruebas (Alta de plan, 403 recepción, validación valores negativos, regla mensual 30 días, pase diario de 1 día aprobado y rechazo a 2 días, incremento de versión v1->v2 con comprobación en BD de conservación inmutable de ambas, inactivación, listado por recepción).
 
 ### E.2 Compilación del Frontend

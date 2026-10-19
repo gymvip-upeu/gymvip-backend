@@ -4,17 +4,17 @@
 > **Organización:** `gymvip-upeu`  
 > **Responsable del Incremento:** Andre Acosta (Base común + HU-01, HU-04, HU-06)  
 > **Rama de Entrega:** `base-acosta`  
-> **Stack Base:** Java 21 LTS (ejecutable en 21–24), Spring Boot 3.4.3, Spring Data JPA, Spring Security 6, Flyway 10, PostgreSQL / H2 (en memoria para tests), Maven Wrapper 3.9+.
+> **Stack Base:** Java 21 LTS (ejecutable en 21–24, comprobado en 24.0.1), Spring Boot 3.4.3, Spring Data JPA, Spring Security 6, Flyway 10, PostgreSQL 17 exclusivo (sin H2), Maven Wrapper 3.9.10.
 
 ---
 
 ## 1. Alcance Activo y Delimitación
 
 Este repositorio contiene la **base funcional por capas** y las tres Historias de Usuario (HU) asignadas a Acosta en el reparto para el Sprint 1:
-1. **Base Común:** Arquitectura backend organizada por capas generales (`controller`, `dto`, `entity`, `enums`, `exception`, `mapper`, `repository`, `security`, `service`, `util`), seguridad RBAC estricta (401/403), migraciones reproducibles con Flyway, carga explícita de `.env` (`spring.config.import=optional:file:./.env[.properties]`), pooling HikariCP y manejo centralizado de excepciones con códigos HTTP estándar (400, 401, 403, 404, 409).
-2. **HU-01 — Registrar Clientes:** Alta de socio adulto con validación de edad (≥ 18 años), unicidad documental compuesta `(country_code, document_type, document_number)` con respuesta 409 Conflict ante duplicados, generación de código de socio legible con prefijo y sufijo aleatorio (`MAR-8Q2L7K`) mediante `MemberCodeGenerator`, y lectura paginada/ficha (`GET /api/v1/clients`, `GET /api/v1/clients/{id}`, `GET /api/v1/clients/code/{code}`).
-3. **HU-04 — Roles y Permisos:** Gestión institucional de personal por rol `ADMIN` (`/api/v1/accounts`): listado de cuentas sin exponer contraseñas, alta con hash seguro BCrypt (con salt), asignación de roles `ADMIN` o `RECEPCION`, inactivación de cuenta con revocación inmediata de sesiones activas, y salvaguarda activa del último administrador habilitado (HTTP 409 Conflict).
-4. **HU-06 — Catálogo de Planes:** Catálogo de planes con denominación normalizada única, regla estricta de duración mensual de exactamente **30 días**, precios en Soles `NUMERIC(12,2) PEN`, versionado inmutable (`PlanVersion`) ante modificaciones de precio o condiciones, control de concurrencia optimista (`@Version`), e inactivación lógica. Consulta pública/recepción y mutaciones exclusivas para `ADMIN`.
+1. **Base Común:** Arquitectura backend organizada por capas generales (`controller`, `dto`, `entity`, `enums`, `exception`, `mapper`, `repository`, `security`, `service`, `util`), seguridad RBAC estricta (401/403), migraciones reproducibles con Flyway, carga explícita de `.env` (`spring.config.import=optional:file:./.env[.properties]`), pooling HikariCP configurable, motor exclusivo PostgreSQL (H2 eliminado), y manejo centralizado de excepciones con códigos HTTP estándar (400, 401, 403, 404, 409).
+2. **HU-01 — Registrar Clientes:** Alta de socio adulto con validación de edad (≥ 18 años), unicidad documental compuesta `(country_code, document_type, document_number)` con respuesta 409 Conflict ante duplicados, DNI peruano validado a 8 dígitos numéricos, teléfono y correo opcionales, generación de código de socio legible (`MAR-XXXXXX` / `VIP-XXXXXX`) mediante `MemberCodeGenerator`, y lectura paginada/ficha (`GET /api/v1/clients`, `GET /api/v1/clients/{id}`, `GET /api/v1/clients/code/{code}`).
+3. **HU-04 — Roles y Permisos:** Gestión institucional de personal por rol `ADMIN` (`/api/v1/accounts`): listado de cuentas sin exponer contraseñas, alta con hash seguro BCrypt (con salt), asignación de roles `ADMIN` o `RECEPCION` (sin SUPERADMIN), inactivación de cuenta con revocación inmediata de sesiones activas, y salvaguarda activa del último administrador habilitado (HTTP 409 Conflict).
+4. **HU-06 — Catálogo de Planes:** Catálogo de planes con denominación normalizada única, regla estricta de duración mensual de exactamente **30 días**, regla de pase diario de **exactamente 1 día**, precios en Soles `NUMERIC(12,2) PEN`, versionado inmutable (`PlanVersion`) ante modificaciones de precio o condiciones, control de concurrencia optimista (`@Version`), e inactivación lógica. Consulta pública/recepción y mutaciones exclusivas para `ADMIN`.
 
 > [!IMPORTANT]
 > **Delimitación de Alcance:**  
@@ -57,26 +57,26 @@ spring:
     import: "optional:file:./.env[.properties]"
 ```
 
-### 3.2 Variables de Entorno Mínimas (`.env.example`)
+### 3.2 Variables de Entorno (`.env.example`)
 ```properties
 SPRING_PROFILES_ACTIVE=dev
-PORT=8080
-DB_JDBC_URL=jdbc:postgresql://localhost:5432/gymvip
-DB_USERNAME=postgres
-DB_PASSWORD=postgres
+PORT=8081
+DB_JDBC_URL=jdbc:postgresql://HOST_EXTERNO_RENDER:5432/gymvip?sslmode=require
+DB_USERNAME=gymvip_user
+DB_PASSWORD=CAMBIAR_POR_TU_PASSWORD_RENDER
+TEST_DB_SCHEMA=gymvip_test
+DB_POOL_MAX_SIZE=5
+DB_POOL_MIN_IDLE=1
 CORS_ALLOWED_ORIGINS=http://localhost:5173,http://127.0.0.1:5173,http://localhost:3000
 APP_ADMIN_INITIAL_PASSWORD=Admin123!
 APP_RECEPCION_INITIAL_PASSWORD=Recepcion123!
 ```
 
-### 3.3 Conexión a PostgreSQL en Render
-```properties
-SPRING_PROFILES_ACTIVE=prod
-DB_JDBC_URL=jdbc:postgresql://HOST_EXTERNO_RENDER:5432/NOMBRE_BD?sslmode=require
-DB_USERNAME=usuario_render
-DB_PASSWORD=secreto_render
-```
-*Estado actual Render: PREPARADO (.env y perfil prod con ddl-auto=validate y Flyway) — Render NO VERIFICADO (requiere credenciales de instancia activa).*
+### 3.3 Motor PostgreSQL y Aislamiento de Pruebas
+- **PostgreSQL 17.11 en Render:** El backend utiliza exclusivamente PostgreSQL. La dependencia `com.h2database:h2` fue eliminada de `pom.xml` y configuraciones.
+- **Esquema compartido (`public`):** Aloja los datos operativos de desarrollo compartidos por el equipo.
+- **Esquema aislado (`gymvip_test`):** Las pruebas automatizadas ejecutan Flyway y las entidades en el esquema independiente `gymvip_test`, aislando los datos de prueba sin alterar el esquema `public`.
+- **Validación de Esquema:** Hibernate opera con `ddl-auto: validate` en todos los perfiles; Flyway es el único gestor del esquema.
 
 ### 3.4 Migraciones Flyway
 - `V1__init_schema.sql`: Esquema base (cuentas, roles, sesiones, clientes, documentos, planes, plan_versions, audit_events, memberships legacy, payment_records legacy).
@@ -91,13 +91,13 @@ DB_PASSWORD=secreto_render
 ```bash
 .\mvnw.cmd test
 ```
-*Resultado:* 22/22 pruebas unitarias y de integración superadas (100% PASS). La suite opera en memoria (`jdbc:h2:mem:gymvip_test;MODE=PostgreSQL`) sin alterar archivos locales ni requerir base externa.
+*Resultado:* 23/23 pruebas unitarias y de integración superadas (100% PASS). La suite opera directamente sobre PostgreSQL 17.11 en Render en el esquema aislado `gymvip_test`.
 
 ### 4.2 Iniciar Backend Localmente
 ```bash
 .\mvnw.cmd spring-boot:run
 ```
-El servidor arrancará por defecto en `http://localhost:8080`.
+El servidor arrancará por defecto en `http://localhost:8081`.
 
 ### 4.3 Cuentas Iniciales para Pruebas en Desarrollo (`dev`)
 - **Administrador:** `admin@vipcenterfit.pe` / `Admin123!` (Rol: `ADMIN`)
