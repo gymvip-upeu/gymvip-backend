@@ -12,4 +12,5 @@ import java.util.UUID;
 public interface PlanVersionRepository extends JpaRepository<PlanVersion, UUID> {
     Optional<PlanVersion> findFirstByPlanIdOrderByVersionNumberDesc(UUID planId);
     List<PlanVersion> findByPlanIdOrderByVersionNumberDesc(UUID planId);
+    List<PlanVersion> findByPlanIdOrderByVersionNumberAsc(UUID planId);
 }

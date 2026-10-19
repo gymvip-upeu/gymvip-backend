@@ -77,6 +77,12 @@ public class Plan {
         if ((isMonthlyByName || isMonthlyByDurationRange) && durationDays != 30) {
             throw new InvalidPlanException("La duración de un plan mensual debe ser exactamente de 30 días");
         }
+
+        // Regla HU-06-CA-02: plan diario dura exactamente 1 día
+        boolean isDailyByName = lowerName.contains("diario") || lowerName.matches(".*\\b(dia|1\\s*dia|daily)\\b.*");
+        if (isDailyByName && durationDays != 1) {
+            throw new InvalidPlanException("La duración de un plan diario debe ser exactamente de 1 día");
+        }
     }
 
     public void incrementVersion() {
