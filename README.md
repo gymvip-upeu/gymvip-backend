@@ -91,7 +91,7 @@ DB_PASSWORD=secreto_render
 ```bash
 .\mvnw.cmd test
 ```
-*Resultado:* 16/16 pruebas unitarias y de integración superadas (100% PASS). La suite opera en memoria (`jdbc:h2:mem:gymvip_test;MODE=PostgreSQL`) sin alterar archivos locales.
+*Resultado:* 22/22 pruebas unitarias y de integración superadas (100% PASS). La suite opera en memoria (`jdbc:h2:mem:gymvip_test;MODE=PostgreSQL`) sin alterar archivos locales ni requerir base externa.
 
 ### 4.2 Iniciar Backend Localmente
 ```bash
