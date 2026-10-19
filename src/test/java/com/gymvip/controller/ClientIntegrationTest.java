@@ -105,4 +105,125 @@ public class ClientIntegrationTest {
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("menores de edad")));
     }
+
+    @Test
+    @DisplayName("DNI peruano inválido es bloqueado con HTTP 400 (HU-01-CA-02)")
+    void invalidDniFormatBlocked() throws Exception {
+        // DNI con 7 dígitos (debe tener 8)
+        RegisterClientRequest shortDni = new RegisterClientRequest(
+                "Carlos",
+                "Gomez",
+                LocalDate.of(1990, 1, 1),
+                "PE",
+                "DNI",
+                "1234567",
+                null,
+                null
+        );
+
+        mockMvc.perform(post("/api/v1/clients")
+                        .header("Authorization", "Bearer " + recepcionToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(shortDni)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("8 dígitos")));
+
+        // DNI con caracteres no numéricos
+        RegisterClientRequest nonNumericDni = new RegisterClientRequest(
+                "Carlos",
+                "Gomez",
+                LocalDate.of(1990, 1, 1),
+                "PE",
+                "DNI",
+                "1234567A",
+                null,
+                null
+        );
+
+        mockMvc.perform(post("/api/v1/clients")
+                        .header("Authorization", "Bearer " + recepcionToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(nonNumericDni)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("8 dígitos")));
+    }
+
+    @Test
+    @DisplayName("Correo y celular son opcionales; alta sin contacto es exitosa (HU-01-CA-03)")
+    void registerClientWithOptionalContactSuccess() throws Exception {
+        String docNumber = "8" + (int)(1000000 + Math.random() * 8999999);
+        RegisterClientRequest request = new RegisterClientRequest(
+                "Lucia",
+                "Valdez Vega",
+                LocalDate.of(1998, 8, 12),
+                "PE",
+                "DNI",
+                docNumber,
+                null,
+                null
+        );
+
+        String response = mockMvc.perform(post("/api/v1/clients")
+                        .header("Authorization", "Bearer " + recepcionToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.phone").doesNotExist())
+                .andExpect(jsonPath("$.email").doesNotExist())
+                .andExpect(jsonPath("$.memberCode").isNotEmpty())
+                .andReturn().getResponse().getContentAsString();
+
+        String memberCode = objectMapper.readTree(response).get("memberCode").asText();
+        String clientId = objectMapper.readTree(response).get("id").asText();
+
+        // Consulta por código de socio
+        mockMvc.perform(get("/api/v1/clients/code/" + memberCode)
+                        .header("Authorization", "Bearer " + recepcionToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(clientId))
+                .andExpect(jsonPath("$.memberCode").value(memberCode));
+    }
+
+    @Test
+    @DisplayName("Formato de correo inválido es rechazado con HTTP 400 (HU-01-CA-03)")
+    void invalidEmailFormatBlocked() throws Exception {
+        String docNumber = "8" + (int)(1000000 + Math.random() * 8999999);
+        RegisterClientRequest request = new RegisterClientRequest(
+                "Diana",
+                "Rojas",
+                LocalDate.of(1995, 3, 20),
+                "PE",
+                "DNI",
+                docNumber,
+                "+51987654321",
+                "correo-invalido-sin-arroba"
+        );
+
+        mockMvc.perform(post("/api/v1/clients")
+                        .header("Authorization", "Bearer " + recepcionToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("correo electrónico es inválido")));
+    }
+
+    @Test
+    @DisplayName("Petición sin autenticación es rechazada con HTTP 401 (HU-04-CA-05)")
+    void unauthenticatedClientRegistrationBlocked() throws Exception {
+        RegisterClientRequest request = new RegisterClientRequest(
+                "Anonimo",
+                "Anonimo",
+                LocalDate.of(1995, 3, 20),
+                "PE",
+                "DNI",
+                "88888888",
+                null,
+                null
+        );
+
+        mockMvc.perform(post("/api/v1/clients")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isUnauthorized());
+    }
 }

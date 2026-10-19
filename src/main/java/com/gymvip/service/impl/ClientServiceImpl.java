@@ -57,6 +57,28 @@ public class ClientServiceImpl implements ClientService {
         String docType = request.documentType() != null ? request.documentType().trim().toUpperCase() : "";
         String docNum = request.documentNumber() != null ? request.documentNumber().trim().toUpperCase() : "";
 
+        // Validación HU-01-CA-02: DNI peruano debe contener exactamente 8 dígitos numéricos
+        if ("PE".equalsIgnoreCase(country) && "DNI".equalsIgnoreCase(docType)) {
+            if (!docNum.matches("^[0-9]{8}$")) {
+                throw new ClientValidationException("El DNI peruano debe contener exactamente 8 dígitos numéricos.");
+            }
+        }
+
+        // Validación HU-01-CA-03: Correo y celular son opcionales; se valida formato si se proporcionan
+        if (request.email() != null && !request.email().isBlank()) {
+            String email = request.email().trim();
+            if (!email.matches("^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}$")) {
+                throw new ClientValidationException("El formato del correo electrónico es inválido.");
+            }
+        }
+
+        if (request.phone() != null && !request.phone().isBlank()) {
+            String phone = request.phone().trim();
+            if (!phone.matches("^[+0-9 -]{7,20}$")) {
+                throw new ClientValidationException("El formato del número telefónico es inválido.");
+            }
+        }
+
         if (documentRepository.existsByCountryCodeAndDocumentTypeAndDocumentNumber(country, docType, docNum)) {
             throw new DocumentDuplicateException("Ya existe un cliente registrado con el documento especificado: " + docType + " - " + docNum);
         }

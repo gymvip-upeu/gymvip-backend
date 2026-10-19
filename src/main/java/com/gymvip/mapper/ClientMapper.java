@@ -19,11 +19,11 @@ public class ClientMapper {
         Client client = new Client(
                 UUID.randomUUID(),
                 memberCode,
-                request.firstName(),
-                request.lastName(),
+                request.firstName().trim(),
+                request.lastName().trim(),
                 request.birthDate(),
-                request.phone(),
-                request.email(),
+                request.phone() != null && !request.phone().isBlank() ? request.phone().trim() : null,
+                request.email() != null && !request.email().isBlank() ? request.email().trim().toLowerCase() : null,
                 "ACTIVO"
         );
 
