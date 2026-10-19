@@ -42,10 +42,11 @@ data/
 *.trace.db
 *.dump
 *.backup
+*.sql.bak
 
-# 5. Registros y logs del sistema
+# 5. Registros, logs y temporales del sistema
+logs/
 *.log
-
-# 6. Documentación canónica: limitar backend/docs exclusivamente al estado consolidado
-/docs/*
-!/docs/ESTADO_BASE_SPRINT1_ACOSTA.md
+*.tmp
+.DS_Store
+Thumbs.db
