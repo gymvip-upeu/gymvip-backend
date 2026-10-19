@@ -169,7 +169,7 @@ public class AccountManagementIntegrationTest {
         for (var node : nodes) {
             boolean isAdmin = false;
             for (var role : node.get("roles")) {
-                if (role.asText().equals("ADMIN") || role.asText().equals("SUPERADMIN")) {
+                if (role.asText().equals("ADMIN")) {
                     isAdmin = true;
                     break;
                 }

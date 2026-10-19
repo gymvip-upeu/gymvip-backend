@@ -18,7 +18,7 @@ import java.util.UUID;
 
 @RestController
 @RequestMapping("/api/v1/clients")
-@PreAuthorize("hasAnyRole('ADMIN', 'RECEPCION', 'SUPERADMIN')")
+@PreAuthorize("hasAnyRole('ADMIN', 'RECEPCION')")
 public class ClientController {
 
     private final ClientService clientService;

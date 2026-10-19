@@ -108,7 +108,7 @@ public class AccountServiceImpl implements AccountService {
             throw new IllegalArgumentException("Rol no autorizado para personal: " + targetRole + ". Roles válidos: ADMIN, RECEPCION");
         }
 
-        boolean currentlyAdmin = account.getRoles().contains("ADMIN") || account.getRoles().contains("SUPERADMIN");
+        boolean currentlyAdmin = account.getRoles().contains("ADMIN");
         if (currentlyAdmin && !targetRole.equals("ADMIN")) {
             long activeAdmins = accountRepository.countActiveAdmins();
             if (activeAdmins <= 1) {
@@ -142,7 +142,7 @@ public class AccountServiceImpl implements AccountService {
             throw new IllegalArgumentException("Estado no válido: " + targetStatus + ". Valores permitidos: ACTIVO, INACTIVO");
         }
 
-        boolean currentlyAdmin = account.getRoles().contains("ADMIN") || account.getRoles().contains("SUPERADMIN");
+        boolean currentlyAdmin = account.getRoles().contains("ADMIN");
         if (currentlyAdmin && "INACTIVO".equals(targetStatus) && "ACTIVO".equalsIgnoreCase(account.getStatus())) {
             long activeAdmins = accountRepository.countActiveAdmins();
             if (activeAdmins <= 1) {

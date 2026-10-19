@@ -15,6 +15,6 @@ public interface AccountRepository extends JpaRepository<Account, UUID> {
 
     boolean existsByEmailIgnoreCase(String email);
 
-    @Query("SELECT COUNT(a) FROM Account a JOIN a.roles r WHERE (r = 'ADMIN' OR r = 'SUPERADMIN') AND UPPER(a.status) = 'ACTIVO'")
+    @Query("SELECT COUNT(a) FROM Account a JOIN a.roles r WHERE r = 'ADMIN' AND UPPER(a.status) = 'ACTIVO'")
     long countActiveAdmins();
 }
