@@ -19,22 +19,26 @@ spring:
     activate:
       on-profile: dev
   datasource:
-    url: ${DB_JDBC_URL:jdbc:postgresql://localhost:5432/gymvip}
-    driver-class-name: ${DB_DRIVER_CLASS_NAME:org.postgresql.Driver}
-    username: ${DB_USERNAME:postgres}
-    password: ${DB_PASSWORD:postgres}
+    url: ${DB_JDBC_URL}
+    driver-class-name: org.postgresql.Driver
+    username: ${DB_USERNAME}
+    password: ${DB_PASSWORD}
+    hikari:
+      maximum-pool-size: ${DB_POOL_MAX_SIZE:5}
+      minimum-idle: ${DB_POOL_MIN_IDLE:1}
+      connection-timeout: 20000
+      pool-name: GymVipDevPool
   jpa:
     hibernate:
-      ddl-auto: update
+      ddl-auto: validate
     show-sql: false
     properties:
       hibernate:
-        format_sql: true
         jdbc:
           time_zone: America/Lima
   flyway:
     enabled: true
-    baseline-on-migrate: true
+    baseline-on-migrate: false
     locations: classpath:db/migration
 
 ---
@@ -48,9 +52,10 @@ spring:
     username: ${DB_USERNAME}
     password: ${DB_PASSWORD}
     hikari:
-      maximum-pool-size: 10
-      minimum-idle: 2
+      maximum-pool-size: ${DB_POOL_MAX_SIZE:10}
+      minimum-idle: ${DB_POOL_MIN_IDLE:2}
       connection-timeout: 20000
+      pool-name: GymVipProdPool
   jpa:
     hibernate:
       ddl-auto: validate
@@ -61,5 +66,5 @@ spring:
           time_zone: America/Lima
   flyway:
     enabled: true
-    baseline-on-migrate: true
+    baseline-on-migrate: false
     locations: classpath:db/migration
