@@ -6,9 +6,7 @@ Fecha: 26/10/2026. Rama en ambos repositorios: `feature/s1-alexander-hu07-hu08-h
 
 Ambos proyectos abiertos en ventanas separadas de IntelliJ IDEA 2025.2. Commit funcional local backend `94ad383ff2d373c03d910f6663dab6afc9cba68c`; frontend `b61cdb84439b0b37811975e3c15d8d732aa1e06c`.
 
-**PUBLICACIÓN BLOQUEADA:** `git push --set-upstream origin feature/s1-alexander-hu07-hu08-hu10` recibió HTTP 403 en ambos repositorios: acceso denegado a la cuenta `alexgm-A11`. La conexión GitHub de la app confirmó `permissions.push=false` en ambos. `git ls-remote --heads` no encontró la rama de Alexander tras el intento. No hay enlaces remotos de estos commits ni igualdad HEAD/remoto que acreditar.
-
-Un administrador de la organización debe otorgar acceso Write a esa cuenta en ambos repositorios (y aceptar la invitación si corresponde), o configurar una cuenta ya autorizada. Después se podrá repetir el push de la rama propia y verificar hashes. No se cambiaron permisos, credenciales, protecciones ni ramas de otros integrantes. La implementación, las pruebas y los commits locales están conservados.
+**PUBLICACIÓN REALIZADA:** después de aceptar la invitación y recibir Write, el push de feature/s1-alexander-hu07-hu08-hu10 se completó en ambos repositorios. La rama propia tiene upstream configurado. El bloqueo HTTP 403 anterior quedó resuelto. No se hicieron merges a main/develop ni se modificaron ramas de compañeros.
 
 ## Incremento implementado
 
@@ -45,3 +43,4 @@ Frontend: `npm ci`, `npm run build`, `npm run dev`. Entrar con cuenta de persona
 Los archivos generados, la base temporal y los logs quedan fuera de ambos repositorios. Las referencias remotas de entrega se verifican después del push y se entregan en el chat/documento general del workspace para evitar hashes autorreferenciales.
 
 Comprobación adicional frontend: 5 pruebas unitarias del transporte aprobadas (respuesta truncada, constancia incompleta, conflicto, preservación de clave/cuerpo y fallo de red), ejecutadas con npm run test:membership. Estas pruebas usan transporte simulado; el E2E descrito arriba sí utilizó API y PostgreSQL reales. Herramientas locales verificadas: Java 22.0.2 (compilación release 21), Node 22.20.0, npm 10.9.3, Maven Wrapper 3.9.10. Lectura del historial tras reinicio también comprobada con token real de RECEPCION; public conserva cero tablas.
+
