@@ -12,12 +12,13 @@ public class IsolatedDatabaseTestConfig {
     @Bean
     FlywayMigrationStrategy isolatedTestMigration(Environment env, DataSource source) {
         return flyway -> {
-            String schema = env.getProperty("TEST_DB_SCHEMA", "gymvip_test_alexander");
-            if (!"gymvip_test_alexander".equals(schema) ||
+            String schema = env.getProperty("TEST_DB_SCHEMA", "gymvip_test_jorge");
+            if (!"gymvip_test_jorge".equals(schema) ||
                     !schema.equals(flyway.getConfiguration().getDefaultSchema()) ||
+                    !java.util.Arrays.equals(new String[]{schema}, flyway.getConfiguration().getSchemas()) ||
                     !schema.equals(env.getProperty("spring.datasource.hikari.schema")) ||
                     !schema.equals(env.getProperty("spring.jpa.properties.hibernate.default_schema"))) {
-                throw new IllegalStateException("Pruebas rechazadas: datasource/Hibernate/Flyway deben usar gymvip_test_alexander.");
+                throw new IllegalStateException("Pruebas rechazadas: datasource/Hibernate/Flyway deben usar gymvip_test_jorge.");
             }
             String url = env.getProperty("spring.datasource.url", "");
             if (url.toLowerCase(java.util.Locale.ROOT).contains("currentschema="))

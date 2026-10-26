@@ -101,7 +101,8 @@ public class ClientMapper {
                 client.getStatus(),
                 docDtos,
                 client.getCreatedAt(),
-                client.getUpdatedAt()
+                client.getUpdatedAt(),
+                client.getVersion()
         );
     }
 }

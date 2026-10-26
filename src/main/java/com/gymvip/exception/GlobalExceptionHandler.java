@@ -18,6 +18,13 @@ import java.util.UUID;
 @RestControllerAdvice
 public class GlobalExceptionHandler {
 
+    @ExceptionHandler(org.springframework.orm.ObjectOptimisticLockingFailureException.class)
+    public ResponseEntity<ErrorResponse> handleConcurrentEdit(Exception ex, HttpServletRequest request) {
+        return ResponseEntity.status(409).body(new ErrorResponse(409, "Conflict", "STALE_CLIENT",
+                "La ficha cambió. Recargue los datos y revise su edición antes de guardar.",
+                request.getRequestURI(), getCorrelationId(request)));
+    }
+
     @ExceptionHandler({org.springframework.http.converter.HttpMessageNotReadableException.class,
             org.springframework.web.method.annotation.MethodArgumentTypeMismatchException.class})
     public ResponseEntity<ErrorResponse> handleMalformedRequest(Exception ex, HttpServletRequest request) {

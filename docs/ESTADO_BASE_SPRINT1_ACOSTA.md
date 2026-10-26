@@ -310,3 +310,7 @@ j) **ProhibiciÃ³n de fusiÃ³n prematura:** **NO fusionar todavÃ­a a `develo
 ## Continuidad de Alexander — 26/10/2026
 
 HU-07/08/10 añadidas en su rama individual. Ver [estado actual](ESTADO_ALEXANDER_SPRINT1.md) y [matriz](MATRIZ_ALEXANDER_S1.md). Esta actualización no atribuye a André ni a Wagner aceptación del incremento nuevo.
+
+## Continuidad Jorge — 26/10/2026
+
+El incremento posterior de Jorge y las validaciones locales nuevas se describen en [ESTADO_JORGE_SPRINT1.md](ESTADO_JORGE_SPRINT1.md). Se conserva este informe histórico de André; sus resultados no se atribuyen a las HU nuevas.

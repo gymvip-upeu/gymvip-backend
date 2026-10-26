@@ -50,7 +50,7 @@ class MembershipIntegrationTest {
         @Bean @Primary MutableClock testMembershipClock() { return new MutableClock(); }
     }
     @BeforeEach void fixtures() {
-        assertEquals("gymvip_test_alexander", jdbc.queryForObject("SELECT current_schema()", String.class));
+        assertEquals("gymvip_test_jorge", jdbc.queryForObject("SELECT current_schema()", String.class));
         clock.now = Instant.parse("2026-10-26T17:00:00Z");
         client = UUID.randomUUID();
         jdbc.update("INSERT INTO clients(id,first_name,last_name,birth_date,member_code) VALUES (?, 'Prueba', 'Alexander', '1990-01-01', ?)",

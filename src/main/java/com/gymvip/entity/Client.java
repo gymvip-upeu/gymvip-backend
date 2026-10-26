@@ -12,6 +12,11 @@ import java.util.UUID;
 @Table(name = "clients")
 public class Client {
 
+    @Version
+    private long version;
+
+    public long getVersion() { return version; }
+
     @Id
     private UUID id;
 

@@ -16,7 +16,7 @@ spring:
     username: ${TEST_DB_USERNAME:${DB_USERNAME}}
     password: ${TEST_DB_PASSWORD:${DB_PASSWORD}}
     hikari:
-      schema: ${TEST_DB_SCHEMA:gymvip_test_alexander}
+      schema: ${TEST_DB_SCHEMA:gymvip_test_jorge}
       maximum-pool-size: 4
       minimum-idle: 1
       connection-timeout: 20000
@@ -27,13 +27,13 @@ spring:
     show-sql: false
     properties:
       hibernate:
-        default_schema: ${TEST_DB_SCHEMA:gymvip_test_alexander}
+        default_schema: ${TEST_DB_SCHEMA:gymvip_test_jorge}
         jdbc:
           time_zone: America/Lima
   flyway:
     enabled: true
-    default-schema: ${TEST_DB_SCHEMA:gymvip_test_alexander}
-    schemas: ${TEST_DB_SCHEMA:gymvip_test_alexander}
+    default-schema: ${TEST_DB_SCHEMA:gymvip_test_jorge}
+    schemas: ${TEST_DB_SCHEMA:gymvip_test_jorge}
     create-schemas: true
     baseline-on-migrate: false
     locations: classpath:db/migration
