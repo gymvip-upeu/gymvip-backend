@@ -18,6 +18,14 @@ import java.util.UUID;
 @RestControllerAdvice
 public class GlobalExceptionHandler {
 
+    @ExceptionHandler({org.springframework.http.converter.HttpMessageNotReadableException.class,
+            org.springframework.web.method.annotation.MethodArgumentTypeMismatchException.class})
+    public ResponseEntity<ErrorResponse> handleMalformedRequest(Exception ex, HttpServletRequest request) {
+        return ResponseEntity.badRequest().body(new ErrorResponse(400, "Bad Request", "INVALID_ARGUMENT",
+                "Solicitud inválida: revise los identificadores, campos y tipos de datos.",
+                request.getRequestURI(), getCorrelationId(request)));
+    }
+
     private String getCorrelationId(HttpServletRequest request) {
         String correlationId = request.getHeader("X-Correlation-Id");
         if (correlationId == null || correlationId.isBlank()) {

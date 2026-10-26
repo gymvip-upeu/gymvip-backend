@@ -6,21 +6,17 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.test.context.SpringBootTest;
 
 import java.sql.Connection;
-import java.sql.DriverManager;
+import javax.sql.DataSource;
+import org.springframework.beans.factory.annotation.Autowired;
 import java.sql.ResultSet;
 import java.sql.Statement;
 
 @SpringBootTest
 public class DatabaseConnectivityCheckTest {
+    @Autowired private DataSource dataSource;
 
     @Value("${spring.datasource.url}")
     private String dbUrl;
-
-    @Value("${spring.datasource.username}")
-    private String dbUser;
-
-    @Value("${spring.datasource.password}")
-    private String dbPassword;
 
     @Test
     @DisplayName("Inspeccionar servidor PostgreSQL real y estado inicial de esquemas en Render")
@@ -28,7 +24,7 @@ public class DatabaseConnectivityCheckTest {
         System.out.println("=== DIAGNOSTICO DE CONEXION POSTGRESQL RENDER ===");
         System.out.println("URL configurada (sin credenciales): " + dbUrl.replaceAll("//[^@]+@", "//***@"));
 
-        try (Connection conn = DriverManager.getConnection(dbUrl, dbUser, dbPassword);
+        try (Connection conn = dataSource.getConnection();
              Statement stmt = conn.createStatement()) {
 
             try (ResultSet rs = stmt.executeQuery("SHOW server_version;")) {
@@ -47,7 +43,7 @@ public class DatabaseConnectivityCheckTest {
 
             try (ResultSet rs = stmt.executeQuery(
                     "SELECT table_schema, table_name FROM information_schema.tables " +
-                    "WHERE table_schema IN ('public', 'gymvip_test') ORDER BY table_schema, table_name;")) {
+                    "WHERE table_schema = current_schema() ORDER BY table_schema, table_name;")) {
                 System.out.println("Tablas encontradas en la base:");
                 boolean hasTables = false;
                 while (rs.next()) {
@@ -55,7 +51,7 @@ public class DatabaseConnectivityCheckTest {
                     System.out.println(" - " + rs.getString(1) + "." + rs.getString(2));
                 }
                 if (!hasTables) {
-                    System.out.println(" (Ninguna tabla encontrada en public ni gymvip_test: Base recien creada / vacia)");
+                    System.out.println(" (Ninguna tabla encontrada en el esquema aislado actual)");
                 }
             }
         }

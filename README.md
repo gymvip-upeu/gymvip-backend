@@ -1,3 +1,5 @@
+> **Incremento Alexander S1 — 26/10/2026:** HU-07/08/10 implementadas en `feature/s1-alexander-hu07-hu08-hu10`. Contratación/cobro/renovación conectadas con API y PostgreSQL real; 42 pruebas backend y build frontend correctos. Validación local PostgreSQL 18.4; Render 17, acuerdos con Jorge/Wagner y aceptación formal pendientes. Ver [estado](docs/ESTADO_ALEXANDER_SPRINT1.md) y [matriz de criterios](docs/MATRIZ_ALEXANDER_S1.md). La descripción de la entrega original de André se conserva debajo como antecedente.
+
 # GYM VIP â€” Backend API (Base Funcional Sprint 1 â€” Acosta)
 
 > **Repositorio Oficial:** [gymvip-backend](https://github.com/gymvip-upeu/gymvip-backend.git)

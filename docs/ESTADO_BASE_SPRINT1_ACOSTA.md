@@ -305,3 +305,8 @@ g) **Push con upstream de su propia rama:** Publicar su rama individual mediante
 h) **ComprobaciÃ³n de sincronizaciÃ³n remota:** Verificar mediante `git ls-remote --heads origin` que el hash remoto coincide con el commit local final de su entrega.
 i) **Entrega de enlaces reales:** Registrar en su informe los enlaces exactos de ramas y commits creados en GitHub.
 j) **ProhibiciÃ³n de fusiÃ³n prematura:** **NO fusionar todavÃ­a a `develop` ni `main`**, ni borrar ramas de compaÃ±eros. La unificaciÃ³n de ramas se realizarÃ¡ en la sesiÃ³n de integraciÃ³n coordinada por el equipo.
+
+
+## Continuidad de Alexander — 26/10/2026
+
+HU-07/08/10 añadidas en su rama individual. Ver [estado actual](ESTADO_ALEXANDER_SPRINT1.md) y [matriz](MATRIZ_ALEXANDER_S1.md). Esta actualización no atribuye a André ni a Wagner aceptación del incremento nuevo.
