@@ -1,12 +1,13 @@
 # Instrucciones para Agentes y Desarrolladores — GYM VIP Backend
 
 > **Repositorio:** `gymvip-backend`  
-> **Documentación Canónica Centralizada:** Carpeta raíz `../documentos/`
+> **Documentación Canónica Centralizada:** Carpeta raíz `../documentos/`<br>
+> **Nota sobre Enlaces:** Los enlaces a `../documentos/` están configurados para el espacio de trabajo local integrado `GYMVIP/`. Si este repositorio se clona de manera aislada, dichos enlaces no resolverán localmente.
 
 ---
 
 ## 1. Reglas Clave para este Repositorio:
-1. **Rama de Trabajo:** Trabajar en la rama local `feature/ajustes-diseno-documentacion-seguridad`. NUNCA modificar directamente `main`, `develop` ni ramas individuales de compañeros.
+1. **Rama de Trabajo:** Trabajar en la rama `feature/post-revision-diseno-qa`. NUNCA modificar directamente `main`, `develop` ni ramas individuales de compañeros.
 2. **Arquitectura:** Arquitectura por capas que aplica principios de Clean Architecture (`controller`, `service`, `repository`, `entity`, `dto`, `mapper`, `security`, `config`, `util`, `enums`, `exception`). Prefijo autoritativo de rutas: `/api/v1`.
 3. **Persistencia y Base de Datos:** PostgreSQL 17 exclusivo. Migraciones Flyway estrictamente aditivas en `src/main/resources/db/migration/` (V1 a V5 existentes). Hibernate configurado en `ddl-auto: validate`.
 4. **Seguridad:** Spring Security 6 stateless con token opaco UUID (`Bearer` o `X-Auth-Token`). BCrypt para contraseñas. Control de acceso RBAC estricto (`ADMIN` y `RECEPCION`) con `@PreAuthorize`.

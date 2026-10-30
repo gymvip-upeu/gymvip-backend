@@ -218,6 +218,9 @@ Al iniciar con base de datos limpia, `DataInitializer` registra automáticamente
 
 ## 7. Documentación Técnica Canónica (Los 7 Markdown Oficiales)
 
+> [!NOTE]
+> **Aviso sobre navegación local:** Los enlaces a `../documentos/` están diseñados para el espacio de trabajo local integrado `GYMVIP/`. Si un colaborador clona este repositorio de forma aislada, estos enlaces relativos no resolverán localmente.
+
 Toda la documentación viva del proyecto se encuentra centralizada exclusivamente en la carpeta raíz [`../documentos/`](../documentos/):
 1. [Reglas de Negocio, Alcance y DoD](../documentos/REGLAS.md)
 2. [Catálogo Oficial de Endpoints de API](../documentos/APIDOCUMENTATION.md)
