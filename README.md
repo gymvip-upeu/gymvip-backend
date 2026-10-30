@@ -2,8 +2,8 @@
 
 > **Sistema:** GYM VIP (VIP Center Fit) — Gestión Integral de Gimnasio Luxury Fitness<br>
 > **Repositorio:** [gymvip-backend](https://github.com/gymvip-upeu/gymvip-backend.git)<br>
-> **Rama documentada:** `feature/s1-jorge-hu02-hu09-hu11-hu12`<br>
-> **Estado del incremento:** Base consolidada de Sprint 1 con los aportes integrados de André Acosta, Alexander y Jorge.
+> **Rama documentada:** `feature/ajustes-diseno-documentacion-seguridad`<br>
+> **Estado del incremento:** Base consolidada de Sprint 1, compatibilidad Flyway V1-V5, pruebas unitarias 9/9 y arquitectura por capas.
 
 ---
 
@@ -216,13 +216,15 @@ Al iniciar con base de datos limpia, `DataInitializer` registra automáticamente
 
 ---
 
-## 7. Documentación Técnica Detallada
+## 7. Documentación Técnica Canónica (Los 7 Markdown Oficiales)
 
-Para consultar el detalle de contratos, especificaciones y matrices de aceptación de cada entrega:
-- [Contrato API y Decisiones de Jorge (HU-02, 09, 11, 12)](docs/CONTRATO_JORGE_S1.md)
-- [Estado Técnico de Jorge y Resultados](docs/ESTADO_JORGE_SPRINT1.md)
-- [Matriz de Criterios de Aceptación de Jorge (72 criterios)](docs/MATRIZ_JORGE_S1.md)
-- [Contrato de Membresías y Cobros de Alexander (HU-07, 08, 10)](docs/CONTRATO_MEMBRESIAS_S1.md)
-- [Estado Técnico de Alexander](docs/ESTADO_ALEXANDER_SPRINT1.md)
-- [Matriz de Criterios de Alexander (54 criterios)](docs/MATRIZ_ALEXANDER_S1.md)
-- [Bitácora de la Base Funcional Inicial de André](docs/ESTADO_BASE_SPRINT1_ACOSTA.md)
+Toda la documentación viva del proyecto se encuentra centralizada en la carpeta canónica [`../gymvip-frontend/documentos/`](../gymvip-frontend/documentos/):
+1. [Reglas de Negocio, Alcance y DoD](../gymvip-frontend/documentos/REGLAS.md)
+2. [Catálogo Oficial de Endpoints de API](../gymvip-frontend/documentos/APIDOCUMENTATION.md)
+3. [Sistema de Diseño Visual y Figma](../gymvip-frontend/documentos/DESIGN.md)
+4. [Ficha Técnica y Matriz de Infraestructura](../gymvip-frontend/documentos/FICHA_TECNICA.md)
+5. [Arquitectura por Capas, ERD y Modelos de Ingeniería](../gymvip-frontend/documentos/ARQUITECTURA_Y_MODELOS.md)
+6. [Matriz de Evidencias de QA y Seguridad](../gymvip-frontend/documentos/EVIDENCIAS_QA_SEGURIDAD.md)
+7. [Estado del Proyecto y Trazabilidad de HU](../gymvip-frontend/documentos/ESTADO_PROYECTO.md)
+- [Fuente de Diagramas C4 en PlantUML](../gymvip-frontend/documentos/c4.uml)
+- [Archivos Históricos del Equipo](../gymvip-frontend/documentos/historico/)
