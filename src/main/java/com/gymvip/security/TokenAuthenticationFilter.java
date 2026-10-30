@@ -53,6 +53,9 @@ public class TokenAuthenticationFilter extends OncePerRequestFilter {
                                 new UsernamePasswordAuthenticationToken(account.getEmail(), null, authorities);
                         SecurityContextHolder.getContext().setAuthentication(authentication);
                     }
+                } else {
+                    // Purga reactiva de sesiones expiradas en base de datos
+                    sessionRepository.delete(session);
                 }
             }
         }

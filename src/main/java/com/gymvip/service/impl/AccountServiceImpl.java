@@ -120,6 +120,9 @@ public class AccountServiceImpl implements AccountService {
         account.setUpdatedAt(LocalDateTime.now());
         Account saved = accountRepository.save(account);
 
+        // Revocar inmediatamente cualquier sesión activa previa con roles obsoletos
+        sessionRepository.deleteByAccountId(id);
+
         auditService.recordEvent(
                 actorEmail,
                 "UPDATE_STAFF_ROLE",
