@@ -1,7 +1,7 @@
 # Instrucciones para Agentes y Desarrolladores — GYM VIP Backend
 
 > **Repositorio:** `gymvip-backend`  
-> **Documentación Canónica Centralizada:** Ubicada en `../gymvip-frontend/documentos/`
+> **Documentación Canónica Centralizada:** Carpeta raíz `../documentos/`
 
 ---
 
@@ -19,9 +19,9 @@
 
 ## 2. Regla de Documentación Viva por Cambio Significativo
 
-Todo cambio que altere contratos, base de datos o lógica debe sincronizar el documento canónico en `../gymvip-frontend/documentos/`:
-- Si cambia un endpoint, DTO o header: [`../gymvip-frontend/documentos/APIDOCUMENTATION.md`](../gymvip-frontend/documentos/APIDOCUMENTATION.md).
-- Si cambia esquema, entidad o arquitectura: [`../gymvip-frontend/documentos/ARQUITECTURA_Y_MODELOS.md`](../gymvip-frontend/documentos/ARQUITECTURA_Y_MODELOS.md).
-- Si se ejecutan pruebas o se evalúa seguridad: [`../gymvip-frontend/documentos/EVIDENCIAS_QA_SEGURIDAD.md`](../gymvip-frontend/documentos/EVIDENCIAS_QA_SEGURIDAD.md).
-- Si cambia una regla de negocio o DoD: [`../gymvip-frontend/documentos/REGLAS.md`](../gymvip-frontend/documentos/REGLAS.md).
-- Si cambian dependencias o perfiles: [`../gymvip-frontend/documentos/FICHA_TECNICA.md`](../gymvip-frontend/documentos/FICHA_TECNICA.md).
+Todo cambio que altere contratos, base de datos o lógica debe sincronizar el documento canónico en `../documentos/` en la raíz de GYMVIP:
+- Si cambia un endpoint, DTO o header: [`../documentos/APIDOCUMENTATION.md`](../documentos/APIDOCUMENTATION.md).
+- Si cambia esquema, entidad o arquitectura: [`../documentos/ARQUITECTURA_Y_MODELOS.md`](../documentos/ARQUITECTURA_Y_MODELOS.md).
+- Si se ejecutan pruebas o se evalúa seguridad: [`../documentos/EVIDENCIAS_QA_SEGURIDAD.md`](../documentos/EVIDENCIAS_QA_SEGURIDAD.md).
+- Si cambia una regla de negocio o DoD: [`../documentos/REGLAS.md`](../documentos/REGLAS.md).
+- Si cambian dependencias o perfiles: [`../documentos/FICHA_TECNICA.md`](../documentos/FICHA_TECNICA.md).
