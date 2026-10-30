@@ -1,155 +1,228 @@
-> **Incremento Alexander S1 — 26/10/2026:** HU-07/08/10 implementadas en `feature/s1-alexander-hu07-hu08-hu10`. Contratación/cobro/renovación conectadas con API y PostgreSQL real; 42 pruebas backend y build frontend correctos. Validación local PostgreSQL 18.4; Render 17, acuerdos con Jorge/Wagner y aceptación formal pendientes. Ver [estado](docs/ESTADO_ALEXANDER_SPRINT1.md) y [matriz de criterios](docs/MATRIZ_ALEXANDER_S1.md). La descripción de la entrega original de André se conserva debajo como antecedente.
+# GYM VIP — Backend API
 
-# GYM VIP â€” Backend API (Base Funcional Sprint 1 â€” Acosta)
-
-> **Repositorio Oficial:** [gymvip-backend](https://github.com/gymvip-upeu/gymvip-backend.git)
-> **OrganizaciÃ³n:** `gymvip-upeu`
-> **Responsable del Incremento:** Andre Acosta (Base comÃºn + HU-01, HU-04, HU-06)
-> **Rama Publicada de Entrega:** `feature/s1-andre-hu01-hu04-hu06`
-> **Stack Base:** Java 21 LTS (objetivo POM; comprobado en JDK 24.0.1 host), Spring Boot 3.4.3, Spring Data JPA, Spring Security 6, Flyway 10, PostgreSQL 17.11 exclusivo en Render (sin H2), Maven Wrapper 3.9.10.
+> **Sistema:** GYM VIP (VIP Center Fit) — Gestión Integral de Gimnasio Luxury Fitness<br>
+> **Repositorio:** [gymvip-backend](https://github.com/gymvip-upeu/gymvip-backend.git)<br>
+> **Rama documentada:** `feature/s1-jorge-hu02-hu09-hu11-hu12`<br>
+> **Estado del incremento:** Base consolidada de Sprint 1 con los aportes integrados de André Acosta, Alexander y Jorge.
 
 ---
 
-## 1. PolÃ­tica de Ramas y Acceso al CÃ³digo
+## 1. Presentación y Estado Actual
 
-> [!IMPORTANT]
-> **IMPORTANTE â€” CÃ³mo obtener la aplicaciÃ³n:**
-> Las ramas `main` y `develop` han sido inicializadas con un **Ã¡rbol de archivos vacÃ­o** de acuerdo con la estrategia de integraciÃ³n diferida del equipo. Clonar `main` o `develop` no entrega el cÃ³digo funcional en esta etapa.
-> Para descargar y trabajar sobre la base completa entregada por AndrÃ©:
-> ```bash
-> git clone https://github.com/gymvip-upeu/gymvip-backend.git
-> cd gymvip-backend
-> git checkout feature/s1-andre-hu01-hu04-hu06
-> ```
+GYM VIP es una plataforma integral diseñada para la administración y control operativo de un centro de entrenamiento de alta gama (*luxury fitness*). Este repositorio contiene la **API REST del backend**, desarrollada con Spring Boot y PostgreSQL, responsable de la lógica de negocio, reglas de cobro, contratos de membresía, auditoría y control de acceso.
 
-- **`main`**: Contiene el commit inicial con Ã¡rbol vacÃ­o. Reservada para despliegues de producciÃ³n unificados.
-- **`develop`**: Apunta inicialmente al commit vacÃ­o de `main`. Reservada para la integraciÃ³n posterior del equipo.
-- **`feature/s1-andre-hu01-hu04-hu06`**: Rama oficial con la base tÃ©cnica, configuraciÃ³n, pruebas y las HU-01, HU-04 y HU-06.
-- **Ramas de Alexander y Jorge**: DeberÃ¡n crearse a partir de `origin/feature/s1-andre-hu01-hu04-hu06` (nunca desde `develop` mientras estÃ© vacÃ­a).
+La rama actual **`feature/s1-jorge-hu02-hu09-hu11-hu12`** representa el estado funcional más avanzado del Sprint 1 en el repositorio. Integra de forma acumulativa y lineal las contribuciones de los tres desarrolladores del equipo:
+1. **Base técnica y núcleo inicial (André Acosta):** Configuración de arquitectura en capas, seguridad stateless, motor PostgreSQL, catálogo de planes (HU-06), gestión de personal (HU-04) y alta de clientes (HU-01).
+2. **Membresías y cobros atómicos (Alexander):** Contratación de membresías (HU-07), cobro presencial con constancia e idempotencia (HU-08) y renovaciones con continuidad de fechas (HU-10).
+3. **Auditoría, vigencias y control de acceso (Jorge):** Edición concurrente de clientes con auditoría campo por campo (HU-02), cálculo de bloques de cobertura pagados (HU-09), reporte de vencimientos (HU-11) y verificación manual de ingreso (HU-12).
+
+> [!NOTE]
+> Las ramas `main` y `develop` conservan el árbol inicial vacío según la estrategia de integración diferida del proyecto. El trabajo funcional completo de este sprint se encuentra en esta rama.
 
 ---
 
-## 2. Alcance Activo y DelimitaciÃ³n
+## 2. Funcionalidades por Historia de Usuario y Responsable
 
-Este repositorio contiene la **base funcional por capas generales** y las tres Historias de Usuario asignadas a Acosta en el Sprint 1:
+A continuación se resume el alcance implementado en el código de esta rama:
 
-1. **Base ComÃºn:**
-   - Arquitectura por capas desacopladas (`controller`, `dto`, `entity`, `enums`, `exception`, `mapper`, `repository`, `security`, `service`, `util`). *Nota metodolÃ³gica: No se certifica "Clean Architecture" pura por la sola nomenclatura de carpetas; se trata de una arquitectura en capas desacopladas con servicios transaccionales.*
-   - AutenticaciÃ³n y seguridad RBAC stateless por token en cabecera HTTP (`Authorization: Bearer <token>` o `X-Auth-Token`) con respuestas 401 Unauthorized y 403 Forbidden estandarizadas.
-   - Carga explÃ­cita del `.env` mediante `spring.config.import=optional:file:./.env[.properties]`.
-   - Motor exclusivo **PostgreSQL 17.11 en Render**. EliminaciÃ³n completa de `com.h2database:h2`, dialectos y URLs `jdbc:h2`.
-   - Flyway como gestor exclusivo de migraciones (`V1` y `V2`).
-   - Hibernate configurado con `ddl-auto: validate` (sin mutaciÃ³n destructiva ni automÃ¡tica de tablas).
-   - Manejo centralizado de excepciones con `GlobalExceptionHandler` (400, 401, 403, 404, 409, 500) y `ErrorResponse` tipado.
-2. **HU-01 â€” Registrar Clientes (Alta de Socio):**
-   - Endpoints: `POST /api/v1/clients`, `GET /api/v1/clients` (paginado y bÃºsqueda), `GET /api/v1/clients/{id}`, `GET /api/v1/clients/code/{code}`.
-   - ValidaciÃ³n estricta de mayorÃ­a de edad (â‰¥ 18 aÃ±os).
-   - Unicidad documental compuesta `(country_code, document_type, document_number)` con respuesta HTTP 409 Conflict ante duplicados.
-   - DNI peruano validado a exactamente 8 dÃ­gitos numÃ©ricos.
-   - TelÃ©fono y correo opcionales (validados en formato solo si se envÃ­an).
-   - GeneraciÃ³n determinista de cÃ³digo de socio legible (`MemberCodeGenerator`, ej. `MAR-8Q2L7K`, `JOA-W38DM6`).
-3. **HU-04 â€” Roles y Permisos (GestiÃ³n de Personal):**
-   - Endpoints: `GET /api/v1/accounts`, `POST /api/v1/accounts`, `PATCH /api/v1/accounts/{id}/role`, `PATCH /api/v1/accounts/{id}/status`. Protegidos exclusivamente para rol `ADMIN` (403 Forbidden a `RECEPCION`).
-   - Roles restringidos estrictamente a `ADMIN` y `RECEPCION` (sin SUPERADMIN en controladores ni consultas de negocio).
-   - Listado seguro sin exponer hashes de contraseÃ±as. Hashing con BCrypt y salt.
-   - InactivaciÃ³n de colaborador con revocaciÃ³n inmediata de sesiones activas.
-   - Salvaguarda transaccional del Ãºltimo administrador activo (HTTP 409 Conflict).
-4. **HU-06 â€” CatÃ¡logo de Planes:**
-   - Endpoints: `GET /api/v1/plans` (pÃºblico / recepciÃ³n), `POST /api/v1/plans` (ADMIN), `PUT /api/v1/plans/{id}` (ADMIN), `PATCH /api/v1/plans/{id}/status` (ADMIN).
-   - DenominaciÃ³n Ãºnica case-insensitive (409 Conflict ante duplicados).
-   - Precios positivos en Soles `NUMERIC(12,2) PEN`.
-   - Regla inquebrantable de duraciÃ³n mensual de **exactamente 30 dÃ­as** (31 dÃ­as rechazado con HTTP 400).
-   - Regla de pase diario de **exactamente 1 dÃ­a** (2 dÃ­as rechazado con HTTP 400).
-   - Versionado tarifario inmutable (`PlanVersion` en tabla `plan_versions`) que congela las condiciones de contrataciones previas.
-   - Concurrencia optimista (`@Version`) e inactivaciÃ³n lÃ³gica.
-
-> [!IMPORTANT]
-> **DelimitaciÃ³n de Alcance â€” Fuera de este Incremento:**
-> - **Alexander (Parte 2):** AsignaciÃ³n y contrataciÃ³n de membresÃ­as (HU-07), registro de cobros presenciales en efectivo/tarjeta (HU-08), renovaciÃ³n periÃ³dica de 30 dÃ­as (HU-10).
-> - **Jorge (Parte 3):** BÃºsqueda avanzada y ediciÃ³n de datos de contacto de socios (HU-02), cÃ¡lculo autoritativo de vigencias VIGENTE/POR_VENCER/VENCIDO (HU-09), reporte de prÃ³ximos a vencer (HU-11), verificaciÃ³n manual de acceso en recepciÃ³n (HU-12).
-> - Para el detalle exhaustivo, consulte [docs/ESTADO_BASE_SPRINT1_ACOSTA.md](docs/ESTADO_BASE_SPRINT1_ACOSTA.md).
-
----
-
-## 3. Matriz de Versiones y Stack Real
-
-| Componente | VersiÃ³n Configurada / Objetivo | VersiÃ³n Real en Host / Entorno | Observaciones |
+| HU | Responsable | Funcionalidad Disponible | Ubicación Principal en el Código |
 | :--- | :--- | :--- | :--- |
-| **Java JDK** | Java 21 LTS (`pom.xml`) | Java 24.0.1 (Oracle OpenJDK) | El POM fija `java.version=21` para portabilidad; Java 24 compila y ejecuta con soporte completo. |
-| **Spring Boot** | 3.4.3 | 3.4.3 | Starter web, data-jpa, security, validation. |
-| **Maven** | 3.9.10 (Maven Wrapper) | 3.9.10 | Ejecutar siempre mediante `.\mvnw.cmd` o `./mvnw`. |
-| **Motor Base de Datos** | PostgreSQL 17.x | PostgreSQL 17.11 (Debian en Render) | ConexiÃ³n SSL (`sslmode=require`) al host externo de Render. |
-| **Flyway** | 10.20.1 | 10.20.1 | MÃ³dulo `flyway-database-postgresql` integrado. |
-| **HikariCP** | 5.1.0 | 5.1.0 | Pool acotado: `maximum-pool-size=5`, `minimum-idle=1`. |
+| **Base Común** | André | Seguridad stateless con tokens Bearer/X-Auth-Token, roles `ADMIN` y `RECEPCION`, manejo centralizado de excepciones con `GlobalExceptionHandler`, migraciones Flyway y conexión PostgreSQL. | `com.gymvip.security`, `com.gymvip.exception`, `db/migration/V1__init_schema.sql` |
+| **HU-01** | André | Alta y consulta de socios. Validación de mayoría de edad (≥ 18 años), DNI de 8 dígitos, unicidad documental compuesta `(country, type, number)` y generación determinista de código de socio (ej. `MAR-8Q2L7K`). | `ClientController`, `ClientService`, `MemberCodeGenerator`, `V2__add_member_code_to_clients.sql` |
+| **HU-04** | André | Administración de colaboradores y credenciales. Creación con hashing BCrypt, cambio de roles `ADMIN`/`RECEPCION`, desactivación lógica, protección del último administrador activo y revocación de sesiones. Exclusivo `ADMIN`. | `AccountController`, `AccountService`, `AccountRepository` |
+| **HU-06** | André | Catálogo tarifario de planes en Soles (PEN). Regla estricta de 30 días para planes mensuales y 1 día para pases diarios. Versionado tarifario inmutable (`plan_versions`) que congela condiciones de contratos previos. Concurrencia optimista. | `PlanController`, `PlanService`, `PlanVersion`, `PlanRepository` |
+| **HU-07** | Alexander | Asignación y contratación de membresías. Cotización (`/quote`) basada en el precio de la versión activa del plan, resumen comercial congelado y calendario de vigencia. | `MembershipController`, `MembershipService`, `MembershipPeriod`, `V3__...`, `V4__...` |
+| **HU-08** | Alexander | Cobro presencial atómico en efectivo, tarjeta o billetera digital (PEN). Generación de constancia interna (`VIP-...`), registro de operador y fecha UTC. Soporte de idempotencia mediante cabecera `Idempotency-Key`. | `MembershipController`, `MembershipServiceImpl`, `MembershipSaleRepository` |
+| **HU-10** | Alexander | Renovación anticipada (añade 30 días continuos al vencimiento previo) o vencida (inicia en fecha de cobro). Historial de periodos y pagos del socio. Admite cambio de plan para el nuevo periodo. | `MembershipController`, `MembershipServiceImpl`, `MembershipDates` |
+| **HU-02** | Jorge | Edición de datos de clientes (nombres, apellidos, documento, teléfono y correo) para `ADMIN` y `RECEPCION`. Control optimista de concurrencia (`version`). Historial de cambios campo por campo (`client_changes`) consultable exclusivamente por `ADMIN`. | `ClientEditingController`, `ClientEditingService`, `Client.java`, `V5__client_version_and_change_history.sql` |
+| **HU-09** | Jorge | Cálculo de vigencia en servidor bajo zona horaria `America/Lima` e intervalo de inicio incluido / fin excluido. Consolidación de periodos pagados contiguos en bloques de cobertura. Estados: `VIGENTE`, `POR_VENCER`, `VENCIDO`, `CANCELADA`, `PENDIENTE`, `SIN_MEMBRESIA`. Sin prórrogas automáticas. | `CoverageController`, `CoverageService`, `CoveragePolicy`, `CoverageRepository` |
+| **HU-11** | Jorge | Listado paginado y filtrable de cobertura por socio, plan, estado y rango de fechas. Orden de atención por urgencia (vencimiento más próximo primero). Filtro por defecto de alertas (`POR_VENCER` y `VENCIDO`). | `CoverageController`, `CoverageService` |
+| **HU-12** | Jorge | Verificación manual de ingreso en recepción (`/api/v1/coverage/clients/{id}`). Validación autoritativa en servidor que rechaza clientes inactivos, sin pago o vencidos. | `CoverageController`, `CoverageService` |
+
+### Delimitación de Alcance (Fuera de este Incremento)
+- No incluye aplicación móvil (KMP/Compose Multiplatform).
+- No incluye lectores QR, cámara web, torniquetes ni registro automatizado de asistencia física.
+- No incluye pasarelas de pago electrónico online (Stripe, Culqi, etc.) ni transacciones automáticas con terminales POS físicos.
+- No incluye módulos de ventas de cafetería, inventario, reservas de clases ni reportes estadísticos de Sprint 2.
 
 ---
 
-## 4. Base de Datos, Esquemas y Variables de Entorno
+## 3. Arquitectura y Tecnologías
 
-### 4.1 Carga ExplÃ­cita de `.env`
-El archivo `.env` se importa automÃ¡ticamente desde la raÃ­z del backend:
+### 3.1 Stack Tecnológico
+- **Lenguaje:** Java 21 LTS (según `<java.version>21</java.version>` en `pom.xml`).
+- **Framework:** Spring Boot 3.4.3 (`spring-boot-starter-web`, `spring-boot-starter-data-jpa`, `spring-boot-starter-security`, `spring-boot-starter-validation`).
+- **Base de Datos:** PostgreSQL 17.x con driver `org.postgresql:postgresql`.
+- **Migraciones:** Flyway 10.20.1 (`flyway-core`, `flyway-database-postgresql`).
+- **Pool de Conexiones:** HikariCP (`maximum-pool-size: 5`, `minimum-idle: 1`).
+- **Seguridad:** Spring Security 6 con autenticación stateless mediante tokens en cabecera HTTP (`Authorization: Bearer <token>` o `X-Auth-Token`) y hashing BCrypt.
+- **Herramienta de Construcción:** Apache Maven 3.9.10 mediante Maven Wrapper (`mvnw.cmd` / `./mvnw`).
+
+### 3.2 Estilo Arquitectónico
+El proyecto sigue una **arquitectura por capas que aplica principios de Clean Architecture**, separando responsabilidades sin introducir acoplamiento innecesario:
+```
+src/main/java/com/gymvip/
+├── config/         # Configuración de beans, CORS, Clock y seguridad de base de datos
+├── controller/     # Controladores REST y autorización @PreAuthorize
+├── dto/            # Objetos de transferencia de datos (request y response)
+├── entity/         # Entidades JPA mapeadas a tablas de PostgreSQL
+├── enums/          # Enumeraciones de dominio (roles, estados, tipos de documento)
+├── exception/      # Excepciones de negocio y GlobalExceptionHandler
+├── mapper/         # Transformación desacoplada entre entidades y DTOs
+├── repository/     # Interfaces Spring Data JPA y consultas nativas de cobertura
+├── security/       # Filtros de autenticación, proveedor de tokens y contexto de usuario
+├── service/        # Lógica de negocio transaccional (@Transactional)
+└── util/           # Utilidades puras (cálculo de fechas, políticas de cobertura, códigos)
+```
+
+### 3.3 Migraciones Flyway
+El esquema de base de datos se versiona estrictamente mediante scripts Flyway en `src/main/resources/db/migration/`:
+- `V1__init_schema.sql`: Cuentas de personal, roles, sesiones, clientes, documentos, planes, versiones tarifarias y tabla genérica de auditoría.
+- `V2__add_member_code_to_clients.sql`: Columna `member_code` única para identificación amigable de clientes.
+- `V3__membership_periods_and_sales.sql`: Tablas de contratos de membresía (`membership_periods`) y ventas/cobros (`sales`).
+- `V4__membership_commercial_terms.sql`: Congelamiento de términos comerciales y condiciones pactadas al contratar.
+- `V5__client_version_and_change_history.sql`: Control de concurrencia optimista (`version`) en tabla `clients` y tabla de auditoría detallada `client_changes`.
+
+Hibernate está configurado con `ddl-auto: validate`, impidiendo alteraciones estructurales automáticas fuera de Flyway.
+
+### 3.4 Endpoints Principales y Restricciones de Acceso
+
+| Método | Endpoint | Roles Permitidos | Propósito |
+| :--- | :--- | :--- | :--- |
+| `POST` | `/api/v1/auth/login` | Público | Autenticación con credenciales y emisión de token |
+| `POST` | `/api/v1/clients` | `ADMIN`, `RECEPCION` | Alta de nuevo socio |
+| `GET` | `/api/v1/clients` | `ADMIN`, `RECEPCION` | Listado paginado de clientes con filtro de búsqueda |
+| `GET` | `/api/v1/clients/{id}` | `ADMIN`, `RECEPCION` | Consulta detallada de ficha de socio con versión |
+| `PUT` | `/api/v1/clients/{id}` | `ADMIN`, `RECEPCION` | Edición de datos del socio con control optimista |
+| `GET` | `/api/v1/clients/{id}/changes` | **Solo `ADMIN`** | Historial de modificaciones de la ficha del socio (auditoría) |
+| `GET` | `/api/v1/accounts` | **Solo `ADMIN`** | Listado de colaboradores del gimnasio |
+| `POST` | `/api/v1/accounts` | **Solo `ADMIN`** | Registro de nuevo colaborador |
+| `PATCH`| `/api/v1/accounts/{id}/role` | **Solo `ADMIN`** | Modificación de rol (`ADMIN` / `RECEPCION`) |
+| `PATCH`| `/api/v1/accounts/{id}/status`| **Solo `ADMIN`** | Activar o inactivar colaborador |
+| `GET` | `/api/v1/plans` | `ADMIN`, `RECEPCION` | Catálogo de planes activos para venta |
+| `POST` | `/api/v1/plans` | **Solo `ADMIN`** | Creación de nuevo plan |
+| `PUT` | `/api/v1/plans/{id}` | **Solo `ADMIN`** | Edición de tarifa de plan (genera nueva versión inmutable) |
+| `POST` | `/api/v1/memberships/quote` | `ADMIN`, `RECEPCION` | Cotización formal de contratación o renovación |
+| `POST` | `/api/v1/memberships/sales` | `ADMIN`, `RECEPCION` | Cobro y registro atómico de membresía con clave de idempotencia |
+| `GET` | `/api/v1/coverage/clients/{id}`| `ADMIN`, `RECEPCION` | Verificación de vigencia y acceso manual de un socio |
+| `GET` | `/api/v1/coverage` | `ADMIN`, `RECEPCION` | Reporte paginado de vencimientos y alertas |
+
+---
+
+## 4. Requisitos y Configuración Segura
+
+### 4.1 Requisitos Previos
+- **Java:** JDK 21 o superior instalado y configurado en `JAVA_HOME`.
+- **Base de Datos:** Instancia de PostgreSQL 17.x en ejecución.
+
+### 4.2 Variables de Entorno (`.env`)
+El backend carga automáticamente variables desde el archivo `.env` en la raíz del proyecto mediante:
 ```yaml
 spring:
   config:
     import: "optional:file:./.env[.properties]"
 ```
 
-### 4.2 Plantilla `.env.example`
+Plantilla de configuración recomendada (`.env.example`):
 ```properties
+# Perfil activo: dev para desarrollo local, prod para producción
 SPRING_PROFILES_ACTIVE=dev
 PORT=8081
-DB_JDBC_URL=jdbc:postgresql://dpg-dbb4q767bikc73d2uop0-a.oregon-postgres.render.com:5432/gymvip?sslmode=require
+
+# Conexión principal PostgreSQL (usar variables reales de entorno fuera del repo)
+DB_JDBC_URL=jdbc:postgresql://localhost:5432/gymvip
 DB_USERNAME=gymvip_user
-DB_PASSWORD=CAMBIAR_POR_TU_PASSWORD_RENDER
-TEST_DB_SCHEMA=gymvip_test
+DB_PASSWORD=TU_CONTRASENA_AQUI
+
+# Esquema y pool para desarrollo
 DB_POOL_MAX_SIZE=5
 DB_POOL_MIN_IDLE=1
+
+# Configuración de pruebas (aislada obligatoria)
+TEST_DB_SCHEMA=gymvip_test_jorge
+# TEST_DB_JDBC_URL=jdbc:postgresql://... (opcional si difiere de DB_JDBC_URL)
+
+# Orígenes CORS permitidos
 CORS_ALLOWED_ORIGINS=http://localhost:5173,http://127.0.0.1:5173,http://localhost:3000
+
+# Días de anticipación para estado POR_VENCER (1 a 30, valor por defecto: 7)
+MEMBERSHIP_UPCOMING_DAYS=7
+
+# Cuentas iniciales generadas por DataInitializer en dev
 APP_ADMIN_INITIAL_PASSWORD=Admin123!
 APP_RECEPCION_INITIAL_PASSWORD=Recepcion123!
 ```
 
-### 4.3 SeparaciÃ³n de Esquemas: Desarrollo vs Pruebas
-- **Esquema Compartido (`public`):** Utilizado en modo desarrollo (`spring-boot:run`). Comparte los datos de clientes, planes y cuentas de personal creados interactivamente por el equipo.
-- **Esquema Aislado de Pruebas (`gymvip_test`):** Configurado en `src/test/resources/application.yml` mediante `TEST_DB_SCHEMA=gymvip_test`. Flyway crea y migra las tablas de prueba en este esquema; Hibernate valida contra Ã©l. **NingÃºn test automatizado limpia ni modifica el esquema `public`**.
-- **Idempotencia:** `DataInitializer` verifica la existencia de registros antes de insertar las cuentas base `admin@vipcenterfit.pe` y `recepcion@vipcenterfit.pe`, garantizando que reinicios sucesivos no dupliquen datos ni alteren contraseÃ±as.
-
-### 4.4 Migraciones Flyway
-- `V1__init_schema.sql`: Estructura inicial de cuentas, roles, sesiones, clientes, documentos, planes, plan_versions y auditorÃ­a.
-- `V2__add_member_code_to_clients.sql`: Agrega columna `member_code VARCHAR(30)` con constraint de unicidad.
-- *PrÃ³xima migraciÃ³n para Alexander / Jorge:* **`V3__<descripcion>.sql`**.
+> [!CAUTION]
+> Nunca incluya contraseñas reales ni cadenas de conexión con credenciales en commits de Git. Mantenga el archivo `.env` ignorado por Git en todo momento.
 
 ---
 
-## 5. Instrucciones de CompilaciÃ³n y EjecuciÃ³n
+## 5. Cómo Ejecutar y Probar
 
-### 5.1 Ejecutar Suite de Pruebas en PostgreSQL Render
+### 5.1 Compilar y Ejecutar Pruebas Automatizadas
+Para ejecutar las pruebas que no requieren base de datos externa (política de cobertura, fechas e isolación de esquemas):
 ```powershell
+.\mvnw.cmd test "-Dtest=CoveragePolicyTest,MembershipDatesTest,IsolationGuardTest"
+```
+
+Para ejecutar la suite completa de integración (requiere PostgreSQL configurado con esquema exclusivo de pruebas):
+```powershell
+$env:TEST_DB_SCHEMA="gymvip_test_jorge"
 .\mvnw.cmd test
 ```
-- **Resultado Ejecutado:** **23/23 tests PASS (0 failures, 0 errors, 0 skipped)** en esquema `gymvip_test` sobre PostgreSQL 17.11 en Render.
+
+> [!IMPORTANT]
+> `IsolationGuardTest` y la configuración de pruebas abortan automáticamente la ejecución si `TEST_DB_SCHEMA` apunta a `public`, está vacío o apunta al esquema de otro desarrollador, protegiendo los datos compartidos.
 
 ### 5.2 Iniciar el Backend Localmente
 ```powershell
 .\mvnw.cmd spring-boot:run
 ```
-- El servidor arrancarÃ¡ en **`http://localhost:8081`** (configurado en `PORT=8081` para evitar colisiÃ³n con el puerto 8080 local).
+El servidor quedará disponible en `http://localhost:8081`.
 
-### 5.3 Cuentas Iniciales para Pruebas en Desarrollo (`dev`)
-- **Administrador:** `admin@vipcenterfit.pe` / `Admin123!` (Rol: `ADMIN`)
-- **RecepciÃ³n:** `recepcion@vipcenterfit.pe` / `Recepcion123!` (Rol: `RECEPCION`)
+### 5.3 Usuarios de Prueba en Entorno de Desarrollo (`dev`)
+Al iniciar con base de datos limpia, `DataInitializer` registra automáticamente:
+- **Administrador:** `admin@vipcenterfit.pe` / Contraseña: valor de `APP_ADMIN_INITIAL_PASSWORD` (Rol: `ADMIN`)
+- **Recepcionista:** `recepcion@vipcenterfit.pe` / Contraseña: valor de `APP_RECEPCION_INITIAL_PASSWORD` (Rol: `RECEPCION`)
 
 ---
 
-## 6. Estado de VerificaciÃ³n y Pendientes
+## 6. Estado de Verificación y Pendientes
 
-- **Pruebas Automatizadas:** **APROBADO** (23/23 tests PASS en PostgreSQL real).
-- **Persistencia tras Reinicio:** **APROBADO** (Comprobada relectura de socio `Valeria Mendoza Quiroz` y versionado de `Plan Funcional Render 7520` tras apagar y reanudar el backend).
-- **RevisiÃ³n de Wagner:** **PENDIENTE** (Pendiente de sesiÃ³n formal de evaluaciÃ³n y firma de aceptaciÃ³n).
+### 6.1 Implementado en Código en esta Rama
+- ✅ **Base técnica y seguridad:** Spring Boot 3.4.3, Flyway V1–V5, Spring Security stateless.
+- ✅ **HU-01, HU-04, HU-06 (André):** Registro de clientes, gestión de personal, catálogo de planes y versiones.
+- ✅ **HU-07, HU-08, HU-10 (Alexander):** Contratación de membresías, cobros presenciales con constancia, idempotencia y renovaciones continuas.
+- ✅ **HU-02, HU-09, HU-11, HU-12 (Jorge):** Edición de socios con auditoría campo por campo en `client_changes`, cálculo autoritativo de vigencias con zona Lima, listado de vencimientos y verificación manual en recepción.
 
-Consulte la bitÃ¡cora tÃ©cnica detallada en:
-ðŸ‘‰ **[docs/ESTADO_BASE_SPRINT1_ACOSTA.md](docs/ESTADO_BASE_SPRINT1_ACOSTA.md)**
+### 6.2 Pruebas Ejecutadas en este Entorno
+- **Compilación de código fuente:** **APROBADO** (86 clases fuente y 11 clases de pruebas compiladas con Java 21 / javac release 21 sin errores).
+- **Pruebas unitarias de dominio ejecutadas:** **APROBADO** (9 pruebas ejecutadas en `IsolationGuardTest`, `CoveragePolicyTest` y `MembershipDatesTest`; 0 fallos, 0 errores, 0 omitidas).
 
-## Incremento Jorge — 26/10/2026
+### 6.3 Pruebas Reportadas en Documentos Técnicos Previos
+- **Suite completa de Jorge (26/10/2026):** 58 pruebas automatizadas aprobadas contra PostgreSQL local portable (esquema `gymvip_test_jorge`), cubriendo auditoría, concurrencia optimista, consolidación de periodos pagados y control de acceso.
+- **Suite de Alexander (26/10/2026):** 42 pruebas backend aprobadas en PostgreSQL local (esquema `gymvip_test_alexander`), validando transaccionalidad de cobros, renovaciones e idempotencia.
+- **Suite de André (19/10/2026):** 23 pruebas en base de datos PostgreSQL 17.11 en Render (esquema `gymvip_test`).
 
-La rama `feature/s1-jorge-hu02-hu09-hu11-hu12` integra la base de André y la dependencia de Alexander, y añade edición/auditoría de clientes, vigencias, listado de vencimientos y verificación manual. Se mantiene el stack y el lockfile heredados. Ver [estado y pruebas de Jorge](docs/ESTADO_JORGE_SPRINT1.md), [contrato API](docs/CONTRATO_JORGE_S1.md) y [matriz de los 72 criterios](docs/MATRIZ_JORGE_S1.md). Validación técnica local realizada; revisión del equipo/Wagner y Render pendientes. No implica merge a main/develop ni despliegue.
+### 6.4 Pendientes de Aceptación Formal
+- **Ratificación de Reglas de Negocio:** Validación y aprobación por parte del Product Owner (Wagner) respecto a:
+  - Convención horaria `America/Lima` con límites exactos de inicio incluido / fin excluido.
+  - Ventana propuesta de 7 días (`MEMBERSHIP_UPCOMING_DAYS=7`) para el estado `POR_VENCER`.
+  - Definición de medios de pago autorizados y políticas de cambio de plan en renovaciones.
+- **Validación en Entorno Oficial Render:** Ejecución de la suite completa de 58 pruebas sobre la base de datos PostgreSQL 17.11 de Render cuando se suministren credenciales y un esquema exclusivo asignado para Jorge.
+- **Revisión de Código e Integración:** Revisión cruzada de código (*code review*) entre compañeros y posterior integración formal a las ramas `develop` y `main` (sin merges prematuros en esta etapa).
+- **Pruebas de Carga:** El listado de cobertura calcula bloques pagados en memoria antes de aplicar la paginación; se encuentra pendiente certificar su comportamiento ante volúmenes masivos de datos.
+
+---
+
+## 7. Documentación Técnica Detallada
+
+Para consultar el detalle de contratos, especificaciones y matrices de aceptación de cada entrega:
+- [Contrato API y Decisiones de Jorge (HU-02, 09, 11, 12)](docs/CONTRATO_JORGE_S1.md)
+- [Estado Técnico de Jorge y Resultados](docs/ESTADO_JORGE_SPRINT1.md)
+- [Matriz de Criterios de Aceptación de Jorge (72 criterios)](docs/MATRIZ_JORGE_S1.md)
+- [Contrato de Membresías y Cobros de Alexander (HU-07, 08, 10)](docs/CONTRATO_MEMBRESIAS_S1.md)
+- [Estado Técnico de Alexander](docs/ESTADO_ALEXANDER_SPRINT1.md)
+- [Matriz de Criterios de Alexander (54 criterios)](docs/MATRIZ_ALEXANDER_S1.md)
+- [Bitácora de la Base Funcional Inicial de André](docs/ESTADO_BASE_SPRINT1_ACOSTA.md)
