@@ -54,7 +54,6 @@ public class MembershipRepository {
         if (plans.isEmpty()) throw new ResourceNotFoundException("Plan no encontrado.");
         var plan = plans.getFirst();
         if (!"ACTIVO".equals(plan[4])) throw new com.gymvip.exception.InvalidPlanException("El plan está inactivo.");
-        if ((int) plan[2] != 30) throw new com.gymvip.exception.InvalidPlanException("En este flujo solo se contratan planes de 30 días.");
         var snapshot = jdbc.query("SELECT id,name,benefits,duration_days,price_pen FROM plan_versions WHERE plan_id=? ORDER BY version_number DESC LIMIT 1",
                 (rs, n) -> new PlanSnapshot(rs.getObject(1, UUID.class), rs.getString(2), rs.getString(3), rs.getInt(4), rs.getBigDecimal(5)),
                 planId).stream().findFirst().orElseThrow(() -> new com.gymvip.exception.InvalidPlanException("El plan no tiene versión histórica."));

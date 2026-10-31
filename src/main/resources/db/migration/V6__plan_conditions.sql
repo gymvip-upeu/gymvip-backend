@@ -1,0 +1,2 @@
+ALTER TABLE plans ADD COLUMN conditions VARCHAR(1000);
+ALTER TABLE plan_versions ADD COLUMN conditions VARCHAR(1000);

@@ -41,6 +41,10 @@ public class Plan {
     @Column(name = "updated_at")
     private LocalDateTime updatedAt = LocalDateTime.now();
 
+    @Column(length = 1000)
+    private String conditions;
+    public String getConditions() { return conditions; }
+    public void setConditions(String value) { conditions = value; }
     public Plan() {}
 
     public Plan(UUID id, String name, String description, int durationDays, BigDecimal pricePen, String benefits, String status, int version) {

@@ -19,7 +19,7 @@ import java.util.*;
 @Service
 public class MembershipServiceImpl implements MembershipService {
     private static final Set<String> SUPPORTED = Set.of("EFECTIVO", "YAPE", "PLIN", "TRANSFERENCIA", "POS");
-    public static final String POLICY = "30 días consecutivos, sin gracia. Inicio incluido y fin excluido en America/Lima. " +
+    public static final String POLICY = "Días consecutivos según el plan contratado, sin gracia. Inicio incluido y fin excluido en America/Lima. " +
             "Pago completo presencial. Renovación vigente desde el fin contratado; vencida desde el día del pago. " +
             "El cambio de plan se aplica al periodo añadido. Constancia interna, no comprobante tributario.";
     private final MembershipRepository repository;
@@ -54,7 +54,7 @@ public class MembershipServiceImpl implements MembershipService {
         LocalDate today = MembershipDates.today(clock);
         LocalDate previousEnd = contract == null ? null : contract.end();
         LocalDate start = MembershipDates.start(today, previousEnd);
-        LocalDate end = MembershipDates.end(start);
+        LocalDate end = start.plusDays(plan.duration());
         UUID membership = contract == null ? null : contract.id();
         // Include the local date: a summary cannot silently survive the midnight cutoff.
         String fingerprint = hash(Arrays.asList(request, membership, plan, previousEnd, today, start, end, POLICY));

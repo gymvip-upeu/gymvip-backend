@@ -11,10 +11,10 @@ spring:
     import:
       - "optional:file:./.env[.properties]"
   datasource:
-    url: ${TEST_DB_JDBC_URL:${DB_JDBC_URL}}
+    url: ${TEST_DB_JDBC_URL:jdbc:postgresql://127.0.0.1:55432/gymvip_checks_jorge}
     driver-class-name: org.postgresql.Driver
-    username: ${TEST_DB_USERNAME:${DB_USERNAME}}
-    password: ${TEST_DB_PASSWORD:${DB_PASSWORD}}
+    username: ${TEST_DB_USERNAME:gymvip_local}
+    password: ${TEST_DB_PASSWORD:local-only}
     hikari:
       schema: ${TEST_DB_SCHEMA:gymvip_test_jorge}
       maximum-pool-size: 4
@@ -37,3 +37,4 @@ spring:
     create-schemas: true
     baseline-on-migrate: false
     locations: classpath:db/migration
+

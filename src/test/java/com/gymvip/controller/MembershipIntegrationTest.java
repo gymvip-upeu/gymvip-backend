@@ -244,13 +244,13 @@ class MembershipIntegrationTest {
         assertEquals(first, memberships.sell(request, key, ACTOR));
         assertEquals(2, count("payment_records"));
     }
-    @Test void inactiveClientAndNonMonthlyPlanCannotBeSold() {
+    @Test void inactiveClientIsRejectedAndDailyPlanUsesItsDuration() {
         jdbc.update("UPDATE clients SET status='INACTIVO' WHERE id=?", client);
         assertThrows(IllegalArgumentException.class, () -> quote(MembershipQuoteRequest.Operation.ENROLL));
         jdbc.update("UPDATE clients SET status='ACTIVO' WHERE id=?", client);
         plan = plans.createPlan(new CreatePlanRequest("Pase diario " + UUID.randomUUID(), "", 1,
                 new BigDecimal("20.00"), ""), "admin@vipcenterfit.pe").id();
-        assertThrows(com.gymvip.exception.InvalidPlanException.class, () -> quote(MembershipQuoteRequest.Operation.ENROLL));
+        assertEquals(1, java.time.temporal.ChronoUnit.DAYS.between(quote(MembershipQuoteRequest.Operation.ENROLL).startDate(), quote(MembershipQuoteRequest.Operation.ENROLL).endExclusive()));
         assertEquals(0, count("memberships"));
     }
 }

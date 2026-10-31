@@ -14,5 +14,5 @@ public record PlanResponse(
         String status,
         int version,
         LocalDateTime createdAt,
-        LocalDateTime updatedAt
+        LocalDateTime updatedAt, String conditions
 ) {}
