@@ -59,6 +59,9 @@ public class Client {
     @Column(name = "updated_at")
     private LocalDateTime updatedAt = LocalDateTime.now();
 
+    @Column(length=2000) private String notes;
+    public String getNotes() { return notes; }
+    public void setNotes(String notes) { this.notes=notes; }
     public Client() {}
 
     public Client(UUID id, String memberCode, String firstName, String lastName, LocalDate birthDate, String phone, String email, String status) {

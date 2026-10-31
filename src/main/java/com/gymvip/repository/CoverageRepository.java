@@ -29,7 +29,7 @@ public class CoverageRepository {
             SELECT m.client_id,v.plan_id,v.name,p.start_date,p.end_date
             FROM memberships m JOIN membership_periods p ON p.membership_id=m.id
             JOIN plan_versions v ON v.id=p.plan_version_id
-            WHERE m.service_code='GYM' AND (?::uuid IS NULL OR m.client_id=?::uuid)
+            WHERE p.cancelled_at_utc IS NULL AND m.service_code='GYM' AND (?::uuid IS NULL OR m.client_id=?::uuid)
               AND EXISTS (SELECT 1 FROM payment_records r WHERE r.period_id=p.id AND r.membership_id=m.id AND r.amount_pen=v.price_pen AND r.currency='PEN')
             ORDER BY p.start_date,p.end_date,p.id
             """,(r,n)->new PaidRow(r.getObject("client_id",UUID.class),new Period(r.getObject("plan_id",UUID.class),

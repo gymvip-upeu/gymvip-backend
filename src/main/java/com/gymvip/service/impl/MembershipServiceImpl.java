@@ -44,16 +44,24 @@ public class MembershipServiceImpl implements MembershipService {
         if (!"ACTIVO".equals(repository.clientStatus(request.clientId(), lock)))
             throw new IllegalArgumentException("El cliente está inactivo.");
         var contract = repository.contract(request.clientId()).orElse(null);
-        if (request.operation() == MembershipQuoteRequest.Operation.ENROLL && contract != null)
+        if (request.operation() == MembershipQuoteRequest.Operation.ENROLL && contract != null && !"CANCELADA".equals(contract.status()))
             throw new ConflictException("El cliente ya tiene contrato. Utilice renovar.");
         if (request.operation() == MembershipQuoteRequest.Operation.RENEW && contract == null)
             throw new ConflictException("El cliente todavía no tiene membresía. Utilice contratar.");
-        if (contract != null && !Set.of("VIGENTE", "VENCIDO", "POR_VENCER").contains(contract.status()))
+        if (contract != null && !"CANCELADA".equals(contract.status()) && !Set.of("VIGENTE", "VENCIDO", "POR_VENCER").contains(contract.status()))
             throw new ConflictException("No se puede renovar un contrato cancelado o no habilitado.");
+        if(contract!=null && "CANCELADA".equals(contract.status()) && request.operation()==MembershipQuoteRequest.Operation.RENEW)
+            throw new ConflictException("El contrato está cancelado. Asigna un nuevo plan en lugar de renovarlo.");
         var plan = repository.plan(request.planId(), lock);
         LocalDate today = MembershipDates.today(clock);
-        LocalDate previousEnd = contract == null ? null : contract.end();
+        LocalDate previousEnd = contract == null || "CANCELADA".equals(contract.status()) ? null : contract.end();
         LocalDate start = MembershipDates.start(today, previousEnd);
+        if(request.startDate()!=null) {
+            if(request.startDate().isBefore(today)) throw new IllegalArgumentException("La fecha de inicio no puede ser anterior a hoy.");
+            if(request.operation()==MembershipQuoteRequest.Operation.RENEW && !request.startDate().equals(start))
+                throw new IllegalArgumentException("La renovación respeta la cobertura restante y comienza en la fecha calculada.");
+            start=request.startDate();
+        }
         LocalDate end = start.plusDays(plan.duration());
         UUID membership = contract == null ? null : contract.id();
         // Include the local date: a summary cannot silently survive the midnight cutoff.
@@ -70,7 +78,7 @@ public class MembershipServiceImpl implements MembershipService {
         String method = request.paymentMethod().trim().toUpperCase(Locale.ROOT);
         String reference = request.reference() == null || request.reference().isBlank() ? null : request.reference().trim();
         var normalized = new MembershipSaleRequest(request.clientId(), request.planId(), request.operation(),
-                request.quoteFingerprint(), request.amountPen().setScale(2), method, reference);
+                request.quoteFingerprint(), request.amountPen().setScale(2), method, reference, request.notes(),request.startDate());
         String requestHash = hash(normalized);
         UUID actor = repository.actor(actorEmail);
         repository.lockOperation(actor, key);
@@ -82,14 +90,14 @@ public class MembershipServiceImpl implements MembershipService {
         if (!methods.contains(method)) throw new IllegalArgumentException("Medio de pago no habilitado.");
         if (!"EFECTIVO".equals(method) && reference == null)
             throw new IllegalArgumentException("La referencia es obligatoria para pagos no efectivos.");
-        var quote = buildQuote(new MembershipQuoteRequest(request.clientId(), request.planId(), request.operation()), true);
+        var quote = buildQuote(new MembershipQuoteRequest(request.clientId(), request.planId(), request.operation(),request.startDate()), true);
         if (!quote.fingerprint().equals(request.quoteFingerprint()))
             throw new ConflictException("Las fechas o el plan cambiaron. Revise un nuevo resumen antes de cobrar.");
         if (quote.pricePen().compareTo(request.amountPen()) != 0)
             throw new IllegalArgumentException("El cobro debe coincidir con el precio completo autorizado por el backend.");
         UUID contract = quote.membershipId() == null ? UUID.randomUUID() : quote.membershipId();
         if (quote.membershipId() == null) repository.createContract(contract, request.clientId(), quote.planVersionId(), quote.startDate(), quote.endExclusive());
-        else repository.extendContract(contract, quote.endExclusive());
+        else repository.extendContract(contract, quote.startDate(), quote.endExclusive());
         UUID payment = UUID.randomUUID();
         var result = new MembershipSaleResponse(contract, UUID.randomUUID(), payment, request.clientId(), quote.planVersionId(),
                 quote.planName(), quote.benefits(), quote.policy(), quote.startDate(), quote.lastIncludedDate(), quote.endExclusive(),
@@ -97,6 +105,7 @@ public class MembershipServiceImpl implements MembershipService {
                 LocalDateTime.ofInstant(clock.instant(), ZoneOffset.UTC), "VIP-" + payment);
         repository.addPeriod(result.periodId(), contract, quote.planVersionId(), quote.startDate(), quote.endExclusive(), result.paidAtUtc(), quote.policy());
         repository.addPayment(result, actor);
+        repository.paymentNotes(result.paymentId(),request.notes());
         audit.recordEvent(actorEmail, request.operation().name() + "_MEMBERSHIP", "Membership", contract.toString(),
                 "Periodo=" + result.periodId() + "; pago=" + payment + "; PEN=" + result.amountPen());
         repository.saveOperation(actor, key, requestHash, write(result));

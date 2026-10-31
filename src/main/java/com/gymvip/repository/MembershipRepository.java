@@ -67,8 +67,8 @@ public class MembershipRepository {
         jdbc.update("INSERT INTO memberships(id,client_id,plan_version_id,start_date,end_date,status) VALUES (?,?,?,?,?,'VIGENTE')",
                 id, client, version, start, end);
     }
-    public void extendContract(UUID id, LocalDate end) {
-        jdbc.update("UPDATE memberships SET end_date=?,status='VIGENTE' WHERE id=?", end, id);
+    public void extendContract(UUID id, LocalDate start, LocalDate end) {
+        jdbc.update("UPDATE memberships SET start_date=least(start_date,?),end_date=?,status='VIGENTE' WHERE id=?", start, end, id);
     }
     public void addPeriod(UUID id, UUID contract, UUID version, LocalDate start, LocalDate end, LocalDateTime at, String policy) {
         jdbc.update("INSERT INTO membership_periods(id,membership_id,plan_version_id,start_date,end_date,created_at,policy_text) VALUES (?,?,?,?,?,?,?)",
@@ -78,6 +78,7 @@ public class MembershipRepository {
         jdbc.update("INSERT INTO payment_records(id,membership_id,period_id,amount_pen,currency,payment_method,external_reference,registered_by_account_id,payment_timestamp_utc) VALUES (?,?,?,?,'PEN',?,?,?,?)",
                 sale.paymentId(), sale.membershipId(), sale.periodId(), sale.amountPen(), sale.paymentMethod(), sale.reference(), actor, sale.paidAtUtc());
     }
+    public void paymentNotes(UUID payment,String notes) { jdbc.update("UPDATE payment_records SET notes=? WHERE id=?",notes,payment); }
     public List<MembershipSaleResponse> history(UUID client) {
         return jdbc.query("""
                 SELECT m.id AS membership_id, p.id AS period_id, r.id AS payment_id, m.client_id,

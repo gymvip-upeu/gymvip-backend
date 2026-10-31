@@ -61,7 +61,9 @@ public class SecurityConfig {
                         .requestMatchers("/h2-console/**").permitAll()
                         .requestMatchers("/actuator/health").permitAll()
                         .requestMatchers("/error").permitAll()
-                        .anyRequest().authenticated()
+                        .requestMatchers("/api/v1/member-app/**").hasRole("CLIENTE")
+                        .requestMatchers("/api/v1/auth/me").authenticated()
+                        .anyRequest().hasAnyRole("ADMIN", "RECEPCION")
                 )
                 .addFilterBefore(tokenAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
 
