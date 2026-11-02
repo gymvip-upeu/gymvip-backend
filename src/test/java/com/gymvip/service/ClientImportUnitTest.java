@@ -212,7 +212,7 @@ class ClientImportUnitTest {
         when(clientRepository.existsByMemberCode(anyString())).thenReturn(false);
         when(clientRepository.save(any(Client.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
-        ClientImportResultResponse result = importService.confirmImport(file, "recepcionista@gymvip.local");
+        ClientImportResultResponse result = importService.confirmImport(file, "admin@gymvip.local");
 
         assertNotNull(result);
         assertEquals(2, result.totalRows());
@@ -222,7 +222,7 @@ class ClientImportUnitTest {
 
         verify(clientRepository, times(1)).save(any(Client.class));
         verify(auditService, times(1)).recordEvent(
-                eq("recepcionista@gymvip.local"),
+                eq("admin@gymvip.local"),
                 eq("IMPORT_CLIENTS"),
                 eq("Client"),
                 eq("BATCH"),
@@ -265,6 +265,25 @@ class ClientImportUnitTest {
                 "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", wrongHeaders);
 
         assertThrows(ClientValidationException.class, () -> importService.previewImport(badHeadersFile));
+    }
+
+    @Test
+    @DisplayName("HU-06 CA-02: Rechaza archivo con cabeceras alteradas o columnas cambiadas de orden")
+    void testRejectsAlteredOrSwappedHeaders() throws IOException {
+        String[][] swappedHeaders = {{
+                "Apellidos",
+                "Nombres",
+                "Fecha de Nacimiento (YYYY-MM-DD)",
+                "País (PE)",
+                "Tipo Documento (DNI/CE/PASAPORTE)",
+                "Número Documento"
+        }};
+        byte[] bytes = createTestExcel(swappedHeaders, new String[][]{{"Pérez", "Juan", "1990-01-01", "PE", "DNI", "12345678"}});
+        MockMultipartFile file = new MockMultipartFile("file", "swapped.xlsx",
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", bytes);
+
+        ClientValidationException ex = assertThrows(ClientValidationException.class, () -> importService.previewImport(file));
+        assertTrue(ex.getMessage().contains("alterada o en orden incorrecto"));
     }
 }
 

@@ -261,7 +261,7 @@ public class ClientImportServiceImpl implements ClientImportService {
                             row.documentNumber,
                             null,
                             "REJECTED",
-                            "Error al persistir el miembro: " + ex.getMessage()
+                            "No se pudo guardar el registro debido a un error de validación o persistencia en el servidor central."
                     ));
                 }
             } else if ("DUPLICATE_IN_FILE".equals(row.status) || "DUPLICATE_IN_DATABASE".equals(row.status)) {
@@ -350,11 +350,28 @@ public class ClientImportServiceImpl implements ClientImportService {
                 throw new ClientValidationException("La primera fila del archivo debe contener los encabezados oficiales.");
             }
 
-            for (int i = 0; i < 6; i++) { // Las primeras 6 cabeceras son críticas
+            String[] expectedHeaderKeywords = {
+                    "nombre",
+                    "apellido",
+                    "nacimiento",
+                    "pais",
+                    "tipo",
+                    "documento"
+            };
+
+            for (int i = 0; i < 6; i++) {
                 Cell cell = headerRow.getCell(i);
                 String val = cell != null ? formatter.formatCellValue(cell).trim().toLowerCase() : "";
                 if (val.isEmpty()) {
-                    throw new ClientValidationException("Cabeceras incompletas o alteradas. Descargue la plantilla oficial .xlsx.");
+                    throw new ClientValidationException(String.format(
+                            "Cabeceras incompletas: falta la columna obligatoria '%s' en la posición %d.",
+                            EXPECTED_HEADERS[i], i + 1));
+                }
+                String normalizedVal = val.replace("í", "i").replace("é", "e").replace("á", "a").replace("ó", "o").replace("ú", "u");
+                if (!normalizedVal.contains(expectedHeaderKeywords[i])) {
+                    throw new ClientValidationException(String.format(
+                            "Columna alterada o en orden incorrecto en posición %d: se esperaba '%s' pero se encontró '%s'. Descargue la plantilla oficial.",
+                            i + 1, EXPECTED_HEADERS[i], val));
                 }
             }
 
@@ -382,7 +399,7 @@ public class ClientImportServiceImpl implements ClientImportService {
             throw cve;
         } catch (Exception e) {
             log.error("Error al procesar archivo Excel: {}", e.getMessage(), e);
-            throw new ClientValidationException("El archivo Excel se encuentra dañado o su estructura es ilegible: " + e.getMessage());
+            throw new ClientValidationException("El archivo Excel se encuentra dañado o su estructura no corresponde al formato oficial OOXML .xlsx.");
         }
 
         return rows;
