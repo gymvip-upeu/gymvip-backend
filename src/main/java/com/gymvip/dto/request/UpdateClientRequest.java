@@ -10,5 +10,10 @@ public record UpdateClientRequest(
         @NotBlank @Size(max=50) String documentNumber,
         @Pattern(regexp="^$|^[+0-9 -]{7,20}$", message="Celular inválido") String phone,
         @Email @Size(max=150) String email,
-        @NotNull @PositiveOrZero Long version
-) {}
+        @NotNull @PositiveOrZero Long version,
+        @Size(max=2000) String notes
+) {
+    public UpdateClientRequest(String firstName,String lastName,String countryCode,String documentType,String documentNumber,String phone,String email,Long version) {
+        this(firstName,lastName,countryCode,documentType,documentNumber,phone,email,version,null);
+    }
+}

@@ -300,4 +300,22 @@ public class PlanIntegrationTest {
         org.junit.jupiter.api.Assertions.assertEquals(2, v2.getVersionNumber());
         org.junit.jupiter.api.Assertions.assertEquals(0, new BigDecimal("180.00").compareTo(v2.getPricePen()));
     }
+
+    @Test
+    void conditionsAreStoredAndPreviousVersionIsPreserved() throws Exception {
+        var request = new CreatePlanRequest("Trimestral condiciones " + UUID.randomUUID(), "Acceso al gimnasio", 90,
+                new BigDecimal("320.00"), "Pesas y cardio", "Horario regular");
+        var body = mockMvc.perform(post("/api/v1/plans").header("Authorization", "Bearer " + adminToken)
+                .contentType(MediaType.APPLICATION_JSON).content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isCreated()).andExpect(jsonPath("$.conditions").value("Horario regular"))
+                .andReturn().getResponse().getContentAsString();
+        var id = UUID.fromString(objectMapper.readTree(body).get("id").asText());
+        var original = planVersionRepository.findFirstByPlanIdOrderByVersionNumberDesc(id).orElseThrow();
+        var updated = new UpdatePlanRequest(request.name(), request.description(), 90, new BigDecimal("350.00"),
+                request.benefits(), "Nuevo horario");
+        mockMvc.perform(put("/api/v1/plans/" + id).header("Authorization", "Bearer " + adminToken)
+                .contentType(MediaType.APPLICATION_JSON).content(objectMapper.writeValueAsString(updated)))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.conditions").value("Nuevo horario"));
+        org.junit.jupiter.api.Assertions.assertEquals("Horario regular", planVersionRepository.findById(original.getId()).orElseThrow().getConditions());
+    }
 }

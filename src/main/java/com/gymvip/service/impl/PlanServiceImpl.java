@@ -79,6 +79,7 @@ public class PlanServiceImpl implements PlanService {
             throw new DuplicatePlanNameException("Ya existe otro plan registrado con el nombre: " + trimmedName);
         }
 
+        plan.setConditions(request.conditions() == null ? null : request.conditions().trim());
         plan.setName(trimmedName);
         plan.setDescription(request.description() != null ? request.description().trim() : null);
         plan.setDurationDays(request.durationDays());

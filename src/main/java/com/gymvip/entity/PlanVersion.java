@@ -35,6 +35,10 @@ public class PlanVersion {
     @Column(name = "effective_from", nullable = false)
     private LocalDateTime effectiveFrom = LocalDateTime.now();
 
+    @Column(length = 1000)
+    private String conditions;
+    public String getConditions() { return conditions; }
+    public void setConditions(String value) { conditions = value; }
     public PlanVersion() {}
 
     public PlanVersion(UUID id, UUID planId, int versionNumber, String name, int durationDays, BigDecimal pricePen, String benefits, LocalDateTime effectiveFrom) {
@@ -49,7 +53,7 @@ public class PlanVersion {
     }
 
     public static PlanVersion snapshot(Plan plan) {
-        return new PlanVersion(
+        PlanVersion snapshot = new PlanVersion(
                 UUID.randomUUID(),
                 plan.getId(),
                 plan.getVersion(),
@@ -59,6 +63,8 @@ public class PlanVersion {
                 plan.getBenefits(),
                 LocalDateTime.now()
         );
+        snapshot.setConditions(plan.getConditions());
+        return snapshot;
     }
 
     public UUID getId() { return id; }

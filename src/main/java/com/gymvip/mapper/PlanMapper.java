@@ -13,7 +13,7 @@ import java.util.UUID;
 public class PlanMapper {
 
     public Plan toEntity(CreatePlanRequest request) {
-        return new Plan(
+        Plan plan = new Plan(
                 UUID.randomUUID(),
                 request.name(),
                 request.description(),
@@ -23,6 +23,8 @@ public class PlanMapper {
                 "ACTIVO",
                 1
         );
+        plan.setConditions(request.conditions());
+        return plan;
     }
 
     public PlanResponse toResponse(Plan plan) {
@@ -36,7 +38,7 @@ public class PlanMapper {
                 plan.getStatus(),
                 plan.getVersion(),
                 plan.getCreatedAt(),
-                plan.getUpdatedAt()
+                plan.getUpdatedAt(), plan.getConditions()
         );
     }
 

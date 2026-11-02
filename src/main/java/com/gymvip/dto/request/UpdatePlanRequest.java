@@ -20,5 +20,9 @@ public record UpdatePlanRequest(
         @Positive(message = "El precio en PEN debe ser mayor a 0")
         BigDecimal pricePen,
 
-        String benefits
-) {}
+        String benefits, String conditions
+) {
+ public UpdatePlanRequest(String name, String description, Integer durationDays, BigDecimal pricePen, String benefits) {
+ this(name, description, durationDays, pricePen, benefits, null);
+ }
+}

@@ -22,5 +22,5 @@ public record ClientDetailResponse(
         List<ClientResponse.DocumentDto> documents,
         LocalDateTime createdAt,
         LocalDateTime updatedAt,
-        long version
+        long version, String notes
 ) {}

@@ -40,10 +40,12 @@ public class ClientEditingService {
                 Long.class,country,type,number,doc.getId())>0)
             throw new DocumentDuplicateException("El documento ya pertenece a otro cliente.");
         var before=new LinkedHashMap<String,String>();
+        before.put("notes",client.getNotes());
         before.put("firstName",client.getFirstName()); before.put("lastName",client.getLastName());
         before.put("countryCode",doc.getCountryCode()); before.put("documentType",doc.getDocumentType());
         before.put("documentNumber",doc.getDocumentNumber()); before.put("phone",client.getPhone()); before.put("email",client.getEmail());
         var after=new LinkedHashMap<String,String>();
+        after.put("notes",request.notes()==null?client.getNotes():nullable(request.notes()));
         after.put("firstName",request.firstName().trim()); after.put("lastName",request.lastName().trim());
         after.put("countryCode",country); after.put("documentType",type); after.put("documentNumber",number);
         after.put("phone",nullable(request.phone()));
@@ -51,6 +53,7 @@ public class ClientEditingService {
         UUID change=UUID.randomUUID(); LocalDateTime at=LocalDateTime.ofInstant(clock.instant(),ZoneOffset.UTC);
         var fields=after.keySet().stream().filter(k -> !Objects.equals(before.get(k),after.get(k))).toList();
         if (fields.isEmpty()) return mapper.toDetailResponse(client);
+        client.setNotes(after.get("notes"));
         client.setFirstName(after.get("firstName")); client.setLastName(after.get("lastName"));
         if (!Objects.equals(client.getPhone(),after.get("phone"))) client.setPhoneVerified(false);
         if (!Objects.equals(client.getEmail(),after.get("email"))) client.setEmailVerified(false);

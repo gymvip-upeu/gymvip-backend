@@ -70,7 +70,9 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                         .requestMatchers("/actuator/health").permitAll()
                         .requestMatchers("/error").permitAll()
-                        .anyRequest().authenticated()
+                        .requestMatchers("/api/v1/member-app/**").hasRole("CLIENTE")
+                        .requestMatchers("/api/v1/auth/me").authenticated()
+                        .anyRequest().hasAnyRole("ADMIN", "RECEPCION")
                 )
                 .addFilterBefore(tokenAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
 
