@@ -10,6 +10,7 @@ WORKDIR /workspace
 # Copiar configuración de Maven Wrapper y dependencias primero para cachear capas
 COPY .mvn/ .mvn/
 COPY mvnw pom.xml ./
+RUN chmod +x mvnw
 RUN ./mvnw dependency:go-offline -B
 
 # Copiar el código fuente y compilar el paquete ejecutable
@@ -39,3 +40,4 @@ EXPOSE 8080
 
 # Iniciar Spring Boot con zona horaria America/Lima y mapeo de puerto dinámico
 ENTRYPOINT ["sh", "-c", "java -Duser.timezone=America/Lima -Dserver.port=${PORT} -jar app.jar"]
+
