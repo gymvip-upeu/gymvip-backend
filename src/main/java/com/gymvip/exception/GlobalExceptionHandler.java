@@ -137,6 +137,12 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(error);
     }
 
+    @ExceptionHandler(org.springframework.web.multipart.MaxUploadSizeExceededException.class)
+    public ResponseEntity<ErrorResponse> handleUploadLimit(Exception ex,HttpServletRequest request) {
+        return ResponseEntity.status(413).body(new ErrorResponse(413,"Payload Too Large","IMAGE_SIZE_LIMIT",
+            "Cada imagen puede pesar hasta 5 MB. Adjunta como máximo 5 imágenes.",request.getRequestURI(),getCorrelationId(request)));
+    }
+
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ErrorResponse> handleGeneral(Exception ex, HttpServletRequest request) {
         ErrorResponse error = new ErrorResponse(
