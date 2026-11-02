@@ -4,6 +4,7 @@ import com.gymvip.entity.Account;
 import com.gymvip.entity.Session;
 import com.gymvip.repository.AccountRepository;
 import com.gymvip.repository.SessionRepository;
+import io.jsonwebtoken.Claims;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -25,10 +26,14 @@ public class TokenAuthenticationFilter extends OncePerRequestFilter {
 
     private final SessionRepository sessionRepository;
     private final AccountRepository accountRepository;
+    private final JwtService jwtService;
 
-    public TokenAuthenticationFilter(SessionRepository sessionRepository, AccountRepository accountRepository) {
+    public TokenAuthenticationFilter(SessionRepository sessionRepository,
+                                   AccountRepository accountRepository,
+                                   JwtService jwtService) {
         this.sessionRepository = sessionRepository;
         this.accountRepository = accountRepository;
+        this.jwtService = jwtService;
     }
 
     @Override
@@ -38,25 +43,40 @@ public class TokenAuthenticationFilter extends OncePerRequestFilter {
         String token = resolveToken(request);
 
         if (token != null) {
-            Optional<Session> sessionOpt = sessionRepository.findById(token);
-            if (sessionOpt.isPresent()) {
-                Session session = sessionOpt.get();
-                if (session.getExpiresAt().isAfter(LocalDateTime.now())) {
-                    Optional<Account> accountOpt = accountRepository.findById(session.getAccountId());
-                    if (accountOpt.isPresent() && "ACTIVO".equalsIgnoreCase(accountOpt.get().getStatus())) {
-                        Account account = accountOpt.get();
-                        List<SimpleGrantedAuthority> authorities = account.getRoles().stream()
-                                .map(role -> new SimpleGrantedAuthority("ROLE_" + role.toUpperCase()))
-                                .collect(Collectors.toList());
+            Optional<Claims> claimsOpt = jwtService.validateAndExtractClaims(token);
+            if (claimsOpt.isPresent()) {
+                Claims claims = claimsOpt.get();
+                String sessionId = claims.getId();
 
-                        UsernamePasswordAuthenticationToken authentication =
-                                new UsernamePasswordAuthenticationToken(account.getEmail(), null, authorities);
-                        SecurityContextHolder.getContext().setAuthentication(authentication);
+                Optional<Session> sessionOpt = sessionRepository.findById(sessionId);
+                if (sessionOpt.isPresent()) {
+                    Session session = sessionOpt.get();
+                    if (session.getExpiresAt().isAfter(LocalDateTime.now())) {
+                        Optional<Account> accountOpt = accountRepository.findById(session.getAccountId());
+                        if (accountOpt.isPresent() && "ACTIVO".equalsIgnoreCase(accountOpt.get().getStatus())) {
+                            Account account = accountOpt.get();
+                            List<SimpleGrantedAuthority> authorities = account.getRoles().stream()
+                                    .map(role -> new SimpleGrantedAuthority("ROLE_" + role.toUpperCase()))
+                                    .collect(Collectors.toList());
+
+                            UsernamePasswordAuthenticationToken authentication =
+                                    new UsernamePasswordAuthenticationToken(account.getEmail(), null, authorities);
+                            SecurityContextHolder.getContext().setAuthentication(authentication);
+                        }
+                    } else {
+                        // Purga reactiva de sesiones expiradas en base de datos
+                        sessionRepository.delete(session);
                     }
-                } else {
-                    // Purga reactiva de sesiones expiradas en base de datos
-                    sessionRepository.delete(session);
                 }
+            } else {
+                // Si el token expiró pero poseía firma auténtica, purgar reactivamente la sesión de base de datos
+                jwtService.extractSessionIdIfValidSignature(token).ifPresent(sessionId -> {
+                    sessionRepository.findById(sessionId).ifPresent(session -> {
+                        if (session.getExpiresAt().isBefore(LocalDateTime.now())) {
+                            sessionRepository.delete(session);
+                        }
+                    });
+                });
             }
         }
 

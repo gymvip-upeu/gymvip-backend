@@ -8,6 +8,7 @@ import com.gymvip.exception.InvalidCredentialsException;
 import com.gymvip.exception.TooManyRequestsException;
 import com.gymvip.repository.AccountRepository;
 import com.gymvip.repository.SessionRepository;
+import com.gymvip.security.JwtService;
 import com.gymvip.security.LoginAttemptService;
 import com.gymvip.service.AuthService;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -27,15 +28,18 @@ public class AuthServiceImpl implements AuthService {
     private final SessionRepository sessionRepository;
     private final PasswordEncoder passwordEncoder;
     private final LoginAttemptService loginAttemptService;
+    private final JwtService jwtService;
 
     public AuthServiceImpl(AccountRepository accountRepository,
                            SessionRepository sessionRepository,
                            PasswordEncoder passwordEncoder,
-                           LoginAttemptService loginAttemptService) {
+                           LoginAttemptService loginAttemptService,
+                           JwtService jwtService) {
         this.accountRepository = accountRepository;
         this.sessionRepository = sessionRepository;
         this.passwordEncoder = passwordEncoder;
         this.loginAttemptService = loginAttemptService;
+        this.jwtService = jwtService;
     }
 
     @Override
@@ -68,20 +72,26 @@ public class AuthServiceImpl implements AuthService {
         // Inicio de sesión exitoso: limpiar historial de intentos fallidos
         loginAttemptService.loginSucceeded(clientKey);
 
-        String token = UUID.randomUUID().toString().replace("-", "");
-        LocalDateTime expiresAt = LocalDateTime.now().plusHours(24);
+        String sessionId = UUID.randomUUID().toString().replace("-", "");
+        LocalDateTime expiresAt = LocalDateTime.now().plusHours(jwtService.getExpirationHours());
 
-        Session session = new Session(token, account.getId(), expiresAt, LocalDateTime.now(), userAgent, ipAddress);
+        Session session = new Session(sessionId, account.getId(), expiresAt, LocalDateTime.now(), userAgent, ipAddress);
         sessionRepository.save(session);
 
-        return new AuthResponse(token, account.getId(), account.getEmail(), account.getRoles());
+        String jwtToken = jwtService.generateToken(account, sessionId, expiresAt);
+
+        return new AuthResponse(jwtToken, account.getId(), account.getEmail(), account.getRoles());
     }
 
     @Override
     @Transactional
     public void logout(String token) {
         if (token != null && !token.isBlank()) {
-            sessionRepository.deleteById(token.trim());
+            String trimmed = token.trim();
+            // Si es un token JWT, extrae el sessionId (claim jti); de lo contrario usa el valor directo
+            String sessionIdToDelete = jwtService.extractSessionIdIfValidSignature(trimmed)
+                    .orElse(trimmed);
+            sessionRepository.deleteById(sessionIdToDelete);
         }
     }
 
