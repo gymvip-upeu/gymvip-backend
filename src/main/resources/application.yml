@@ -9,6 +9,10 @@ jwt:
   expiration-hours: ${JWT_EXPIRATION_HOURS:24}
 
 spring:
+  servlet:
+    multipart:
+      max-file-size: 5MB
+      max-request-size: 27MB
   application:
     name: gymvip-backend
   config:
