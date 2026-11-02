@@ -68,6 +68,7 @@ class LoginSecurityAndRateLimitTest {
     private FilterChain filterChain;
 
     private LoginAttemptService loginAttemptService;
+    private JwtService jwtService;
     private AuthServiceImpl authService;
     private AccountServiceImpl accountService;
     private TokenAuthenticationFilter tokenFilter;
@@ -76,9 +77,10 @@ class LoginSecurityAndRateLimitTest {
     void setUp() {
         SecurityContextHolder.clearContext();
         loginAttemptService = new LoginAttemptService();
-        authService = new AuthServiceImpl(accountRepository, sessionRepository, passwordEncoder, loginAttemptService);
+        jwtService = new JwtService();
+        authService = new AuthServiceImpl(accountRepository, sessionRepository, passwordEncoder, loginAttemptService, jwtService);
         accountService = new AccountServiceImpl(accountRepository, sessionRepository, accountMapper, passwordEncoder, auditService);
-        tokenFilter = new TokenAuthenticationFilter(sessionRepository, accountRepository);
+        tokenFilter = new TokenAuthenticationFilter(sessionRepository, accountRepository, jwtService);
     }
 
     @AfterEach
@@ -195,11 +197,14 @@ class LoginSecurityAndRateLimitTest {
     @Test
     @DisplayName("TokenFilter debe purgar reactivamente sesiones expiradas y no autenticar")
     void testExpiredSessionIsPurgedAndNotAuthenticated() throws ServletException, IOException {
-        String token = "expired_token_123";
-        when(request.getHeader("Authorization")).thenReturn("Bearer " + token);
+        Account account = new Account(UUID.randomUUID(), "test@gymvip.com", "hash", Set.of("ADMIN"), "ACTIVO", false);
+        String sessionId = "expired_session_123";
+        LocalDateTime past = LocalDateTime.now().minusHours(2);
+        String expiredToken = jwtService.generateToken(account, sessionId, past);
+        when(request.getHeader("Authorization")).thenReturn("Bearer " + expiredToken);
 
-        Session expiredSession = new Session(token, UUID.randomUUID(), LocalDateTime.now().minusMinutes(5), LocalDateTime.now().minusHours(1), "agent", "127.0.0.1");
-        when(sessionRepository.findById(token)).thenReturn(Optional.of(expiredSession));
+        Session expiredSession = new Session(sessionId, account.getId(), past, past.minusHours(1), "agent", "127.0.0.1");
+        when(sessionRepository.findById(sessionId)).thenReturn(Optional.of(expiredSession));
 
         tokenFilter.doFilter(request, response, filterChain);
 

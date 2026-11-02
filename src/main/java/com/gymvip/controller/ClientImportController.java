@@ -13,7 +13,7 @@ import org.springframework.web.multipart.MultipartFile;
 
 @RestController
 @RequestMapping("/api/v1/clients/import")
-@PreAuthorize("hasAnyRole('ADMIN', 'RECEPCION')")
+@PreAuthorize("hasRole('ADMIN')")
 public class ClientImportController {
 
     private final ClientImportService clientImportService;

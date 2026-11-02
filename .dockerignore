@@ -1,0 +1,30 @@
+# Archivos de entorno y credenciales sensibles
+.env
+.env.*
+!.env.example
+
+# Directorios de compilación y empaquetado
+target/
+*.jar
+*.war
+
+# Control de versiones
+.git/
+.gitignore
+
+# Archivos de configuración de IDEs y editores
+.idea/
+*.iml
+.vscode/
+.settings/
+.project
+.classpath
+
+# Logs y volcados temporales
+*.log
+logs/
+*.pid
+
+# Sistema operativo
+.DS_Store
+Thumbs.db

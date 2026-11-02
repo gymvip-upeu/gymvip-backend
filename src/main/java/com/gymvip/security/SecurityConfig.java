@@ -68,9 +68,10 @@ public class SecurityConfig {
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/api/v1/auth/login", "/api/v1/auth/logout").permitAll()
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
-                        .requestMatchers("/actuator/health").permitAll()
+                        .requestMatchers("/api/v1/health", "/actuator/health").permitAll()
                         .requestMatchers("/error").permitAll()
                         .requestMatchers("/api/v1/member-app/**").hasRole("CLIENTE")
+                        .requestMatchers("/api/v1/clients/import/**").hasRole("ADMIN")
                         .requestMatchers("/api/v1/auth/me").authenticated()
                         .anyRequest().hasAnyRole("ADMIN", "RECEPCION")
                 )
