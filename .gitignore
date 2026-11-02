@@ -1,0 +1,52 @@
+# ==============================================================================
+# GYM VIP (VIP CENTER FIT) — .gitignore para gymvip-backend
+# ==============================================================================
+
+# 1. Compilación y artefactos de Maven
+target/
+!.mvn/wrapper/maven-wrapper.jar
+!**/src/main/**/target/
+!**/src/test/**/target/
+
+# 2. IDEs y editores de código
+.idea/
+*.iws
+*.iml
+*.ipr
+.vscode/
+.settings/
+.project
+.classpath
+.factorypath
+.apt_generated
+.springBeans
+.sts4-userId
+/nbproject/private/
+/nbbuild/
+/dist/
+/nbdist/
+/.nb-gradle/
+build/
+!**/src/main/**/build/
+!**/src/test/**/build/
+
+# 3. Secretos y variables de entorno privadas
+.env
+.env.*
+!.env.example
+!.env.*.example
+
+# 4. Almacenamiento local de base de datos y respaldos
+data/
+*.mv.db
+*.trace.db
+*.dump
+*.backup
+*.sql.bak
+
+# 5. Registros, logs y temporales del sistema
+logs/
+*.log
+*.tmp
+.DS_Store
+Thumbs.db

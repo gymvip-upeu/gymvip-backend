@@ -1,0 +1,39 @@
+server:
+  port: 0
+
+cors:
+  allowed-origins: "*"
+
+spring:
+  application:
+    name: gymvip-backend-test
+  config:
+    import:
+      - "optional:file:./.env[.properties]"
+  datasource:
+    url: ${TEST_DB_JDBC_URL:jdbc:postgresql://127.0.0.1:55432/gymvip_checks_jorge}
+    driver-class-name: org.postgresql.Driver
+    username: ${TEST_DB_USERNAME:gymvip_local}
+    password: ${TEST_DB_PASSWORD:local-only}
+    hikari:
+      schema: ${TEST_DB_SCHEMA:gymvip_test_jorge}
+      maximum-pool-size: 4
+      minimum-idle: 1
+      connection-timeout: 20000
+      pool-name: GymVipTestPool
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    show-sql: false
+    properties:
+      hibernate:
+        default_schema: ${TEST_DB_SCHEMA:gymvip_test_jorge}
+        jdbc:
+          time_zone: America/Lima
+  flyway:
+    enabled: true
+    default-schema: ${TEST_DB_SCHEMA:gymvip_test_jorge}
+    schemas: ${TEST_DB_SCHEMA:gymvip_test_jorge}
+    create-schemas: true
+    baseline-on-migrate: false
+    locations: classpath:db/migration

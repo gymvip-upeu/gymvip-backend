@@ -1,0 +1,321 @@
+package com.gymvip.controller;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.gymvip.dto.request.CreatePlanRequest;
+import com.gymvip.dto.request.LoginRequest;
+import com.gymvip.dto.request.UpdatePlanRequest;
+import com.gymvip.dto.request.UpdatePlanStatusRequest;
+import com.gymvip.dto.response.AuthResponse;
+import com.gymvip.service.AuthService;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.http.MediaType;
+import org.springframework.test.web.servlet.MockMvc;
+
+import java.math.BigDecimal;
+import java.util.UUID;
+
+import static org.hamcrest.Matchers.*;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
+
+@SpringBootTest
+@AutoConfigureMockMvc
+public class PlanIntegrationTest {
+
+    @Autowired
+    private MockMvc mockMvc;
+
+    @Autowired
+    private ObjectMapper objectMapper;
+
+    @Autowired
+    private AuthService authService;
+
+    @Autowired
+    private com.gymvip.repository.PlanVersionRepository planVersionRepository;
+
+    private String adminToken;
+    private String recepcionToken;
+
+    @BeforeEach
+    void setUp() {
+        AuthResponse adminLogin = authService.login(new LoginRequest("admin@vipcenterfit.pe", "Admin123!"), "127.0.0.1", "test-agent");
+        adminToken = adminLogin.token();
+
+        AuthResponse recepcionLogin = authService.login(new LoginRequest("recepcion@vipcenterfit.pe", "Recepcion123!"), "127.0.0.1", "test-agent");
+        recepcionToken = recepcionLogin.token();
+    }
+
+    @Test
+    @DisplayName("Admin puede crear un plan y consultarlo en el catálogo (HU-06 P0)")
+    void adminCanCreateAndListPlan() throws Exception {
+        String uniqueName = "Plan Crossfit " + UUID.randomUUID().toString().substring(0, 8);
+        CreatePlanRequest request = new CreatePlanRequest(
+                uniqueName,
+                "Acceso exclusivo al box de crossfit",
+                45,
+                new BigDecimal("210.50"),
+                "Coaching grupal y acceso a zona abierta"
+        );
+
+        mockMvc.perform(post("/api/v1/plans")
+                        .header("Authorization", "Bearer " + adminToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.id").isNotEmpty())
+                .andExpect(jsonPath("$.name").value(uniqueName))
+                .andExpect(jsonPath("$.pricePen").value(210.50))
+                .andExpect(jsonPath("$.durationDays").value(45))
+                .andExpect(jsonPath("$.status").value("ACTIVO"));
+
+        // List plans and verify it is returned
+        mockMvc.perform(get("/api/v1/plans")
+                        .header("Authorization", "Bearer " + adminToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$", hasItem(hasEntry("name", uniqueName))));
+    }
+
+    @Test
+    @DisplayName("Recepción NO puede crear un plan (HTTP 403 Forbidden - HU-04)")
+    void recepcionCannotCreatePlan() throws Exception {
+        CreatePlanRequest request = new CreatePlanRequest(
+                "Plan Ilegal Recepcion " + UUID.randomUUID(),
+                "Intento no autorizado",
+                30,
+                new BigDecimal("100.00"),
+                "Ninguno"
+        );
+
+        mockMvc.perform(post("/api/v1/plans")
+                        .header("Authorization", "Bearer " + recepcionToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    @DisplayName("Validación: precio o duración negativa rechaza con 400")
+    void invalidPlanValuesReturnBadRequest() throws Exception {
+        CreatePlanRequest request = new CreatePlanRequest(
+                "Plan Invalido",
+                "Precio negativo",
+                -5,
+                new BigDecimal("-50.00"),
+                "Ninguno"
+        );
+
+        mockMvc.perform(post("/api/v1/plans")
+                        .header("Authorization", "Bearer " + adminToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @DisplayName("Regla de negocio: plan con denominación mensual debe tener exactamente 30 días (HU-06)")
+    void monthlyPlanMustHaveExactly30Days() throws Exception {
+        // Con 31 días debe fallar
+        CreatePlanRequest invalidMonthly = new CreatePlanRequest(
+                "Plan Mensual Invalido " + UUID.randomUUID().toString().substring(0, 6),
+                "Duración incorrecta de 31 días",
+                31,
+                new BigDecimal("130.00"),
+                "Beneficios"
+        );
+
+        mockMvc.perform(post("/api/v1/plans")
+                        .header("Authorization", "Bearer " + adminToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(invalidMonthly)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message", containsString("30 días")));
+
+        // Con 30 días exactos debe ser creado
+        String validName = "Plan Mensual Exacto " + UUID.randomUUID().toString().substring(0, 6);
+        CreatePlanRequest validMonthly = new CreatePlanRequest(
+                validName,
+                "Duración correcta de 30 días exactos",
+                30,
+                new BigDecimal("130.00"),
+                "Beneficios"
+        );
+
+        mockMvc.perform(post("/api/v1/plans")
+                        .header("Authorization", "Bearer " + adminToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(validMonthly)))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.name").value(validName))
+                .andExpect(jsonPath("$.durationDays").value(30));
+    }
+
+    @Test
+    @DisplayName("Edición de plan incrementa número de versión y cambio de estado a INACTIVO (HU-06)")
+    void updatePlanIncrementsVersionAndInactivates() throws Exception {
+        String planName = "Plan Pilates " + UUID.randomUUID().toString().substring(0, 6);
+        CreatePlanRequest createReq = new CreatePlanRequest(
+                planName,
+                "Version inicial",
+                60,
+                new BigDecimal("180.00"),
+                "Acceso"
+        );
+
+        String createResp = mockMvc.perform(post("/api/v1/plans")
+                        .header("Authorization", "Bearer " + adminToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(createReq)))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.version").value(1))
+                .andReturn().getResponse().getContentAsString();
+
+        String planId = objectMapper.readTree(createResp).get("id").asText();
+
+        // Actualizar plan
+        UpdatePlanRequest updateReq = new UpdatePlanRequest(
+                planName + " Actualizado",
+                "Segunda version",
+                60,
+                new BigDecimal("200.00"),
+                "Acceso ampliado"
+        );
+
+        mockMvc.perform(put("/api/v1/plans/" + planId)
+                        .header("Authorization", "Bearer " + adminToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(updateReq)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.version").value(2))
+                .andExpect(jsonPath("$.pricePen").value(200.00));
+
+        // Inactivar plan
+        mockMvc.perform(patch("/api/v1/plans/" + planId + "/status")
+                        .header("Authorization", "Bearer " + adminToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new UpdatePlanStatusRequest("INACTIVO"))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("INACTIVO"));
+    }
+
+    @Test
+    @DisplayName("RECEPCION puede consultar el catálogo de planes (HU-06)")
+    void recepcionCanListPlans() throws Exception {
+        mockMvc.perform(get("/api/v1/plans")
+                        .header("Authorization", "Bearer " + recepcionToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$").isArray());
+    }
+
+    @Test
+    @DisplayName("Regla HU-06-CA-02: Plan con denominación diaria debe durar exactamente 1 día")
+    void dailyPlanMustHaveExactly1Day() throws Exception {
+        // Pase diario con 2 días debe ser rechazado
+        CreatePlanRequest invalidDaily = new CreatePlanRequest(
+                "Pase Diario Promo " + UUID.randomUUID().toString().substring(0, 6),
+                "Pase temporal de 2 días no permitido",
+                2,
+                new BigDecimal("25.00"),
+                "Acceso un solo día"
+        );
+
+        mockMvc.perform(post("/api/v1/plans")
+                        .header("Authorization", "Bearer " + adminToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(invalidDaily)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message", containsString("1 día")));
+
+        // Pase diario con 1 día exacto es aceptado
+        String validDailyName = "Pase Diario VIP " + UUID.randomUUID().toString().substring(0, 6);
+        CreatePlanRequest validDaily = new CreatePlanRequest(
+                validDailyName,
+                "Acceso por un día",
+                1,
+                new BigDecimal("20.00"),
+                "Acceso total por 1 día"
+        );
+
+        mockMvc.perform(post("/api/v1/plans")
+                        .header("Authorization", "Bearer " + adminToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(validDaily)))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.name").value(validDailyName))
+                .andExpect(jsonPath("$.durationDays").value(1));
+    }
+
+    @Test
+    @DisplayName("Regla HU-06-CA-04: Versiones históricas inmutables se conservan al actualizar el plan")
+    void historicalVersionsArePreservedOnUpdate() throws Exception {
+        String baseName = "Plan Crossfit Histórico " + UUID.randomUUID().toString().substring(0, 6);
+        CreatePlanRequest createReq = new CreatePlanRequest(
+                baseName,
+                "Version inicial a S/ 150",
+                30,
+                new BigDecimal("150.00"),
+                "Beneficio base v1"
+        );
+
+        String createResp = mockMvc.perform(post("/api/v1/plans")
+                        .header("Authorization", "Bearer " + adminToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(createReq)))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+
+        UUID planId = UUID.fromString(objectMapper.readTree(createResp).get("id").asText());
+
+        // Actualizar precio a S/ 180 (Versión 2)
+        UpdatePlanRequest updateReq = new UpdatePlanRequest(
+                baseName,
+                "Version 2 con precio ajustado a S/ 180",
+                30,
+                new BigDecimal("180.00"),
+                "Beneficio ampliado v2"
+        );
+
+        mockMvc.perform(put("/api/v1/plans/" + planId)
+                        .header("Authorization", "Bearer " + adminToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(updateReq)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.version").value(2))
+                .andExpect(jsonPath("$.pricePen").value(180.00));
+
+        // Verificar en base de datos que ambas versiones históricas existen y son inmutables
+        var versions = planVersionRepository.findByPlanIdOrderByVersionNumberAsc(planId);
+        org.junit.jupiter.api.Assertions.assertEquals(2, versions.size());
+
+        var v1 = versions.get(0);
+        org.junit.jupiter.api.Assertions.assertEquals(1, v1.getVersionNumber());
+        org.junit.jupiter.api.Assertions.assertEquals(0, new BigDecimal("150.00").compareTo(v1.getPricePen()));
+
+        var v2 = versions.get(1);
+        org.junit.jupiter.api.Assertions.assertEquals(2, v2.getVersionNumber());
+        org.junit.jupiter.api.Assertions.assertEquals(0, new BigDecimal("180.00").compareTo(v2.getPricePen()));
+    }
+
+    @Test
+    void conditionsAreStoredAndPreviousVersionIsPreserved() throws Exception {
+        var request = new CreatePlanRequest("Trimestral condiciones " + UUID.randomUUID(), "Acceso al gimnasio", 90,
+                new BigDecimal("320.00"), "Pesas y cardio", "Horario regular");
+        var body = mockMvc.perform(post("/api/v1/plans").header("Authorization", "Bearer " + adminToken)
+                .contentType(MediaType.APPLICATION_JSON).content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isCreated()).andExpect(jsonPath("$.conditions").value("Horario regular"))
+                .andReturn().getResponse().getContentAsString();
+        var id = UUID.fromString(objectMapper.readTree(body).get("id").asText());
+        var original = planVersionRepository.findFirstByPlanIdOrderByVersionNumberDesc(id).orElseThrow();
+        var updated = new UpdatePlanRequest(request.name(), request.description(), 90, new BigDecimal("350.00"),
+                request.benefits(), "Nuevo horario");
+        mockMvc.perform(put("/api/v1/plans/" + id).header("Authorization", "Bearer " + adminToken)
+                .contentType(MediaType.APPLICATION_JSON).content(objectMapper.writeValueAsString(updated)))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.conditions").value("Nuevo horario"));
+        org.junit.jupiter.api.Assertions.assertEquals("Horario regular", planVersionRepository.findById(original.getId()).orElseThrow().getConditions());
+    }
+}
