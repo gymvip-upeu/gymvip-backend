@@ -29,6 +29,7 @@ public class MemberWorkspaceController {
     }
     @PatchMapping("/{id}/status") @PreAuthorize("hasRole('ADMIN')")
     public Object status(@PathVariable UUID id,@Valid @RequestBody MemberWorkspaceService.StatusChange request,Authentication auth) {return service.status(id,request,auth.getName());}
+    @GetMapping("/{id}/attendance") public Object attendance(@PathVariable UUID id) {return service.attendanceHistory(id);}
     @PostMapping("/{id}/attendance") public Object attend(@PathVariable UUID id,Authentication auth) {return service.checkIn(id,auth.getName());}
     @PostMapping("/{id}/periods/{period}/cancel") @PreAuthorize("hasRole('ADMIN')")
     public Object cancel(@PathVariable UUID id,@PathVariable UUID period,@Valid @RequestBody MemberWorkspaceService.Cancellation request,Authentication auth) {

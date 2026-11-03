@@ -80,6 +80,10 @@ public class MemberWorkspaceService {
         result.put("totalPaidPen",jdbc.queryForObject("SELECT coalesce(sum(amount_pen),0) FROM payment_records r JOIN memberships m ON m.id=r.membership_id WHERE m.client_id=?",java.math.BigDecimal.class,id));
         return result;
     }
+    @Transactional(readOnly=true) public List<Map<String,Object>> attendanceHistory(UUID id) {
+        clients.getClientById(id);
+        return rows("SELECT id,attendance_date,checked_at_utc,recorded_by FROM member_attendance WHERE client_id=? ORDER BY attendance_date DESC, checked_at_utc DESC LIMIT 100",id);
+    }
     private List<Map<String,Object>> rows(String sql,Object... args) {
         var rows=jdbc.queryForList(sql,args);
         rows.forEach(row -> row.replaceAll((key,value) -> value instanceof java.sql.Timestamp timestamp ? timestamp.toLocalDateTime().toString() : value instanceof java.sql.Date date ? date.toLocalDate().toString() : value));

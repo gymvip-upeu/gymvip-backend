@@ -111,4 +111,91 @@ class MemberWorkspaceUnitTest {
 
         assertThrows(ConflictException.class, () -> service.provision(clientId, "admin@vipcenterfit.pe"));
     }
+
+    @Test
+    @DisplayName("checkIn debe registrar asistencia cuando el miembro cuenta con cobertura autorizada (HU-13 T09)")
+    void testCheckInSuccessWhenCoverageAllowed() {
+        UUID clientId = UUID.randomUUID();
+        when(jdbc.query(contains("FOR UPDATE"), any(RowMapper.class), eq(clientId))).thenReturn(List.of(clientId));
+
+        var coverageResponse = new com.gymvip.dto.response.CoverageResponse(
+                clientId, "MAR-123456", "Juan Perez", "DNI 12345678", "ACTIVO", "VIGENTE",
+                "VIGENTE", true, "Cobertura pagada confirmada para hoy.", UUID.randomUUID(), "Plan Mensual",
+                java.time.LocalDate.parse("2026-11-01"), java.time.LocalDate.parse("2026-11-30"),
+                java.time.LocalDate.parse("2026-12-01"), 29L, Instant.now(), "America/Lima", 7
+        );
+        when(coverage.verify(clientId)).thenReturn(coverageResponse);
+        when(jdbc.update(contains("INSERT INTO member_attendance"), any(), eq(clientId), any(), any(), eq("recepcion@vipcenterfit.pe")))
+                .thenReturn(1);
+
+        var result = service.checkIn(clientId, "recepcion@vipcenterfit.pe");
+
+        assertNotNull(result);
+        assertEquals(true, result.get("recorded"));
+        assertEquals("Asistencia registrada.", result.get("message"));
+        verify(audit, times(1)).recordEvent(eq("recepcion@vipcenterfit.pe"), eq("MEMBER_CHECK_IN"), eq("Client"), eq(clientId.toString()), anyString());
+    }
+
+    @Test
+    @DisplayName("checkIn debe ser idempotente y no fallar si el miembro ya registró asistencia hoy (HU-13 T09)")
+    void testCheckInDuplicateTodayHandledGracefully() {
+        UUID clientId = UUID.randomUUID();
+        when(jdbc.query(contains("FOR UPDATE"), any(RowMapper.class), eq(clientId))).thenReturn(List.of(clientId));
+
+        var coverageResponse = new com.gymvip.dto.response.CoverageResponse(
+                clientId, "MAR-123456", "Juan Perez", "DNI 12345678", "ACTIVO", "VIGENTE",
+                "VIGENTE", true, "Cobertura pagada confirmada para hoy.", UUID.randomUUID(), "Plan Mensual",
+                java.time.LocalDate.parse("2026-11-01"), java.time.LocalDate.parse("2026-11-30"),
+                java.time.LocalDate.parse("2026-12-01"), 29L, Instant.now(), "America/Lima", 7
+        );
+        when(coverage.verify(clientId)).thenReturn(coverageResponse);
+        // ON CONFLICT DO NOTHING -> 0 filas insertadas
+        when(jdbc.update(contains("INSERT INTO member_attendance"), any(), eq(clientId), any(), any(), eq("recepcion@vipcenterfit.pe")))
+                .thenReturn(0);
+
+        var result = service.checkIn(clientId, "recepcion@vipcenterfit.pe");
+
+        assertNotNull(result);
+        assertEquals(false, result.get("recorded"));
+        assertEquals("La asistencia de hoy ya estaba registrada.", result.get("message"));
+        verify(audit, never()).recordEvent(any(), eq("MEMBER_CHECK_IN"), any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("checkIn debe lanzar ConflictException si el miembro no cuenta con cobertura activa (HU-13 T07)")
+    void testCheckInFailsWhenCoverageDenied() {
+        UUID clientId = UUID.randomUUID();
+        when(jdbc.query(contains("FOR UPDATE"), any(RowMapper.class), eq(clientId))).thenReturn(List.of(clientId));
+
+        var coverageResponse = new com.gymvip.dto.response.CoverageResponse(
+                clientId, "MAR-123456", "Juan Perez", "DNI 12345678", "ACTIVO", "VENCIDO",
+                "VENCIDO", false, "Sin cobertura pagada para hoy. Requiere renovación.", UUID.randomUUID(), "Plan Mensual",
+                java.time.LocalDate.parse("2026-10-01"), java.time.LocalDate.parse("2026-10-31"),
+                java.time.LocalDate.parse("2026-11-01"), 0L, Instant.now(), "America/Lima", 7
+        );
+        when(coverage.verify(clientId)).thenReturn(coverageResponse);
+
+        ConflictException ex = assertThrows(ConflictException.class,
+                () -> service.checkIn(clientId, "recepcion@vipcenterfit.pe"));
+        assertTrue(ex.getMessage().contains("No se puede registrar asistencia"));
+        verify(jdbc, never()).update(contains("INSERT INTO member_attendance"), any(), any(), any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("attendanceHistory debe retornar historial de asistencias ordenadas por fecha (HU-13 T10)")
+    void testAttendanceHistoryReturnsRows() {
+        UUID clientId = UUID.randomUUID();
+        when(clients.getClientById(clientId)).thenReturn(mock(com.gymvip.dto.response.ClientDetailResponse.class));
+
+        var mockRows = new ArrayList<Map<String, Object>>();
+        mockRows.add(new HashMap<>(Map.of("id", UUID.randomUUID(), "attendance_date", "2026-11-01", "checked_at_utc", "2026-11-01T12:00:00", "recorded_by", "recepcion@vipcenterfit.pe")));
+        when(jdbc.queryForList(contains("FROM member_attendance WHERE client_id=?"), eq(clientId)))
+                .thenReturn(mockRows);
+
+        var history = service.attendanceHistory(clientId);
+
+        assertNotNull(history);
+        assertEquals(1, history.size());
+        assertEquals("2026-11-01", history.get(0).get("attendance_date"));
+    }
 }
