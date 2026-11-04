@@ -21,6 +21,9 @@ public class MemberWorkspaceService {
     public record StatusChange(@NotBlank @Pattern(regexp="ACTIVO|INACTIVO") String status, @NotNull Long version) {}
     public record Cancellation(@NotBlank @Size(max=500) String reason) {}
     public record PasswordChange(@NotBlank String currentPassword, @NotBlank @Size(min=12,max=72) String newPassword) {}
+    public record FavoriteRequest(@NotBlank String productId, @NotBlank String productTitle, @NotBlank String productCategory, @Size(max=250) String notes) {}
+    public record FavoriteNoteUpdate(@Size(max=250) String notes) {}
+    public record DynamicQrResponse(String token, String memberCode, String memberName, LocalDateTime expiresAtUtc, int ttlSeconds, String disclaimer) {}
     @jakarta.persistence.PersistenceContext private jakarta.persistence.EntityManager em;
     private final JdbcTemplate jdbc;
     private final ClientService clients;
@@ -136,4 +139,57 @@ public class MemberWorkspaceService {
         audit.recordEvent(actor,"CHANGE_MEMBER_PASSWORD","Account",account.get("id").toString(),"Contraseña actualizada y sesiones cerradas.");
     }
     @Transactional(readOnly=true) public boolean mustChange(String actor) { return Boolean.TRUE.equals(jdbc.queryForObject("SELECT must_change_password FROM accounts WHERE email=?",Boolean.class,actor)); }
+
+    @Transactional(readOnly=true)
+    public List<Map<String,Object>> listFavorites(UUID clientId) {
+        return rows("SELECT id, product_id, product_title, product_category, notes, created_at_utc, updated_at_utc FROM member_favorites WHERE client_id = ? ORDER BY created_at_utc DESC", clientId);
+    }
+
+    @Transactional
+    public Map<String,Object> addFavorite(UUID clientId, FavoriteRequest request) {
+        lockClient(clientId);
+        var existing = jdbc.queryForList("SELECT id FROM member_favorites WHERE client_id=? AND product_id=?", clientId, request.productId());
+        if (!existing.isEmpty()) {
+            throw new ConflictException("El producto ya se encuentra en tus favoritos.");
+        }
+        UUID id = UUID.randomUUID();
+        jdbc.update("INSERT INTO member_favorites(id, client_id, product_id, product_title, product_category, notes, created_at_utc, updated_at_utc) VALUES (?, ?, ?, ?, ?, ?, ?, ?)", id, clientId, request.productId(), request.productTitle(), request.productCategory(), request.notes(), now(), now());
+        return Map.of("id", id, "productId", request.productId(), "saved", true);
+    }
+
+    @Transactional
+    public Map<String,Object> updateFavoriteNote(UUID clientId, UUID favoriteId, String notes) {
+        lockClient(clientId);
+        int updated = jdbc.update("UPDATE member_favorites SET notes = ?, updated_at_utc = ? WHERE id = ? AND client_id = ?", notes, now(), favoriteId, clientId);
+        if (updated == 0) {
+            throw new ResourceNotFoundException("Favorito no encontrado.");
+        }
+        return Map.of("id", favoriteId, "updated", true);
+    }
+
+    @Transactional
+    public Map<String,Object> removeFavorite(UUID clientId, UUID favoriteId) {
+        lockClient(clientId);
+        int deleted = jdbc.update("DELETE FROM member_favorites WHERE id = ? AND client_id = ?", favoriteId, clientId);
+        if (deleted == 0) {
+            throw new ResourceNotFoundException("Favorito no encontrado.");
+        }
+        return Map.of("id", favoriteId, "deleted", true);
+    }
+
+    @Transactional
+    public DynamicQrResponse generateDynamicQr(UUID clientId) {
+        lockClient(clientId);
+        var row = jdbc.queryForMap("SELECT member_code, first_name, last_name, status FROM clients WHERE id=?", clientId);
+        if (!"ACTIVO".equals(row.get("status"))) {
+            throw new ConflictException("Cuenta de miembro inhabilitada.");
+        }
+        String memberCode = row.get("member_code").toString();
+        String memberName = row.get("first_name") + " " + row.get("last_name");
+        String secretNonce = UUID.randomUUID().toString().replace("-", "");
+        LocalDateTime expires = now().plusSeconds(60);
+        String token = "gymvip://access/v1?cid=" + clientId + "&code=" + memberCode + "&nonce=" + secretNonce + "&exp=" + expires.toEpochSecond(ZoneOffset.UTC);
+        jdbc.update("INSERT INTO member_dynamic_qr_tokens(id, client_id, token, expires_at_utc, created_at_utc) VALUES (?, ?, ?, ?, ?)", UUID.randomUUID(), clientId, token, expires, now());
+        return new DynamicQrResponse(token, memberCode, memberName, expires, 60, "No es autorización de ingreso. Presente este código en mostrador para verificación.");
+    }
 }
