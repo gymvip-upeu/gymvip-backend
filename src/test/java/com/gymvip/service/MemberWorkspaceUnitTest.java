@@ -198,4 +198,51 @@ class MemberWorkspaceUnitTest {
         assertEquals(1, history.size());
         assertEquals("2026-11-01", history.get(0).get("attendance_date"));
     }
+
+    @Test
+    @DisplayName("addFavorite debe agregar producto a favoritos del socio (HU-41)")
+    void testAddFavoriteSuccess() {
+        UUID clientId = UUID.randomUUID();
+        when(jdbc.query(contains("FOR UPDATE"), any(RowMapper.class), eq(clientId))).thenReturn(List.of(clientId));
+        when(jdbc.queryForList(contains("SELECT id FROM member_favorites"), eq(clientId), eq("PROD-001"))).thenReturn(List.of());
+        when(jdbc.update(contains("INSERT INTO member_favorites"), any(), eq(clientId), eq("PROD-001"), eq("Proteina Whey"), eq("Suplementos"), eq("Tomar post-entreno"), any(), any())).thenReturn(1);
+
+        var req = new MemberWorkspaceService.FavoriteRequest("PROD-001", "Proteina Whey", "Suplementos", "Tomar post-entreno");
+        var result = service.addFavorite(clientId, req);
+
+        assertNotNull(result);
+        assertEquals(true, result.get("saved"));
+        assertEquals("PROD-001", result.get("productId"));
+    }
+
+    @Test
+    @DisplayName("addFavorite debe lanzar ConflictException si el producto ya esta en favoritos (HU-41)")
+    void testAddFavoriteThrowsConflictWhenDuplicate() {
+        UUID clientId = UUID.randomUUID();
+        when(jdbc.query(contains("FOR UPDATE"), any(RowMapper.class), eq(clientId))).thenReturn(List.of(clientId));
+        when(jdbc.queryForList(contains("SELECT id FROM member_favorites"), eq(clientId), eq("PROD-001"))).thenReturn(List.of(Map.of("id", UUID.randomUUID())));
+
+        var req = new MemberWorkspaceService.FavoriteRequest("PROD-001", "Proteina Whey", "Suplementos", "Tomar post-entreno");
+        assertThrows(ConflictException.class, () -> service.addFavorite(clientId, req));
+    }
+
+    @Test
+    @DisplayName("generateDynamicQr debe generar token de acceso con TTL de 60s (HU-13)")
+    void testGenerateDynamicQrSuccess() {
+        UUID clientId = UUID.randomUUID();
+        when(jdbc.query(contains("FOR UPDATE"), any(RowMapper.class), eq(clientId))).thenReturn(List.of(clientId));
+        when(jdbc.queryForMap(contains("SELECT member_code, first_name, last_name, status FROM clients"), eq(clientId)))
+                .thenReturn(Map.of("member_code", "CLI-999", "first_name", "Valeria", "last_name", "Mendoza", "status", "ACTIVO"));
+        when(jdbc.update(contains("INSERT INTO member_dynamic_qr_tokens"), any(), eq(clientId), anyString(), any(), any())).thenReturn(1);
+
+        var qr = service.generateDynamicQr(clientId);
+
+        assertNotNull(qr);
+        assertEquals("CLI-999", qr.memberCode());
+        assertEquals("Valeria Mendoza", qr.memberName());
+        assertEquals(60, qr.ttlSeconds());
+        assertTrue(qr.token().startsWith("gymvip://access/v1?cid="));
+        assertTrue(qr.token().contains("code=CLI-999"));
+        assertTrue(qr.disclaimer().contains("No es autorizaci"));
+    }
 }
