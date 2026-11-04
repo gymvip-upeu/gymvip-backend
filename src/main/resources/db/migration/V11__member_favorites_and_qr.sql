@@ -1,4 +1,4 @@
--- V10: Favoritos del Socio en Catálogo (HU-41) y Tokens de Credencial QR Dinámica (HU-13)
+-- V11: Favoritos del Socio en Catálogo (HU-41) y Tokens de Credencial QR Dinámica (HU-13)
 
 CREATE TABLE IF NOT EXISTS member_favorites (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -24,3 +24,4 @@ CREATE TABLE IF NOT EXISTS member_dynamic_qr_tokens (
 );
 
 CREATE INDEX IF NOT EXISTS idx_member_qr_token ON member_dynamic_qr_tokens(token);
+
