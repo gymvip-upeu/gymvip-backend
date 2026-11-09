@@ -20,7 +20,13 @@ public final class CatalogDtos {
     public record Image(UUID id,String filename,String mediaType) {}
     public record Supplement(UUID id,String name,String brand,String category,String presentation,String netContent,
         String flavor,String description,String ingredients,BigDecimal pricePen,String availability,boolean published,
-        long version,LocalDateTime updatedAtUtc,List<Image> images) {}
+        long version,LocalDateTime updatedAtUtc,List<Image> images,String barcode) {
+        public Supplement(UUID id,String name,String brand,String category,String presentation,String netContent,
+            String flavor,String description,String ingredients,BigDecimal pricePen,String availability,boolean published,
+            long version,LocalDateTime updatedAtUtc,List<Image> images) {
+            this(id,name,brand,category,presentation,netContent,flavor,description,ingredients,pricePen,availability,published,version,updatedAtUtc,images,null);
+        }
+    }
     public record StateInput(@NotNull Long version,
         @NotBlank @Pattern(regexp="DISPONIBLE|AGOTADO") String availability, boolean published) {}
     public record PromotionInput(@NotNull UUID supplementId,@NotBlank @Size(max=160) String name,

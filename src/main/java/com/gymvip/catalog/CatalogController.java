@@ -91,4 +91,16 @@ public class CatalogController {
     @PostMapping("/promotions/{id}/deactivate") @PreAuthorize("hasRole('ADMIN')")
     public Promotion deactivate(@PathVariable UUID id,@Valid @RequestBody PromotionCancellation input,Authentication auth) {return service.deactivatePromotion(id,input,auth.getName());}
     @GetMapping("/promotions/{id}/history") @PreAuthorize("hasRole('ADMIN')") public Object promotionHistory(@PathVariable UUID id,@RequestParam(defaultValue="0") int page) {return service.promotionHistory(id,page);}
+
+    @GetMapping("/supplements/scan/{code}")
+    @PreAuthorize("hasAnyRole('ADMIN','RECEPCION')")
+    public Supplement scanProduct(@PathVariable String code) {
+        return service.scan(code);
+    }
+
+    @PatchMapping("/supplements/{id}/barcode")
+    @PreAuthorize("hasRole('ADMIN')")
+    public Supplement updateBarcode(@PathVariable UUID id, @RequestBody Map<String, String> body, Authentication auth) {
+        return service.updateBarcode(id, body != null ? body.get("barcode") : null, auth.getName());
+    }
 }

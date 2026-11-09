@@ -33,7 +33,9 @@ public class CatalogService {
         UUID id=r.getObject("id",UUID.class);
         var photos=jdbc.query("SELECT id,filename,media_type FROM supplement_images WHERE supplement_id=? AND active ORDER BY position,id",
             (image,n)->new Image(image.getObject(1,UUID.class),image.getString(2),image.getString(3)),id);
-        return new Supplement(id,r.getString("name"),r.getString("brand"),r.getString("category"),r.getString("presentation"),r.getString("net_content"),r.getString("flavor"),r.getString("description"),r.getString("ingredients"),r.getBigDecimal("price_pen"),r.getString("availability"),r.getBoolean("published"),r.getLong("version"),r.getObject("updated_at_utc",LocalDateTime.class),photos);
+        String barcode = null;
+        try { barcode = r.getString("barcode"); } catch (Exception ignoredCol) {}
+        return new Supplement(id,r.getString("name"),r.getString("brand"),r.getString("category"),r.getString("presentation"),r.getString("net_content"),r.getString("flavor"),r.getString("description"),r.getString("ingredients"),r.getBigDecimal("price_pen"),r.getString("availability"),r.getBoolean("published"),r.getLong("version"),r.getObject("updated_at_utc",LocalDateTime.class),photos,barcode);
     }
     @Transactional(readOnly=true) public Supplement supplement(UUID id,boolean customer) {
         return jdbc.query("SELECT * FROM supplements WHERE id=?"+(customer?" AND published":""),this::mapSupplement,id).stream().findFirst().orElseThrow(()->new ResourceNotFoundException("Suplemento no encontrado."));
@@ -175,5 +177,41 @@ public class CatalogService {
     @Transactional(readOnly=true) public List<Change> promotionHistory(UUID id,int page) {
         paging(page,20);promotion(id,false);
         return jdbc.query("SELECT version,actor,changed_at_utc,snapshot::text FROM promotion_changes WHERE promotion_id=? ORDER BY version DESC LIMIT 20 OFFSET ?",(r,n)->new Change(r.getLong(1),r.getString(2),r.getObject(3,LocalDateTime.class),r.getString(4)),id,(long)page*20);
+    }
+
+    @Transactional(readOnly=true)
+    public Supplement scan(String code) {
+        String cleanCode = clean(code);
+        if (cleanCode.isEmpty()) throw new IllegalArgumentException("Código de producto o código de barras no provisto.");
+
+        var byBarcode = jdbc.query("SELECT * FROM supplements WHERE barcode = ?", this::mapSupplement, cleanCode);
+        if (!byBarcode.isEmpty()) return byBarcode.get(0);
+
+        try {
+            UUID id = UUID.fromString(cleanCode);
+            var byId = jdbc.query("SELECT * FROM supplements WHERE id = ?", this::mapSupplement, id);
+            if (!byId.isEmpty()) return byId.get(0);
+        } catch (IllegalArgumentException ignored) {}
+
+        var byName = jdbc.query("SELECT * FROM supplements WHERE lower(name) = lower(?)", this::mapSupplement, cleanCode);
+        if (!byName.isEmpty()) return byName.get(0);
+
+        throw new ResourceNotFoundException("No se encontró ningún producto con el código o código de barras: " + cleanCode);
+    }
+
+    @Transactional
+    public Supplement updateBarcode(UUID id, String barcode, String actor) {
+        Supplement existing = supplement(id, false);
+        String cleanBarcode = clean(barcode);
+        if (!cleanBarcode.isEmpty()) {
+            Long count = jdbc.queryForObject("SELECT count(*) FROM supplements WHERE barcode = ? AND id <> ?", Long.class, cleanBarcode, id);
+            if (count != null && count > 0) {
+                throw new ConflictException("El código de barras " + cleanBarcode + " ya está asignado a otro producto.");
+            }
+        }
+        jdbc.update("UPDATE supplements SET barcode = ?, version = version + 1, updated_at_utc = ? WHERE id = ?", cleanBarcode.isEmpty() ? null : cleanBarcode, now(), id);
+        Supplement updated = supplement(id, false);
+        audit.recordEvent(actor, "UPDATE_SUPPLEMENT_BARCODE", "Supplement", id.toString(), "Código de barras: " + cleanBarcode);
+        return updated;
     }
 }

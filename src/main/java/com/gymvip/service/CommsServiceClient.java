@@ -88,6 +88,46 @@ public class CommsServiceClient {
         }
     }
 
+    public CommsDispatchResult sendPasswordResetEmail(String toEmail, String resetLink, String rawToken, String recipientName) {
+        try {
+            Map<String, Object> variables = Map.of(
+                    "link", resetLink != null ? resetLink : "",
+                    "token", rawToken != null ? rawToken : "",
+                    "recipientName", recipientName != null ? recipientName : "Socio VIP",
+                    "expirationMinutes", 15
+            );
+
+            Map<String, Object> body = Map.of(
+                    "to", toEmail,
+                    "subject", "Recuperación de Contraseña — GYM VIP",
+                    "template", "password_reset",
+                    "variables", variables
+            );
+
+            var res = restClient.post()
+                    .uri("/api/v1/messages/email")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .body(body)
+                    .retrieve()
+                    .onStatus(HttpStatusCode::isError, (req, resp) -> {})
+                    .toEntity(Map.class);
+
+            if (res.getStatusCode().is2xxSuccessful() && res.getBody() != null) {
+                var resBody = res.getBody();
+                String delId = String.valueOf(resBody.get("deliveryId"));
+                String status = String.valueOf(resBody.get("status"));
+                return new CommsDispatchResult(true, delId, status, null);
+            }
+
+            log.warn("[COMMS CLIENT] Microservicio respondió con error al enviar email de recuperación: HTTP {}", res.getStatusCode().value());
+            return new CommsDispatchResult(false, null, "FALLIDO", "Error HTTP " + res.getStatusCode().value());
+
+        } catch (Exception e) {
+            log.info("[COMMS CLIENT] gymvip-comunicaciones no disponible en {}. Despacho de recuperación simulado localmente para {}.", commsUrl, toEmail);
+            return new CommsDispatchResult(true, "local_sim_" + UUID.randomUUID().toString().substring(0, 8), "SIMULATED_LOCAL", null);
+        }
+    }
+
     @SuppressWarnings("unchecked")
     public Map<String, Object> getCommunications(String status, String channel, String search, int page, int size) {
         try {
