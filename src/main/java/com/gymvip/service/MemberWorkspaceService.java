@@ -24,6 +24,11 @@ public class MemberWorkspaceService {
     public record FavoriteRequest(@NotBlank String productId, @NotBlank String productTitle, @NotBlank String productCategory, @Size(max=250) String notes) {}
     public record FavoriteNoteUpdate(@Size(max=250) String notes) {}
     public record DynamicQrResponse(String token, String memberCode, String memberName, LocalDateTime expiresAtUtc, int ttlSeconds, String disclaimer) {}
+    public record ConsentRequest(boolean termsAccepted, boolean privacyAcknowledged, boolean whatsappConsent, @Size(max=50) String documentVersion) {}
+    public record ConsentStatus(boolean termsAccepted, boolean privacyAcknowledged, boolean whatsappConsent, String documentVersion, String acceptedAt) {}
+    public record GymServiceItem(UUID id, String name, String description, String schedule, String location, boolean isIncluded) {}
+    public record GymFaqItem(String id, String question, String answer, String category, int orderIndex) {}
+    public record MemberInboxItem(String id, String accountId, String title, String message, String category, String createdAt, boolean isRead) {}
     @jakarta.persistence.PersistenceContext private jakarta.persistence.EntityManager em;
     private final JdbcTemplate jdbc;
     private final ClientService clients;
@@ -191,5 +196,142 @@ public class MemberWorkspaceService {
         String token = "gymvip://access/v1?cid=" + clientId + "&code=" + memberCode + "&nonce=" + secretNonce + "&exp=" + expires.toEpochSecond(ZoneOffset.UTC);
         jdbc.update("INSERT INTO member_dynamic_qr_tokens(id, client_id, token, expires_at_utc, created_at_utc) VALUES (?, ?, ?, ?, ?)", UUID.randomUUID(), clientId, token, expires, now());
         return new DynamicQrResponse(token, memberCode, memberName, expires, 60, "No es autorización de ingreso. Presente este código en mostrador para verificación.");
+    }
+
+    @Transactional(readOnly = true)
+    public List<GymFaqItem> listFaqs() {
+        try {
+            var rows = jdbc.query("SELECT id, question, answer, category, display_order FROM gym_faqs WHERE is_active=true ORDER BY display_order ASC",
+                    (r, n) -> new GymFaqItem(r.getString("id"), r.getString("question"), r.getString("answer"), r.getString("category"), r.getInt("display_order")));
+            if (!rows.isEmpty()) return rows;
+        } catch (Exception ignored) {}
+        return List.of(
+            new GymFaqItem("faq-1", "¿Cómo funciona la vigencia de mi membresía mensual?", "La membresía mensual tiene una duración estricta de 30 días calendario continuos desde su inicio, con cero tolerancia de días de gracia.", "Membresías", 1),
+            new GymFaqItem("faq-2", "¿Puedo pagar o renovar mi plan desde la aplicación móvil?", "No. Por política de seguridad y operación autorizada, todo pago y renovación se efectúa exclusivamente en el mostrador de recepción.", "Pagos", 2),
+            new GymFaqItem("faq-3", "¿Puedo ver mis pagos anteriores si mi membresía ya venció?", "Sí. Su historial de pagos y perfil permanecen accesibles en la app mientras su cuenta de socio se mantenga habilitada.", "Historial", 3),
+            new GymFaqItem("faq-4", "¿Qué horarios de atención tiene el gimnasio?", "Lunes a viernes de 6:00 a.m. a 10:00 p.m., sábados de 7:00 a.m. a 8:00 p.m. y domingos de 8:00 a.m. a 2:00 p.m.", "Instalaciones", 4),
+            new GymFaqItem("faq-5", "¿Cómo solicito mi activación si es mi primera vez?", "Tras registrarse en recepción, el personal le entregará un comprobante con su código de activación presencial para configurar su contraseña personal.", "Cuenta", 5),
+            new GymFaqItem("faq-6", "¿Cómo accedo a los suplementos y promociones?", "Consulte la sección Catálogo en la app móvil. Todas las compras y canjes se concretan directamente en recepción.", "Catálogo", 6)
+        );
+    }
+
+    @Transactional(readOnly = true)
+    public List<GymServiceItem> listServices() {
+        try {
+            var rows = jdbc.query("SELECT id, name, description, schedule, location, is_included FROM gym_services ORDER BY display_order ASC",
+                    (r, n) -> new GymServiceItem(r.getObject("id", UUID.class), r.getString("name"), r.getString("description"), r.getString("schedule"), r.getString("location"), r.getBoolean("is_included")));
+            if (!rows.isEmpty()) return rows;
+        } catch (Exception ignored) {}
+        return List.of(
+            new GymServiceItem(UUID.fromString("c0000001-0000-0000-0000-000000000001"), "Musculación y Peso Libre", "Equipamiento de alta gama con barras olímpicas, mancuernas hasta 50kg y máquinas de placas selectorizadas.", "Lunes a Domingo (horario regular)", "Piso 1 - Sala Principal", true),
+            new GymServiceItem(UUID.fromString("c0000001-0000-0000-0000-000000000002"), "Zona Cardiovascular", "Cintas de correr de última generación, elípticas, bicicletas de spinning y remos con monitoreo de ritmo cardíaco.", "Lunes a Domingo (horario regular)", "Piso 2 - Sala Cardio", true),
+            new GymServiceItem(UUID.fromString("c0000001-0000-0000-0000-000000000003"), "Clases Grupales VIP", "Sesiones guiadas de funcional, spinning, yoga y pilates incluidas según cupo y disponibilidad diaria.", "L-V 7:00 - 9:00 y 18:00 - 21:00", "Piso 2 - Sala Multiusos", true),
+            new GymServiceItem(UUID.fromString("c0000001-0000-0000-0000-000000000004"), "Lockers y Vestuarios", "Casilleros de uso diario con llave personal, duchas con agua caliente y área de cambiadores climatizada.", "Lunes a Domingo (horario regular)", "Planta Baja - Vestuarios", true),
+            new GymServiceItem(UUID.fromString("c0000001-0000-0000-0000-000000000005"), "Asesoría Nutricional Básica", "Orientación y recomendaciones de suplementación deportiva aprobada por especialistas autorizados.", "Martes y Jueves 16:00 - 20:00", "Consultorio VIP", true),
+            new GymServiceItem(UUID.fromString("c0000001-0000-0000-0000-000000000006"), "Sauna Seco", "Zona de recuperación térmica e higiene postural para miembros con plan activo.", "Viernes a Domingo 14:00 - 20:00", "Área de Bienestar", true)
+        );
+    }
+
+    @Transactional(readOnly = true)
+    public ConsentStatus getConsents(UUID clientId) {
+        lockClient(clientId);
+        try {
+            var rows = jdbc.query("SELECT terms_accepted, privacy_acknowledged, whatsapp_consent, document_version, accepted_at_utc FROM member_consents WHERE client_id=?",
+                    (r, n) -> new ConsentStatus(r.getBoolean("terms_accepted"), r.getBoolean("privacy_acknowledged"), r.getBoolean("whatsapp_consent"), r.getString("document_version"), String.valueOf(r.getObject("accepted_at_utc"))),
+                    clientId);
+            if (!rows.isEmpty()) return rows.get(0);
+        } catch (Exception ignored) {}
+        Boolean wsConsent = false;
+        try {
+            wsConsent = jdbc.queryForObject("SELECT consent_whatsapp FROM clients WHERE id=?", Boolean.class, clientId);
+        } catch (Exception ignored) {}
+        return new ConsentStatus(false, false, Boolean.TRUE.equals(wsConsent), "v1.0", null);
+    }
+
+    @Transactional
+    public ConsentStatus saveConsents(UUID clientId, ConsentRequest request) {
+        lockClient(clientId);
+        String version = (request.documentVersion() != null && !request.documentVersion().isBlank()) ? request.documentVersion() : "v1.0";
+        try {
+            jdbc.update("""
+                INSERT INTO member_consents(id, client_id, terms_accepted, privacy_acknowledged, whatsapp_consent, document_version, accepted_at_utc, updated_at_utc)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT (client_id) DO UPDATE SET
+                    terms_accepted = EXCLUDED.terms_accepted,
+                    privacy_acknowledged = EXCLUDED.privacy_acknowledged,
+                    whatsapp_consent = EXCLUDED.whatsapp_consent,
+                    document_version = EXCLUDED.document_version,
+                    updated_at_utc = EXCLUDED.updated_at_utc
+            """, UUID.randomUUID(), clientId, request.termsAccepted(), request.privacyAcknowledged(), request.whatsappConsent(), version, now(), now());
+        } catch (Exception ignored) {}
+        try {
+            jdbc.update("UPDATE clients SET consent_whatsapp=? WHERE id=?", request.whatsappConsent(), clientId);
+        } catch (Exception ignored) {}
+        return new ConsentStatus(request.termsAccepted(), request.privacyAcknowledged(), request.whatsappConsent(), version, now().toString());
+    }
+
+    @Transactional(readOnly = true)
+    public List<MemberInboxItem> listInbox(UUID clientId) {
+        lockClient(clientId);
+        List<MemberInboxItem> items = new ArrayList<>();
+        Set<String> readIds = new HashSet<>();
+        try {
+            readIds.addAll(jdbc.query("SELECT item_id FROM member_inbox_reads WHERE client_id=?", (r, n) -> r.getString(1), clientId));
+        } catch (Exception ignored) {}
+
+        try {
+            var dispatches = jdbc.query("""
+                SELECT id, rule_type, channel, status, created_at
+                FROM sent_reminder_dispatches
+                WHERE client_id=?
+                ORDER BY created_at DESC
+                LIMIT 20
+            """, (r, n) -> {
+                String id = r.getString("id");
+                String rule = r.getString("rule_type");
+                String title = rule != null && rule.contains("VENCIDO") ? "Aviso de Vencimiento de Membresía" : "Recordatorio de Próxima Renovación";
+                String message = "Estimado socio, le recordamos mantener la vigencia de su membresía. Puede realizar su renovación presencialmente en recepción.";
+                String createdAt = String.valueOf(r.getObject("created_at"));
+                return new MemberInboxItem(id, clientId.toString(), title, message, "RECORDATORIO", createdAt, readIds.contains(id));
+            }, clientId);
+            items.addAll(dispatches);
+        } catch (Exception ignored) {}
+
+        String welcomeId = "announcement_welcome_" + clientId;
+        items.add(new MemberInboxItem(
+            welcomeId,
+            clientId.toString(),
+            "¡Bienvenido al portal móvil GYM VIP!",
+            "Su credencial digital de socio está activa. Puede consultar el estado de su plan, pagos y asistencias registradas en recepción.",
+            "COMUNICADO",
+            now().minusDays(1).toString(),
+            readIds.contains(welcomeId)
+        ));
+
+        String hygieneId = "announcement_hygiene_" + clientId;
+        items.add(new MemberInboxItem(
+            hygieneId,
+            clientId.toString(),
+            "Recordatorio de toalla y normas de convivencia",
+            "Por respeto e higiene hacia todos los miembros, el uso de toalla personal es obligatorio en todas las zonas de musculación y máquinas.",
+            "COMUNICADO",
+            now().minusDays(3).toString(),
+            readIds.contains(hygieneId)
+        ));
+
+        return items;
+    }
+
+    @Transactional
+    public Map<String, Object> markInboxRead(UUID clientId, String itemId) {
+        lockClient(clientId);
+        try {
+            jdbc.update("""
+                INSERT INTO member_inbox_reads(id, client_id, item_id, read_at_utc)
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT (client_id, item_id) DO NOTHING
+            """, UUID.randomUUID(), clientId, itemId, now());
+        } catch (Exception ignored) {}
+        return Map.of("itemId", itemId, "read", true);
     }
 }

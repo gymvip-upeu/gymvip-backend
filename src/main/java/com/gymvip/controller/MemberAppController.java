@@ -85,4 +85,40 @@ public class MemberAppController {
         }
         return service.removeFavorite(service.ownClient(auth.getName()), id);
     }
+
+    @GetMapping("/faqs")
+    public Object faqs() {
+        return service.listFaqs();
+    }
+
+    @GetMapping("/services")
+    public Object services() {
+        return service.listServices();
+    }
+
+    @GetMapping("/inbox")
+    public Object inbox(Authentication auth) {
+        if (service.mustChange(auth.getName())) {
+            throw new org.springframework.security.access.AccessDeniedException("Cambia la contraseña temporal antes de continuar.");
+        }
+        return service.listInbox(service.ownClient(auth.getName()));
+    }
+
+    @PostMapping("/inbox/{id}/read")
+    public Object markInboxRead(@PathVariable String id, Authentication auth) {
+        if (service.mustChange(auth.getName())) {
+            throw new org.springframework.security.access.AccessDeniedException("Cambia la contraseña temporal antes de continuar.");
+        }
+        return service.markInboxRead(service.ownClient(auth.getName()), id);
+    }
+
+    @GetMapping("/consents")
+    public Object getConsents(Authentication auth) {
+        return service.getConsents(service.ownClient(auth.getName()));
+    }
+
+    @PostMapping("/consents")
+    public Object saveConsents(@Valid @RequestBody MemberWorkspaceService.ConsentRequest request, Authentication auth) {
+        return service.saveConsents(service.ownClient(auth.getName()), request);
+    }
 }

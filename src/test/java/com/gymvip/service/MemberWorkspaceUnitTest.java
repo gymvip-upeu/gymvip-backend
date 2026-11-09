@@ -245,4 +245,57 @@ class MemberWorkspaceUnitTest {
         assertTrue(qr.token().contains("code=CLI-999"));
         assertTrue(qr.disclaimer().contains("No es autorizaci"));
     }
+
+    @Test
+    @DisplayName("listFaqs debe retornar las FAQs oficiales del gimnasio (HU-28)")
+    void testListFaqs() {
+        var faqs = service.listFaqs();
+        assertNotNull(faqs);
+        assertFalse(faqs.isEmpty());
+        assertTrue(faqs.stream().anyMatch(f -> f.question().contains("vigencia")));
+    }
+
+    @Test
+    @DisplayName("listServices debe retornar los servicios e instalaciones publicadas (HU-33)")
+    void testListServices() {
+        var services = service.listServices();
+        assertNotNull(services);
+        assertFalse(services.isEmpty());
+        assertTrue(services.stream().anyMatch(s -> s.name().contains("Musculación")));
+    }
+
+    @Test
+    @DisplayName("getConsents y saveConsents deben persistir y sincronizar consentimiento de WhatsApp (HU-05, HU-15)")
+    void testConsentsCycle() {
+        UUID clientId = UUID.randomUUID();
+        when(jdbc.query(contains("FOR UPDATE"), any(RowMapper.class), eq(clientId))).thenReturn(List.of(clientId));
+
+        var initial = service.getConsents(clientId);
+        assertNotNull(initial);
+        assertEquals("v1.0", initial.documentVersion());
+
+        var req = new MemberWorkspaceService.ConsentRequest(true, true, true, "v1.0");
+        var saved = service.saveConsents(clientId, req);
+
+        assertTrue(saved.termsAccepted());
+        assertTrue(saved.privacyAcknowledged());
+        assertTrue(saved.whatsappConsent());
+        verify(jdbc, atLeastOnce()).update(contains("UPDATE clients SET consent_whatsapp=?"), eq(true), eq(clientId));
+    }
+
+    @Test
+    @DisplayName("listInbox y markInboxRead deben gestionar bandeja y lecturas por socio (HU-15, HU-34)")
+    void testInboxAndMarkRead() {
+        UUID clientId = UUID.randomUUID();
+        when(jdbc.query(contains("FOR UPDATE"), any(RowMapper.class), eq(clientId))).thenReturn(List.of(clientId));
+
+        var inbox = service.listInbox(clientId);
+        assertNotNull(inbox);
+        assertFalse(inbox.isEmpty());
+        assertTrue(inbox.stream().anyMatch(i -> i.title().contains("GYM VIP")));
+
+        var result = service.markInboxRead(clientId, "item-123");
+        assertEquals("item-123", result.get("itemId"));
+        assertEquals(true, result.get("read"));
+    }
 }
