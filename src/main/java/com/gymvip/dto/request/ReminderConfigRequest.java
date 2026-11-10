@@ -16,6 +16,19 @@ public record ReminderConfigRequest(
         @Max(value = 5, message = "Los días posteriores no deben exceder 5")
         int postExpiryDays,
 
-        @NotNull(message = "Debe especificar al menos un canal")
-        List<String> channels
-) {}
+        List<String> channels,
+        String defaultChannel
+) {
+    public ReminderConfigRequest(Boolean enabled, List<Integer> anticipationDays, int postExpiryDays, List<String> channels) {
+        this(enabled, anticipationDays, postExpiryDays, channels, null);
+    }
+
+    public ReminderConfigRequest {
+        if ((channels == null || channels.isEmpty()) && defaultChannel != null && !defaultChannel.isBlank()) {
+            channels = List.of(defaultChannel.trim());
+        }
+        if (channels == null || channels.isEmpty()) {
+            channels = List.of("WHATSAPP");
+        }
+    }
+}

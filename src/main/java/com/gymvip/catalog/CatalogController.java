@@ -32,7 +32,7 @@ public class CatalogController {
     @GetMapping("/products")
     public List<Map<String, Object>> products(Authentication auth) {
         boolean cust = isCustomer(auth);
-        var page = service.supplements("", "", "", cust ? true : null, null, null, false, 0, 50, cust);
+        var page = service.supplements("", "", "", cust ? Boolean.TRUE : null, null, null, false, 0, 50, cust);
         List<Map<String, Object>> result = new ArrayList<>();
         for (var s : page.content()) {
             Map<String, Object> map = new LinkedHashMap<>();
@@ -53,7 +53,8 @@ public class CatalogController {
         @RequestParam(defaultValue="") String availability,@RequestParam(required=false) Boolean published,@RequestParam(required=false) BigDecimal minPrice,@RequestParam(required=false) BigDecimal maxPrice,
         @RequestParam(defaultValue="false") boolean withPromotion,@RequestParam(defaultValue="0") int page,@RequestParam(defaultValue="12") int size, Authentication auth) {
         boolean cust = isCustomer(auth);
-        return service.supplements(query,category,availability,cust ? true : published,minPrice,maxPrice,withPromotion,page,size,cust);
+        Boolean filterPublished = cust ? Boolean.TRUE : published;
+        return service.supplements(query,category,availability,filterPublished,minPrice,maxPrice,withPromotion,page,size,cust);
     }
     @GetMapping("/supplements/{id}") public Supplement detail(@PathVariable UUID id, Authentication auth) {return service.supplement(id,isCustomer(auth));}
     private SupplementInput parse(String data) {

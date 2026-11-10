@@ -11,7 +11,7 @@ import java.util.*;
 
 @RestController
 @RequestMapping("/api/v1/member-app")
-@PreAuthorize("hasRole('CLIENTE')")
+@PreAuthorize("hasAnyRole('CLIENTE','ADMIN','RECEPCION')")
 public class MemberAppController {
     private final MemberWorkspaceService service;
 

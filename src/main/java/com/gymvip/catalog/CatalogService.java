@@ -35,7 +35,9 @@ public class CatalogService {
             (image,n)->new Image(image.getObject(1,UUID.class),image.getString(2),image.getString(3)),id);
         String barcode = null;
         try { barcode = r.getString("barcode"); } catch (Exception ignoredCol) {}
-        return new Supplement(id,r.getString("name"),r.getString("brand"),r.getString("category"),r.getString("presentation"),r.getString("net_content"),r.getString("flavor"),r.getString("description"),r.getString("ingredients"),r.getBigDecimal("price_pen"),r.getString("availability"),r.getBoolean("published"),r.getLong("version"),r.getObject("updated_at_utc",LocalDateTime.class),photos,barcode);
+        Timestamp ts = r.getTimestamp("updated_at_utc");
+        LocalDateTime updatedAt = ts != null ? ts.toLocalDateTime() : null;
+        return new Supplement(id,r.getString("name"),r.getString("brand"),r.getString("category"),r.getString("presentation"),r.getString("net_content"),r.getString("flavor"),r.getString("description"),r.getString("ingredients"),r.getBigDecimal("price_pen"),r.getString("availability"),r.getBoolean("published"),r.getLong("version"),updatedAt,photos,barcode);
     }
     @Transactional(readOnly=true) public Supplement supplement(UUID id,boolean customer) {
         return jdbc.query("SELECT * FROM supplements WHERE id=?"+(customer?" AND published":""),this::mapSupplement,id).stream().findFirst().orElseThrow(()->new ResourceNotFoundException("Suplemento no encontrado."));
