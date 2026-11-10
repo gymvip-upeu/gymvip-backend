@@ -53,7 +53,7 @@ public class CatalogController {
         @RequestParam(defaultValue="") String availability,@RequestParam(required=false) Boolean published,@RequestParam(required=false) BigDecimal minPrice,@RequestParam(required=false) BigDecimal maxPrice,
         @RequestParam(defaultValue="false") boolean withPromotion,@RequestParam(defaultValue="0") int page,@RequestParam(defaultValue="12") int size, Authentication auth) {
         boolean cust = isCustomer(auth);
-        return service.supplements(query,category,availability,cust ? true : published,minPrice,maxPrice,withPromotion,page,size,cust);
+        return service.supplements(query,category,availability,cust ? Boolean.TRUE : published,minPrice,maxPrice,withPromotion,page,size,cust);
     }
     @GetMapping("/supplements/{id}") public Supplement detail(@PathVariable UUID id, Authentication auth) {return service.supplement(id,isCustomer(auth));}
     private SupplementInput parse(String data) {

@@ -73,6 +73,14 @@ public class SecurityConfig {
                         .requestMatchers("/api/v1/member-app/**").hasRole("CLIENTE")
                         .requestMatchers("/api/v1/clients/import/**").hasRole("ADMIN")
                         .requestMatchers("/api/v1/auth/me").authenticated()
+                        .requestMatchers(HttpMethod.GET,
+                                "/api/v1/catalog/options",
+                                "/api/v1/catalog/supplements",
+                                "/api/v1/catalog/supplements/*",
+                                "/api/v1/catalog/supplements/*/images/*",
+                                "/api/v1/catalog/promotions",
+                                "/api/v1/catalog/promotions/*")
+                        .hasAnyRole("ADMIN", "RECEPCION", "CLIENTE")
                         .anyRequest().hasAnyRole("ADMIN", "RECEPCION")
                 )
                 .addFilterBefore(tokenAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);

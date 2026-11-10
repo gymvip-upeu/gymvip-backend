@@ -1,5 +1,7 @@
 # GYM VIP — Backend API
 
+Actualización autorizada (9 nov 2026): CLIENTE puede consultar el catálogo publicado, imágenes y promociones vigentes. ADMIN conserva escritura/historial y RECEPCION conserva lectura. Se corrigieron las lecturas de consentimiento y Avisos en transacciones de solo lectura. Suite completa: **144 pruebas aprobadas**. La instalación local usa un solo backend `gymvip-backend:fase5` en 8081 y PostgreSQL con su volumen original en el puerto local 15432. Detalles en [Catálogo para socios](docs/CATALOGO_SOCIOS.md) y [lecturas del socio](docs/PROPUESTA_LECTURAS_SOCIO.md). Las referencias a ramas/versiones que siguen corresponden al registro histórico del repositorio.
+
 > **Sistema:** GYM VIP (VIP Center Fit) — Gestión Integral de Gimnasio Luxury Fitness<br>
 > **Repositorio:** [gymvip-backend](https://github.com/gymvip-upeu/gymvip-backend.git)<br>
 > **Rama documentada:** `feature/ajustes-diseno-documentacion-seguridad`<br>

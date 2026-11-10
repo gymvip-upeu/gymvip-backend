@@ -125,8 +125,19 @@ class CatalogIntegrationTest {
         mvc.perform(multipart("/api/v1/catalog/supplements").file(new MockMultipartFile("data","data.json","application/json",json.writeValueAsBytes(input("No permitido",BigDecimal.TEN,null,List.of(),null)))).file(photo("f.png"))).andExpect(status().isForbidden());
         mvc.perform(patch("/api/v1/catalog/supplements/"+p.id()+"/state").contentType(MediaType.APPLICATION_JSON).content(json.writeValueAsString(new StateInput(p.version(),"AGOTADO",true)))).andExpect(status().isForbidden());
     }
-    @Test void administrativeCatalogRejectsAnonymousAndClientRoles() throws Exception {
+    @Test void catalogRejectsAnonymousAndAllowsClientReads() throws Exception {
         mvc.perform(get("/api/v1/catalog/supplements").with(org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.anonymous())).andExpect(status().isUnauthorized());
-        mvc.perform(get("/api/v1/catalog/supplements").with(org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user("cliente").roles("CLIENTE"))).andExpect(status().isForbidden());
+        mvc.perform(get("/api/v1/catalog/supplements").with(org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user("cliente").roles("CLIENTE"))).andExpect(status().isOk());
+    }
+    @Test @WithMockUser(username="cliente", roles="CLIENTE")
+    void clientReadsPublishedImagesButNotHiddenProductsOrHistory() throws Exception {
+        var p = create();
+        var image = p.images().getFirst().id();
+        mvc.perform(get("/api/v1/catalog/supplements/" + p.id())).andExpect(status().isOk());
+        mvc.perform(get("/api/v1/catalog/supplements/" + p.id() + "/images/" + image)).andExpect(status().isOk());
+        mvc.perform(get("/api/v1/catalog/supplements/" + p.id() + "/history")).andExpect(status().isForbidden());
+        catalog.state(p.id(), new StateInput(p.version(), "DISPONIBLE", false), ACTOR);
+        mvc.perform(get("/api/v1/catalog/supplements/" + p.id())).andExpect(status().isNotFound());
+        mvc.perform(get("/api/v1/catalog/supplements/" + p.id() + "/images/" + image)).andExpect(status().isNotFound());
     }
 }
