@@ -72,8 +72,15 @@ public class SecurityConfig {
                         .requestMatchers("/error").permitAll()
                         .requestMatchers("/api/v1/member-app/faqs", "/api/v1/member-app/services").authenticated()
                         .requestMatchers("/api/v1/member-app/**").hasAnyRole("CLIENTE", "ADMIN", "RECEPCION")
-                        .requestMatchers(HttpMethod.GET, "/api/v1/catalog/supplements/*/images/**").permitAll()
-                        .requestMatchers(HttpMethod.GET, "/api/v1/catalog/products", "/api/v1/catalog/options", "/api/v1/catalog/supplements/**", "/api/v1/catalog/promotions/**").hasAnyRole("CLIENTE", "ADMIN", "RECEPCION")
+                        .requestMatchers(HttpMethod.GET,
+                                "/api/v1/catalog/products",
+                                "/api/v1/catalog/options",
+                                "/api/v1/catalog/supplements",
+                                "/api/v1/catalog/supplements/*",
+                                "/api/v1/catalog/supplements/*/images/**",
+                                "/api/v1/catalog/promotions",
+                                "/api/v1/catalog/promotions/*")
+                        .hasAnyRole("CLIENTE", "ADMIN", "RECEPCION")
                         .requestMatchers("/api/v1/catalog/**").hasAnyRole("ADMIN", "RECEPCION")
                         .requestMatchers("/api/v1/clients/import/**").hasRole("ADMIN")
                         .requestMatchers("/api/v1/auth/me").authenticated()

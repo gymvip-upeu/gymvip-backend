@@ -234,7 +234,7 @@ public class MemberWorkspaceService {
 
     @Transactional(readOnly = true)
     public ConsentStatus getConsents(UUID clientId) {
-        lockClient(clientId);
+        clients.getClientById(clientId);
         try {
             var rows = jdbc.query("SELECT terms_accepted, privacy_acknowledged, whatsapp_consent, document_version, accepted_at_utc FROM member_consents WHERE client_id=?",
                     (r, n) -> new ConsentStatus(r.getBoolean("terms_accepted"), r.getBoolean("privacy_acknowledged"), r.getBoolean("whatsapp_consent"), r.getString("document_version"), String.valueOf(r.getObject("accepted_at_utc"))),
@@ -272,7 +272,7 @@ public class MemberWorkspaceService {
 
     @Transactional(readOnly = true)
     public List<MemberInboxItem> listInbox(UUID clientId) {
-        lockClient(clientId);
+        clients.getClientById(clientId);
         List<MemberInboxItem> items = new ArrayList<>();
         Set<String> readIds = new HashSet<>();
         try {

@@ -102,6 +102,41 @@ class MemberWorkspaceIntegrationTest {
         assertEquals("PENDIENTE",coverage.verify(member.client().id()).state());
         assertEquals("Pago anticipado",jdbc.queryForObject("SELECT notes FROM payment_records r JOIN memberships m ON m.id=r.membership_id WHERE m.client_id=?",String.class,member.client().id()));
     }
+    @Test @org.springframework.security.test.context.support.WithAnonymousUser
+    void firstAccessCanReadAndVerifyConsentsWithoutWriteLock() throws Exception {
+        var access = workspace.provision(member.client().id(), ACTOR);
+        var login = auth.login(new LoginRequest(access.username(), access.temporaryPassword()), "127.0.0.1", "qa-test");
+        mvc.perform(get("/api/v1/member-app/consents").header("Authorization", "Bearer " + login.token()))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.termsAccepted").value(false));
+        mvc.perform(post("/api/v1/member-app/consents").header("Authorization", "Bearer " + login.token())
+                .contentType(MediaType.APPLICATION_JSON).content(json.writeValueAsString(
+                        new MemberWorkspaceService.ConsentRequest(true, true, true, "borrador-mobile-v1"))))
+                .andExpect(status().isOk());
+        mvc.perform(get("/api/v1/member-app/consents").header("Authorization", "Bearer " + login.token()))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.termsAccepted").value(true))
+                .andExpect(jsonPath("$.privacyAcknowledged").value(true)).andExpect(jsonPath("$.whatsappConsent").value(true))
+                .andExpect(jsonPath("$.documentVersion").value("borrador-mobile-v1"));
+        mvc.perform(get("/api/v1/member-app/inbox").header("Authorization", "Bearer " + login.token()))
+                .andExpect(status().isForbidden());
+    }
+    @Test @org.springframework.security.test.context.support.WithAnonymousUser
+    void inboxReadPersistsForOwnClientAndStaffCannotAccess() throws Exception {
+        var access = workspace.provision(member.client().id(), ACTOR);
+        workspace.changePassword(access.username(), new MemberWorkspaceService.PasswordChange(access.temporaryPassword(), "NuevaClave1234!"));
+        var login = auth.login(new LoginRequest(access.username(), "NuevaClave1234!"), "127.0.0.1", "qa-test");
+        String item = "announcement_welcome_" + member.client().id();
+        mvc.perform(get("/api/v1/member-app/inbox").header("Authorization", "Bearer " + login.token()))
+                .andExpect(status().isOk()).andExpect(jsonPath("$[?(@.id == '" + item + "')].isRead").value(org.hamcrest.Matchers.contains(false)));
+        mvc.perform(post("/api/v1/member-app/inbox/" + item + "/read").header("Authorization", "Bearer " + login.token()))
+                .andExpect(status().isOk());
+        mvc.perform(get("/api/v1/member-app/inbox").header("Authorization", "Bearer " + login.token()))
+                .andExpect(status().isOk()).andExpect(jsonPath("$[?(@.id == '" + item + "')].isRead").value(org.hamcrest.Matchers.contains(true)));
+        for (String role : List.of("ADMIN", "RECEPCION")) {
+            var staff = org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user("staff").roles(role);
+            mvc.perform(get("/api/v1/member-app/inbox").with(staff)).andExpect(status().isForbidden());
+            mvc.perform(get("/api/v1/member-app/consents").with(staff)).andExpect(status().isForbidden());
+        }
+    }
     @Test void memberStatusRejectsConcurrentVersion() {
         var current=clients.getClientById(member.client().id());
         workspace.status(member.client().id(),new MemberWorkspaceService.StatusChange("INACTIVO",current.version()),ACTOR);
