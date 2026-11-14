@@ -121,4 +121,10 @@ public class MemberAppController {
     public Object saveConsents(@Valid @RequestBody MemberWorkspaceService.ConsentRequest request, Authentication auth) {
         return service.saveConsents(service.ownClient(auth.getName()), request);
     }
+
+    @PostMapping("/delete-account")
+    public Object deleteAccount(@RequestBody(required = false) Map<String, String> body, Authentication auth) {
+        String reason = (body != null && body.containsKey("reason")) ? body.get("reason") : "Solicitud voluntaria del titular";
+        return service.requestAccountDeletion(service.ownClient(auth.getName()), reason);
+    }
 }

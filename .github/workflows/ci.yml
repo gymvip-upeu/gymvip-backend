@@ -1,0 +1,63 @@
+name: CI Backend GymVIP
+
+on:
+  push:
+    branches:
+      - S2-REVISION-QA
+      - 'feature/**'
+      - main
+  pull_request:
+    branches:
+      - S2-REVISION-QA
+      - main
+
+jobs:
+  build-and-test:
+    name: Build & Verify Spring Boot
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: gymvip_test
+          POSTGRES_USER: gymvip_user
+          POSTGRES_PASSWORD: test_password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout Código Fuente
+        uses: actions/checkout@v4
+
+      - name: Configurar Java 21 LTS (Temurin)
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+          cache: maven
+
+      - name: Ejecutar Pruebas Unitarias y de Seguridad
+        env:
+          TEST_DB_JDBC_URL: jdbc:postgresql://localhost:5432/gymvip_test
+          TEST_DB_USERNAME: gymvip_user
+          TEST_DB_PASSWORD: test_password
+          TEST_DB_SCHEMA: public
+        run: |
+          chmod +x ./mvnw
+          ./mvnw test -B '-Dtest=CoveragePolicyTest,MembershipDatesTest,IsolationGuardTest,MemberWorkspaceUnitTest,CatalogSecurityTest'
+
+      - name: Empaquetar Artefacto JAR
+        run: ./mvnw package -DskipTests -B
+
+      - name: Publicar Reporte de Pruebas Surefire
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: surefire-reports-backend
+          path: target/surefire-reports/

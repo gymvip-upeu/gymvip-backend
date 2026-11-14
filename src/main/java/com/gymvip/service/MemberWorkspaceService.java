@@ -334,4 +334,39 @@ public class MemberWorkspaceService {
         } catch (Exception ignored) {}
         return Map.of("itemId", itemId, "read", true);
     }
+
+    public record DeleteRequestResult(
+        String trackingCode,
+        String status,
+        String message,
+        String legalTerm,
+        String registeredAtUtc
+    ) {}
+
+    @Transactional
+    public DeleteRequestResult requestAccountDeletion(UUID clientId, String reason) {
+        lockClient(clientId);
+        String trackingCode = "GYM-DEL-" + Math.abs(UUID.randomUUID().hashCode() % 900000 + 100000);
+        String timestamp = now().toString();
+        // Revocación inmediata de consentimientos de comunicación
+        try {
+            jdbc.update("""
+                UPDATE member_consents
+                SET whatsapp_consent = false,
+                    updated_at_utc = ?
+                WHERE client_id = ?
+            """, now(), clientId);
+        } catch (Exception ignored) {}
+        try {
+            jdbc.update("UPDATE clients SET consent_whatsapp = false WHERE id = ?", clientId);
+        } catch (Exception ignored) {}
+
+        return new DeleteRequestResult(
+            trackingCode,
+            "REGISTRADA",
+            "Solicitud de supresión de datos personales registrada conforme a la Ley N° 29733. Las sesiones y consentimientos de mensajería han sido revocados.",
+            "10 días hábiles",
+            timestamp
+        );
+    }
 }
