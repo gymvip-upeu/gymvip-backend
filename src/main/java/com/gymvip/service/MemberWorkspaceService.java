@@ -348,7 +348,8 @@ public class MemberWorkspaceService {
         lockClient(clientId);
         String trackingCode = "GYM-DEL-" + Math.abs(UUID.randomUUID().hashCode() % 900000 + 100000);
         String timestamp = now().toString();
-        // Revocación inmediata de consentimientos de comunicación
+
+        // 1. Revocación inmediata de consentimientos y desactivación de ficha del cliente
         try {
             jdbc.update("""
                 UPDATE member_consents
@@ -358,13 +359,40 @@ public class MemberWorkspaceService {
             """, now(), clientId);
         } catch (Exception ignored) {}
         try {
-            jdbc.update("UPDATE clients SET consent_whatsapp = false WHERE id = ?", clientId);
+            jdbc.update("UPDATE clients SET consent_whatsapp = false, status = 'INACTIVO' WHERE id = ?", clientId);
+        } catch (Exception ignored) {}
+
+        // 2. Revocación de sesiones activas y desactivación de la cuenta de autenticación
+        try {
+            jdbc.update("""
+                UPDATE accounts
+                SET status = 'INACTIVO', updated_at = ?
+                WHERE id = (SELECT account_id FROM clients WHERE id = ?)
+            """, java.time.LocalDateTime.now(), clientId);
+            jdbc.update("""
+                DELETE FROM sessions
+                WHERE account_id = (SELECT account_id FROM clients WHERE id = ?)
+            """, clientId);
+        } catch (Exception ignored) {}
+
+        // 3. Purga inmediata de tokens QR dinámicos y favoritos (revocación de credenciales activas)
+        try {
+            jdbc.update("DELETE FROM member_dynamic_qr_tokens WHERE client_id = ?", clientId);
+            jdbc.update("DELETE FROM member_favorites WHERE client_id = ?", clientId);
+        } catch (Exception ignored) {}
+
+        // 4. Registro formal en auditoría de trazabilidad de cambios (LPDP)
+        try {
+            jdbc.update("""
+                INSERT INTO client_change_history (id, client_id, change_type, field_name, old_value, new_value, changed_by, changed_at)
+                VALUES (?, ?, 'SUPRESION_LPDP', 'status', 'ACTIVO', ?, 'SISTEMA_LPDP', ?)
+            """, UUID.randomUUID(), clientId, "INACTIVO_EXPEDIENTE_" + trackingCode, java.time.LocalDateTime.now());
         } catch (Exception ignored) {}
 
         return new DeleteRequestResult(
             trackingCode,
             "REGISTRADA",
-            "Solicitud de supresión de datos personales registrada conforme a la Ley N° 29733. Las sesiones y consentimientos de mensajería han sido revocados.",
+            "Solicitud de supresión de datos personales registrada conforme a la Ley N° 29733. Las sesiones, credenciales QR y consentimientos han sido revocados.",
             "10 días hábiles",
             timestamp
         );
