@@ -123,8 +123,15 @@ public class MemberAppController {
     }
 
     @PostMapping("/delete-account")
-    public Object deleteAccount(@RequestBody(required = false) Map<String, String> body, Authentication auth) {
+    public ResponseEntity<MemberWorkspaceService.DeleteRequestResult> deleteAccount(
+            @RequestBody(required = false) Map<String, String> body,
+            Authentication auth
+    ) {
+        if (auth == null || !auth.isAuthenticated()) {
+            throw new org.springframework.security.access.AccessDeniedException("Autenticación requerida para solicitar supresión de cuenta.");
+        }
         String reason = (body != null && body.containsKey("reason")) ? body.get("reason") : "Solicitud voluntaria del titular";
-        return service.requestAccountDeletion(service.ownClient(auth.getName()), reason);
+        UUID clientId = service.ownClient(auth.getName());
+        return ResponseEntity.ok(service.requestAccountDeletion(clientId, reason));
     }
 }

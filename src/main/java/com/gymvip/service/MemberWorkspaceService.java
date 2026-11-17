@@ -340,61 +340,96 @@ public class MemberWorkspaceService {
         String status,
         String message,
         String legalTerm,
-        String registeredAtUtc
+        String registeredAtUtc,
+        boolean accessRevoked,
+        boolean sessionsPurged
     ) {}
 
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public DeleteRequestResult requestAccountDeletion(UUID clientId, String reason) {
+        if (clientId == null) {
+            throw new IllegalArgumentException("Identificador de cliente requerido para procesar supresión.");
+        }
         lockClient(clientId);
+
+        var clientRows = jdbc.queryForList("SELECT id, status, account_id FROM clients WHERE id = ?", clientId);
+        if (clientRows.isEmpty()) {
+            throw new NoSuchElementException("Cliente no encontrado con ID: " + clientId);
+        }
+        var clientRow = clientRows.get(0);
+        String currentStatus = (String) clientRow.get("status");
+        UUID accountId = (UUID) clientRow.get("account_id");
+
+        // Idempotencia: Si ya está inactivo o en proceso de supresión, retornar estado persistido
+        if (!"ACTIVO".equalsIgnoreCase(currentStatus)) {
+            var history = jdbc.queryForList(
+                "SELECT new_value, changed_at FROM client_change_history WHERE client_id = ? AND change_type = 'SUPRESION_LPDP' ORDER BY changed_at DESC LIMIT 1",
+                clientId
+            );
+            String existingCode = history.isEmpty() ? "GYM-DEL-PROCESADA" : String.valueOf(history.get(0).get("new_value")).replace("INACTIVO_EXPEDIENTE_", "");
+            String timestamp = history.isEmpty() ? now().toString() : String.valueOf(history.get(0).get("changed_at"));
+            return new DeleteRequestResult(
+                existingCode,
+                "YA_REGISTRADA",
+                "La solicitud de supresión de datos personales ya se encuentra registrada y los accesos continúan revocados.",
+                "10 días hábiles",
+                timestamp,
+                true,
+                true
+            );
+        }
+
         String trackingCode = "GYM-DEL-" + Math.abs(UUID.randomUUID().hashCode() % 900000 + 100000);
         String timestamp = now().toString();
+        java.time.LocalDateTime nowLocal = java.time.LocalDateTime.now();
 
-        // 1. Revocación inmediata de consentimientos y desactivación de ficha del cliente
-        try {
-            jdbc.update("""
-                UPDATE member_consents
-                SET whatsapp_consent = false,
-                    updated_at_utc = ?
-                WHERE client_id = ?
-            """, now(), clientId);
-        } catch (Exception ignored) {}
-        try {
-            jdbc.update("UPDATE clients SET consent_whatsapp = false, status = 'INACTIVO' WHERE id = ?", clientId);
-        } catch (Exception ignored) {}
+        // 1. Revocación de consentimientos en tabla específica y desvinculación activa
+        jdbc.update("""
+            UPDATE member_consents
+            SET whatsapp_consent = false,
+                updated_at_utc = ?
+            WHERE client_id = ?
+        """, now(), clientId);
 
-        // 2. Revocación de sesiones activas y desactivación de la cuenta de autenticación
-        try {
+        // 2. Desactivación de ficha de cliente y retiro de consentimientos
+        jdbc.update("""
+            UPDATE clients
+            SET consent_whatsapp = false,
+                status = 'INACTIVO',
+                updated_at = ?
+            WHERE id = ?
+        """, nowLocal, clientId);
+
+        // 3. Desactivación de la cuenta de autenticación y purga inmediata de sesiones activas
+        if (accountId != null) {
             jdbc.update("""
                 UPDATE accounts
-                SET status = 'INACTIVO', updated_at = ?
-                WHERE id = (SELECT account_id FROM clients WHERE id = ?)
-            """, java.time.LocalDateTime.now(), clientId);
-            jdbc.update("""
-                DELETE FROM sessions
-                WHERE account_id = (SELECT account_id FROM clients WHERE id = ?)
-            """, clientId);
-        } catch (Exception ignored) {}
+                SET status = 'INACTIVO',
+                    updated_at = ?
+                WHERE id = ?
+            """, nowLocal, accountId);
 
-        // 3. Purga inmediata de tokens QR dinámicos y favoritos (revocación de credenciales activas)
-        try {
-            jdbc.update("DELETE FROM member_dynamic_qr_tokens WHERE client_id = ?", clientId);
-            jdbc.update("DELETE FROM member_favorites WHERE client_id = ?", clientId);
-        } catch (Exception ignored) {}
+            jdbc.update("DELETE FROM sessions WHERE account_id = ?", accountId);
+        }
 
-        // 4. Registro formal en auditoría de trazabilidad de cambios (LPDP)
-        try {
-            jdbc.update("""
-                INSERT INTO client_change_history (id, client_id, change_type, field_name, old_value, new_value, changed_by, changed_at)
-                VALUES (?, ?, 'SUPRESION_LPDP', 'status', 'ACTIVO', ?, 'SISTEMA_LPDP', ?)
-            """, UUID.randomUUID(), clientId, "INACTIVO_EXPEDIENTE_" + trackingCode, java.time.LocalDateTime.now());
-        } catch (Exception ignored) {}
+        // 4. Invalidación inmediata de credenciales QR dinámicas y favoritos de catálogo
+        jdbc.update("DELETE FROM member_dynamic_qr_tokens WHERE client_id = ?", clientId);
+        jdbc.update("DELETE FROM member_favorites WHERE client_id = ?", clientId);
+
+        // 5. Auditoría inmutable de trazabilidad de supresión LPDP
+        jdbc.update("""
+            INSERT INTO client_change_history (id, client_id, change_type, field_name, old_value, new_value, changed_by, changed_at)
+            VALUES (?, ?, 'SUPRESION_LPDP', 'status', ?, ?, 'SISTEMA_LPDP', ?)
+        """, UUID.randomUUID(), clientId, currentStatus, "INACTIVO_EXPEDIENTE_" + trackingCode, nowLocal);
 
         return new DeleteRequestResult(
             trackingCode,
             "REGISTRADA",
             "Solicitud de supresión de datos personales registrada conforme a la Ley N° 29733. Las sesiones, credenciales QR y consentimientos han sido revocados.",
             "10 días hábiles",
-            timestamp
+            timestamp,
+            true,
+            true
         );
     }
 }

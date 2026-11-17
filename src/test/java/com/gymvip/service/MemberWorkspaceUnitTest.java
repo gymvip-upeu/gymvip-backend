@@ -298,4 +298,71 @@ class MemberWorkspaceUnitTest {
         assertEquals("item-123", result.get("itemId"));
         assertEquals(true, result.get("read"));
     }
+
+    @Test
+    @DisplayName("requestAccountDeletion: revoca sesiones, tokens QR y desactiva cuenta con trazabilidad LPDP Ley 29733")
+    void testRequestAccountDeletion_Success_FullRevocation() {
+        UUID clientId = UUID.randomUUID();
+        UUID accountId = UUID.randomUUID();
+
+        when(jdbc.query(contains("FOR UPDATE"), any(RowMapper.class), eq(clientId))).thenReturn(List.of(clientId));
+        when(jdbc.queryForList(eq("SELECT id, status, account_id FROM clients WHERE id = ?"), eq(clientId)))
+                .thenReturn(List.of(Map.of("id", clientId, "status", "ACTIVO", "account_id", accountId)));
+
+        var result = service.requestAccountDeletion(clientId, "Solicitud de prueba por el titular");
+
+        assertNotNull(result);
+        assertEquals("REGISTRADA", result.status());
+        assertTrue(result.trackingCode().startsWith("GYM-DEL-"));
+        assertTrue(result.accessRevoked());
+        assertTrue(result.sessionsPurged());
+        assertEquals("10 días hábiles", result.legalTerm());
+
+        // Verificaciones de revocación explícita
+        verify(jdbc).update(contains("UPDATE member_consents"), any(), eq(clientId));
+        verify(jdbc).update(contains("UPDATE clients"), any(), eq(clientId));
+        verify(jdbc).update(contains("UPDATE accounts"), any(), eq(accountId));
+        verify(jdbc).update(eq("DELETE FROM sessions WHERE account_id = ?"), eq(accountId));
+        verify(jdbc).update(eq("DELETE FROM member_dynamic_qr_tokens WHERE client_id = ?"), eq(clientId));
+        verify(jdbc).update(eq("DELETE FROM member_favorites WHERE client_id = ?"), eq(clientId));
+        verify(jdbc).update(contains("INSERT INTO client_change_history"), any(), eq(clientId), eq("ACTIVO"), contains("INACTIVO_EXPEDIENTE_"), any());
+    }
+
+    @Test
+    @DisplayName("requestAccountDeletion: llamada idempotente en cuenta ya inactiva retorna YA_REGISTRADA con expediente previo")
+    void testRequestAccountDeletion_Idempotent_AlreadyInactive() {
+        UUID clientId = UUID.randomUUID();
+        UUID accountId = UUID.randomUUID();
+
+        when(jdbc.query(contains("FOR UPDATE"), any(RowMapper.class), eq(clientId))).thenReturn(List.of(clientId));
+        when(jdbc.queryForList(eq("SELECT id, status, account_id FROM clients WHERE id = ?"), eq(clientId)))
+                .thenReturn(List.of(Map.of("id", clientId, "status", "INACTIVO", "account_id", accountId)));
+        when(jdbc.queryForList(contains("SELECT new_value, changed_at FROM client_change_history"), eq(clientId)))
+                .thenReturn(List.of(Map.of("new_value", "INACTIVO_EXPEDIENTE_GYM-DEL-777888", "changed_at", "2026-11-16T12:00:00")));
+
+        var result = service.requestAccountDeletion(clientId, "Reintento de supresión");
+
+        assertNotNull(result);
+        assertEquals("YA_REGISTRADA", result.status());
+        assertEquals("GYM-DEL-777888", result.trackingCode());
+        assertTrue(result.accessRevoked());
+        assertTrue(result.sessionsPurged());
+
+        // En caso idempotente no debe re-eliminar ni generar nuevo historial
+        verify(jdbc, never()).update(contains("UPDATE accounts"), any(), any());
+        verify(jdbc, never()).update(contains("INSERT INTO client_change_history"), any(), any(), any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("requestAccountDeletion: cliente inexistente o nulo lanza excepción correspondiente")
+    void testRequestAccountDeletion_ValidationErrors() {
+        assertThrows(IllegalArgumentException.class, () -> service.requestAccountDeletion(null, "Razón"));
+
+        UUID nonExistentId = UUID.randomUUID();
+        when(jdbc.query(contains("FOR UPDATE"), any(RowMapper.class), eq(nonExistentId))).thenReturn(List.of(nonExistentId));
+        when(jdbc.queryForList(eq("SELECT id, status, account_id FROM clients WHERE id = ?"), eq(nonExistentId)))
+                .thenReturn(List.of());
+
+        assertThrows(NoSuchElementException.class, () -> service.requestAccountDeletion(nonExistentId, "Razón"));
+    }
 }
