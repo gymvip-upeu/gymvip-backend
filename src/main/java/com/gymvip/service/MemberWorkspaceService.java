@@ -412,9 +412,10 @@ public class MemberWorkspaceService {
             jdbc.update("DELETE FROM sessions WHERE account_id = ?", accountId);
         }
 
-        // 4. Invalidación inmediata de credenciales QR dinámicas y favoritos de catálogo
+        // 4. Invalidación inmediata de credenciales QR dinámicas, favoritos de catálogo y tokens de dispositivos
         jdbc.update("DELETE FROM member_dynamic_qr_tokens WHERE client_id = ?", clientId);
         jdbc.update("DELETE FROM member_favorites WHERE client_id = ?", clientId);
+        jdbc.update("DELETE FROM member_device_tokens WHERE client_id = ?", clientId);
 
         // 5. Auditoría inmutable de trazabilidad de supresión LPDP
         jdbc.update("""
@@ -431,5 +432,31 @@ public class MemberWorkspaceService {
             true,
             true
         );
+    }
+
+    public record DeviceTokenRegistration(
+            @jakarta.validation.constraints.NotBlank(message = "El token de dispositivo es obligatorio") String token,
+            String platform,
+            String deviceModel
+    ) {}
+
+    @Transactional
+    public Map<String, Object> registerDeviceToken(UUID clientId, DeviceTokenRegistration request) {
+        if (request == null || request.token() == null || request.token().isBlank()) {
+            throw new IllegalArgumentException("El token de dispositivo es obligatorio.");
+        }
+        String platform = (request.platform() != null && !request.platform().isBlank())
+                ? request.platform().trim().toUpperCase() : "ANDROID";
+        String deviceModel = (request.deviceModel() != null) ? request.deviceModel().trim() : null;
+
+        jdbc.update("""
+            INSERT INTO member_device_tokens (client_id, device_token, platform, device_model, is_active, updated_at_utc)
+            VALUES (?, ?, ?, ?, true, CURRENT_TIMESTAMP)
+            ON CONFLICT (client_id, device_token)
+            DO UPDATE SET is_active = true, updated_at_utc = CURRENT_TIMESTAMP,
+                          platform = EXCLUDED.platform, device_model = EXCLUDED.device_model
+        """, clientId, request.token().trim(), platform, deviceModel);
+
+        return Map.of("registered", true, "platform", platform);
     }
 }

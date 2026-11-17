@@ -365,4 +365,23 @@ class MemberWorkspaceUnitTest {
 
         assertThrows(NoSuchElementException.class, () -> service.requestAccountDeletion(nonExistentId, "Razón"));
     }
+
+    @Test
+    @DisplayName("registerDeviceToken: registra y actualiza token FCM con plataforma")
+    void testRegisterDeviceToken() {
+        UUID clientId = UUID.randomUUID();
+        when(jdbc.update(contains("INSERT INTO member_device_tokens"), eq(clientId), eq("fcm_token_sample_12345"), eq("ANDROID"), eq("Pixel 8 Pro")))
+                .thenReturn(1);
+
+        var req = new MemberWorkspaceService.DeviceTokenRegistration("fcm_token_sample_12345", "android", "Pixel 8 Pro");
+        var result = service.registerDeviceToken(clientId, req);
+
+        assertNotNull(result);
+        assertEquals(true, result.get("registered"));
+        assertEquals("ANDROID", result.get("platform"));
+
+        // Validación de token vacío
+        assertThrows(IllegalArgumentException.class, () ->
+                service.registerDeviceToken(clientId, new MemberWorkspaceService.DeviceTokenRegistration("  ", "android", null)));
+    }
 }

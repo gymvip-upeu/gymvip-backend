@@ -134,4 +134,13 @@ public class MemberAppController {
         UUID clientId = service.ownClient(auth.getName());
         return ResponseEntity.ok(service.requestAccountDeletion(clientId, reason));
     }
+
+    @PostMapping("/devices")
+    public ResponseEntity<?> registerDevice(@Valid @RequestBody MemberWorkspaceService.DeviceTokenRegistration request, Authentication auth) {
+        if (service.mustChange(auth.getName())) {
+            throw new org.springframework.security.access.AccessDeniedException("Cambia la contraseña temporal antes de continuar.");
+        }
+        UUID clientId = service.ownClient(auth.getName());
+        return ResponseEntity.ok(service.registerDeviceToken(clientId, request));
+    }
 }
