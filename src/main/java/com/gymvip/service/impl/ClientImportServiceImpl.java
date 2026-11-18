@@ -50,15 +50,25 @@ public class ClientImportServiceImpl implements ClientImportService {
     private final DocumentRepository documentRepository;
     private final ClientMapper clientMapper;
     private final AuditService auditService;
+    private final com.gymvip.service.IdentityLookupService identityLookupService;
+
+    public ClientImportServiceImpl(ClientRepository clientRepository,
+                                   DocumentRepository documentRepository,
+                                   ClientMapper clientMapper,
+                                   AuditService auditService,
+                                   com.gymvip.service.IdentityLookupService identityLookupService) {
+        this.clientRepository = clientRepository;
+        this.documentRepository = documentRepository;
+        this.clientMapper = clientMapper;
+        this.auditService = auditService;
+        this.identityLookupService = identityLookupService;
+    }
 
     public ClientImportServiceImpl(ClientRepository clientRepository,
                                    DocumentRepository documentRepository,
                                    ClientMapper clientMapper,
                                    AuditService auditService) {
-        this.clientRepository = clientRepository;
-        this.documentRepository = documentRepository;
-        this.clientMapper = clientMapper;
-        this.auditService = auditService;
+        this(clientRepository, documentRepository, clientMapper, auditService, null);
     }
 
     @Override
@@ -123,6 +133,12 @@ public class ClientImportServiceImpl implements ClientImportService {
     @Override
     @Transactional(readOnly = true)
     public ClientImportPreviewResponse previewImport(MultipartFile file) {
+        return previewImport(file, false);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public ClientImportPreviewResponse previewImport(MultipartFile file, boolean verifyDni) {
         validateFileMetadata(file);
 
         List<ParsedRow> parsedRows = parseAndValidateRows(file);
@@ -131,9 +147,79 @@ public class ClientImportServiceImpl implements ClientImportService {
         int validCount = 0;
         int duplicateCount = 0;
         int invalidCount = 0;
+        int dniValidCount = 0;
+        int nameDiscrepancyCount = 0;
+
+        // Estimar consultas de DNI únicas que requieren llamada externa
+        Set<String> uniqueDnisToQuery = new HashSet<>();
+        for (ParsedRow row : parsedRows) {
+            if ("VALID".equals(row.status) && "DNI".equalsIgnoreCase(row.documentType) && row.documentNumber != null) {
+                String cleanDni = row.documentNumber.trim();
+                if (cleanDni.matches("^\\d{8}$")) {
+                    dniValidCount++;
+                    uniqueDnisToQuery.add(cleanDni);
+                }
+            }
+        }
+        int dniQueriesEstimated = uniqueDnisToQuery.size();
+
+        // Control de caché local de lote y límite de cuota
+        Map<String, com.gymvip.dto.response.IdentityLookupResponse> batchLookupCache = new HashMap<>();
+        boolean quotaExceeded = false;
 
         List<ClientImportRowPreviewDto> previewRows = new ArrayList<>();
         for (ParsedRow row : parsedRows) {
+            String verifiedName = null;
+            String nameDiscrepancy = null;
+            String identityStatus = null;
+
+            if ("DNI".equalsIgnoreCase(row.documentType) && row.documentNumber != null) {
+                String cleanDni = row.documentNumber.trim();
+                if (!cleanDni.matches("^\\d{8}$")) {
+                    identityStatus = "FORMATO_INVALIDO";
+                } else if (verifyDni && "VALID".equals(row.status) && identityLookupService != null) {
+                    if (quotaExceeded) {
+                        identityStatus = "CUOTA_AGOTADA";
+                    } else {
+                        com.gymvip.dto.response.IdentityLookupResponse lookup = batchLookupCache.computeIfAbsent(cleanDni, k -> {
+                            try {
+                                return identityLookupService.lookupDni(k);
+                            } catch (Exception ex) {
+                                log.warn("Fallo transitorio al verificar DNI {} en lote: {}", k, ex.getMessage());
+                                return com.gymvip.dto.response.IdentityLookupResponse.error(
+                                        com.gymvip.enums.IdentityLookupStatus.SERVICIO_NO_DISPONIBLE, k, ex.getMessage()
+                                );
+                            }
+                        });
+
+                        if (lookup.status() == com.gymvip.enums.IdentityLookupStatus.CUOTA_AGOTADA) {
+                            quotaExceeded = true;
+                            identityStatus = "CUOTA_AGOTADA";
+                        } else if (lookup.status() == com.gymvip.enums.IdentityLookupStatus.ENCONTRADO) {
+                            verifiedName = (lookup.nombres() + " " + lookup.apellidos()).trim();
+                            String normalizedFile = normalizeForComparison((row.firstName != null ? row.firstName : "") + " " + (row.lastName != null ? row.lastName : ""));
+                            String normalizedApi = normalizeForComparison(verifiedName);
+
+                            if (normalizedFile.equalsIgnoreCase(normalizedApi)) {
+                                identityStatus = "ENCONTRADO_EN_FUENTE";
+                            } else {
+                                identityStatus = "DISCREPANCIA_NOMBRES";
+                                nameDiscrepancy = String.format("Nombre en archivo ('%s %s') difiere de fuente ('%s')",
+                                        row.firstName, row.lastName, verifiedName);
+                                nameDiscrepancyCount++;
+                            }
+                        } else if (lookup.status() == com.gymvip.enums.IdentityLookupStatus.NO_ENCONTRADO) {
+                            identityStatus = "NO_ENCONTRADO_EN_FUENTE";
+                        } else if (lookup.status() == com.gymvip.enums.IdentityLookupStatus.RESPUESTA_INCOMPLETA) {
+                            identityStatus = "REVISION_MANUAL";
+                            nameDiscrepancy = "La fuente externa no retornó nombres completos.";
+                        } else {
+                            identityStatus = "ERROR_PROVEEDOR";
+                        }
+                    }
+                }
+            }
+
             if ("VALID".equals(row.status)) {
                 validCount++;
             } else if ("DUPLICATE_IN_FILE".equals(row.status) || "DUPLICATE_IN_DATABASE".equals(row.status)) {
@@ -153,7 +239,10 @@ public class ClientImportServiceImpl implements ClientImportService {
                     row.phone,
                     row.email,
                     row.status,
-                    row.message
+                    row.message,
+                    verifiedName,
+                    nameDiscrepancy,
+                    identityStatus
             ));
         }
 
@@ -163,13 +252,30 @@ public class ClientImportServiceImpl implements ClientImportService {
                 validCount,
                 duplicateCount,
                 invalidCount,
-                previewRows
+                previewRows,
+                verifyDni,
+                dniValidCount,
+                dniQueriesEstimated,
+                nameDiscrepancyCount
         );
+    }
+
+    private static String normalizeForComparison(String text) {
+        if (text == null) return "";
+        String normalized = java.text.Normalizer.normalize(text.trim(), java.text.Normalizer.Form.NFD);
+        normalized = normalized.replaceAll("\\p{M}", "");
+        return normalized.toUpperCase(Locale.ROOT).replaceAll("\\s+", " ").trim();
     }
 
     @Override
     @Transactional
     public ClientImportResultResponse confirmImport(MultipartFile file, String actorEmail) {
+        return confirmImport(file, actorEmail, false);
+    }
+
+    @Override
+    @Transactional
+    public ClientImportResultResponse confirmImport(MultipartFile file, String actorEmail, boolean verifyDni) {
         validateFileMetadata(file);
 
         List<ParsedRow> parsedRows = parseAndValidateRows(file);

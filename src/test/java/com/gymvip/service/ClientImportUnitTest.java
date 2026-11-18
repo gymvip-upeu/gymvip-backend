@@ -2,6 +2,7 @@ package com.gymvip.service;
 
 import com.gymvip.dto.response.ClientImportPreviewResponse;
 import com.gymvip.dto.response.ClientImportResultResponse;
+import com.gymvip.dto.response.ClientImportRowPreviewDto;
 import com.gymvip.entity.Client;
 import com.gymvip.exception.ClientValidationException;
 import com.gymvip.mapper.ClientMapper;
@@ -284,6 +285,68 @@ class ClientImportUnitTest {
 
         ClientValidationException ex = assertThrows(ClientValidationException.class, () -> importService.previewImport(file));
         assertTrue(ex.getMessage().contains("alterada o en orden incorrecto"));
+    }
+
+    @Test
+    @DisplayName("HU-06: Verificación de DNI en importación con nombres coincidentes en ApiPeruDev")
+    void testPreviewImportWithDniVerificationMatchingNames() throws IOException {
+        String[][] rows = {
+                {"Mariana", "Torres Ramos", "1995-05-15", "PE", "DNI", "72819201", "987654321", "mariana@test.local"}
+        };
+        byte[] bytes = createTestExcel(defaultHeaders(), rows);
+        MockMultipartFile file = new MockMultipartFile("file", "verificacion_match.xlsx",
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", bytes);
+
+        IdentityLookupService mockIdentityService = mock(IdentityLookupService.class);
+        when(mockIdentityService.lookupDni("72819201")).thenReturn(
+                com.gymvip.dto.response.IdentityLookupResponse.encontrado("72819201", "MARIANA", "TORRES", "RAMOS")
+        );
+
+        ClientImportService serviceWithIdentity = new ClientImportServiceImpl(
+                clientRepository, documentRepository, clientMapper, auditService, mockIdentityService
+        );
+
+        ClientImportPreviewResponse preview = serviceWithIdentity.previewImport(file, true);
+
+        assertTrue(preview.dniVerificationEnabled());
+        assertEquals(1, preview.dniValidCount());
+        assertEquals(1, preview.dniQueriesEstimated());
+        assertEquals(0, preview.nameDiscrepancyCount());
+
+        ClientImportRowPreviewDto row = preview.rows().get(0);
+        assertEquals("ENCONTRADO_EN_FUENTE", row.identityStatus());
+        assertEquals("MARIANA TORRES RAMOS", row.verifiedName());
+        assertNull(row.nameDiscrepancy());
+    }
+
+    @Test
+    @DisplayName("HU-06: Verificación de DNI en importación detecta discrepancia de nombres")
+    void testPreviewImportWithDniVerificationDiscrepancy() throws IOException {
+        String[][] rows = {
+                {"María", "López García", "1992-08-20", "PE", "DNI", "72819202", "987654322", "maria@test.local"}
+        };
+        byte[] bytes = createTestExcel(defaultHeaders(), rows);
+        MockMultipartFile file = new MockMultipartFile("file", "verificacion_discrepancia.xlsx",
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", bytes);
+
+        IdentityLookupService mockIdentityService = mock(IdentityLookupService.class);
+        when(mockIdentityService.lookupDni("72819202")).thenReturn(
+                com.gymvip.dto.response.IdentityLookupResponse.encontrado("72819202", "MARIA DEL PILAR", "LOPEZ", "GARCIA")
+        );
+
+        ClientImportService serviceWithIdentity = new ClientImportServiceImpl(
+                clientRepository, documentRepository, clientMapper, auditService, mockIdentityService
+        );
+
+        ClientImportPreviewResponse preview = serviceWithIdentity.previewImport(file, true);
+
+        assertTrue(preview.dniVerificationEnabled());
+        assertEquals(1, preview.nameDiscrepancyCount());
+
+        ClientImportRowPreviewDto row = preview.rows().get(0);
+        assertEquals("DISCREPANCIA_NOMBRES", row.identityStatus());
+        assertNotNull(row.nameDiscrepancy());
+        assertTrue(row.nameDiscrepancy().contains("MARIA DEL PILAR"));
     }
 }
 

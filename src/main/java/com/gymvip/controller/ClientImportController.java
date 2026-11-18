@@ -36,12 +36,14 @@ public class ClientImportController {
 
     /**
      * Vista previa y validación de filas del archivo .xlsx sin persistir.
+     * Soporta verificación opcional de DNI con ApiPeruDev mediante query parameter 'verifyDni'.
      */
     @PostMapping(value = "/preview", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ResponseEntity<ClientImportPreviewResponse> previewImport(
-            @RequestParam("file") MultipartFile file
+            @RequestParam("file") MultipartFile file,
+            @RequestParam(value = "verifyDni", defaultValue = "false") boolean verifyDni
     ) {
-        ClientImportPreviewResponse response = clientImportService.previewImport(file);
+        ClientImportPreviewResponse response = clientImportService.previewImport(file, verifyDni);
         return ResponseEntity.ok(response);
     }
 
@@ -51,11 +53,11 @@ public class ClientImportController {
     @PostMapping(value = "/confirm", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ResponseEntity<ClientImportResultResponse> confirmImport(
             @RequestParam("file") MultipartFile file,
+            @RequestParam(value = "verifyDni", defaultValue = "false") boolean verifyDni,
             Authentication authentication
     ) {
         String actor = authentication != null ? authentication.getName() : "recepcion_sistema";
-        ClientImportResultResponse response = clientImportService.confirmImport(file, actor);
+        ClientImportResultResponse response = clientImportService.confirmImport(file, actor, verifyDni);
         return ResponseEntity.ok(response);
     }
 }
-

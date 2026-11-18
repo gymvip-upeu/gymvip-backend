@@ -18,9 +18,18 @@ public interface ClientImportService {
     ClientImportPreviewResponse previewImport(MultipartFile file);
 
     /**
+     * Analiza y valida el archivo .xlsx, con opción de verificar DNI en tiempo real con ApiPeruDev.
+     */
+    ClientImportPreviewResponse previewImport(MultipartFile file, boolean verifyDni);
+
+    /**
      * Confirma la importación: persiste únicamente las filas válidas, genera códigos de socio únicos,
      * omite duplicados sin sobrescribir clientes existentes y registra evento de auditoría.
      */
     ClientImportResultResponse confirmImport(MultipartFile file, String actorEmail);
-}
 
+    /**
+     * Confirma la importación persistiendo filas válidas y aplicando la verificación de identidad solicitada.
+     */
+    ClientImportResultResponse confirmImport(MultipartFile file, String actorEmail, boolean verifyDni);
+}
