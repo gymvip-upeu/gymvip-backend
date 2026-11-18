@@ -14,9 +14,14 @@ import java.util.*;
 @PreAuthorize("hasAnyRole('CLIENTE','ADMIN','RECEPCION')")
 public class MemberAppController {
     private final MemberWorkspaceService service;
+    private final com.gymvip.service.AttendanceProcessingService attendanceProcessingService;
 
-    public MemberAppController(MemberWorkspaceService service) {
+    public MemberAppController(
+            MemberWorkspaceService service,
+            com.gymvip.service.AttendanceProcessingService attendanceProcessingService
+    ) {
         this.service = service;
+        this.attendanceProcessingService = attendanceProcessingService;
     }
 
     @GetMapping("/session")
@@ -142,5 +147,23 @@ public class MemberAppController {
         }
         UUID clientId = service.ownClient(auth.getName());
         return ResponseEntity.ok(service.registerDeviceToken(clientId, request));
+    }
+
+    @PostMapping("/attendance/check-in")
+    public com.gymvip.dto.attendance.AttendanceDtos.MemberCheckInResponse selfCheckIn(
+            @Valid @RequestBody com.gymvip.dto.attendance.AttendanceDtos.MemberSelfCheckInRequest request,
+            Authentication auth,
+            jakarta.servlet.http.HttpServletRequest httpRequest
+    ) {
+        if (service.mustChange(auth.getName())) {
+            throw new org.springframework.security.access.AccessDeniedException("Cambia la contraseña temporal antes de continuar.");
+        }
+        String ip = httpRequest != null ? httpRequest.getRemoteAddr() : "0.0.0.0";
+        return attendanceProcessingService.processMemberSelfCheckIn(
+                auth.getName(),
+                request.challenge(),
+                request.requestId(),
+                ip
+        );
     }
 }
