@@ -127,7 +127,7 @@ class LoginSecurityAndRateLimitTest {
         );
 
         assertTrue(ex.getMessage().contains("Demasiados intentos fallidos"));
-        verify(accountRepository, never()).findByEmailIgnoreCase(anyString());
+        verify(accountRepository, never()).findByIdentifierIgnoreCase(anyString());
     }
 
     @Test
@@ -137,7 +137,7 @@ class LoginSecurityAndRateLimitTest {
         String expectedMessage = "Credenciales de acceso incorrectas o cuenta inhabilitada";
 
         // Caso 1: Cuenta no existe
-        when(accountRepository.findByEmailIgnoreCase("inexistente@gymvip.com")).thenReturn(Optional.empty());
+        when(accountRepository.findByIdentifierIgnoreCase("inexistente@gymvip.com")).thenReturn(Optional.empty());
         InvalidCredentialsException ex1 = assertThrows(
                 InvalidCredentialsException.class,
                 () -> authService.login(new LoginRequest("inexistente@gymvip.com", "secret"), testIp, "Agent")
@@ -148,7 +148,7 @@ class LoginSecurityAndRateLimitTest {
         // Caso 2: Password no coincide
         UUID id = UUID.randomUUID();
         Account activeAccount = new Account(id, "activo@gymvip.com", "hash_real", Set.of("ADMIN"), "ACTIVO", false);
-        when(accountRepository.findByEmailIgnoreCase("activo@gymvip.com")).thenReturn(Optional.of(activeAccount));
+        when(accountRepository.findByIdentifierIgnoreCase("activo@gymvip.com")).thenReturn(Optional.of(activeAccount));
         when(passwordEncoder.matches("wrong_pass", "hash_real")).thenReturn(false);
 
         InvalidCredentialsException ex2 = assertThrows(
@@ -160,7 +160,7 @@ class LoginSecurityAndRateLimitTest {
 
         // Caso 3: Cuenta inactiva con password correcto
         Account inactiveAccount = new Account(UUID.randomUUID(), "inactivo@gymvip.com", "hash_real", Set.of("RECEPCION"), "INACTIVO", false);
-        when(accountRepository.findByEmailIgnoreCase("inactivo@gymvip.com")).thenReturn(Optional.of(inactiveAccount));
+        when(accountRepository.findByIdentifierIgnoreCase("inactivo@gymvip.com")).thenReturn(Optional.of(inactiveAccount));
         when(passwordEncoder.matches("valid_pass", "hash_real")).thenReturn(true);
 
         InvalidCredentialsException ex3 = assertThrows(
@@ -183,7 +183,7 @@ class LoginSecurityAndRateLimitTest {
 
         UUID id = UUID.randomUUID();
         Account activeAccount = new Account(id, "admin@gymvip.com", "hash_correcto", Set.of("ADMIN"), "ACTIVO", false);
-        when(accountRepository.findByEmailIgnoreCase("admin@gymvip.com")).thenReturn(Optional.of(activeAccount));
+        when(accountRepository.findByIdentifierIgnoreCase("admin@gymvip.com")).thenReturn(Optional.of(activeAccount));
         when(passwordEncoder.matches("clave_correcta", "hash_correcto")).thenReturn(true);
 
         AuthResponse response = authService.login(new LoginRequest("admin@gymvip.com", "clave_correcta"), testIp, "Browser");

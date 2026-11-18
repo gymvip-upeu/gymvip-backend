@@ -51,8 +51,8 @@ public class AuthServiceImpl implements AuthService {
             throw new TooManyRequestsException(RATE_LIMIT_ERROR);
         }
 
-        String email = request.email() != null ? request.email().trim().toLowerCase() : "";
-        Account account = accountRepository.findByEmailIgnoreCase(email).orElse(null);
+        String identifier = request.email() != null ? request.email().trim().toLowerCase() : "";
+        Account account = accountRepository.findByIdentifierIgnoreCase(identifier).orElse(null);
 
         if (account == null) {
             loginAttemptService.loginFailed(clientKey);
