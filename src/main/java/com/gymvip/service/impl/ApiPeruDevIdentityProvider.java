@@ -6,6 +6,7 @@ import com.gymvip.enums.IdentityLookupStatus;
 import com.gymvip.service.IdentityLookupProvider;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatusCode;
@@ -33,6 +34,7 @@ public class ApiPeruDevIdentityProvider implements IdentityLookupProvider {
     private final String baseUrl;
     private final boolean enabled;
 
+    @Autowired
     public ApiPeruDevIdentityProvider(
             @Value("${app.apiperudev.base-url:https://api.apiperu.dev}") String baseUrl,
             @Value("${app.apiperudev.token:${APIPERUDEV_TOKEN:}}") String token,

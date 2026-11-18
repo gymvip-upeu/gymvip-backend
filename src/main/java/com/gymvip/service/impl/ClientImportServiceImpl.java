@@ -14,6 +14,7 @@ import org.apache.poi.ss.usermodel.*;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -52,11 +53,12 @@ public class ClientImportServiceImpl implements ClientImportService {
     private final AuditService auditService;
     private final com.gymvip.service.IdentityLookupService identityLookupService;
 
+    @Autowired
     public ClientImportServiceImpl(ClientRepository clientRepository,
                                    DocumentRepository documentRepository,
                                    ClientMapper clientMapper,
                                    AuditService auditService,
-                                   com.gymvip.service.IdentityLookupService identityLookupService) {
+                                   @Autowired(required = false) com.gymvip.service.IdentityLookupService identityLookupService) {
         this.clientRepository = clientRepository;
         this.documentRepository = documentRepository;
         this.clientMapper = clientMapper;
