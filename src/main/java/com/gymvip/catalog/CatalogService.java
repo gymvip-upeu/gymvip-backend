@@ -9,6 +9,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.sql.*;
 import java.time.*;
 import java.util.*;
@@ -58,6 +59,39 @@ public class CatalogService {
         var rows=jdbc.query("SELECT * FROM supplements"+where+" ORDER BY lower(name),lower(brand),id LIMIT ? OFFSET ?",this::mapSupplement,args.toArray());
         return new Page<>(rows,count,page,(int)((count+size-1)/size));
     }
+    @Transactional(readOnly = true)
+    public List<MobileProduct> mobileProducts(int page, int size, boolean customer) {
+        List<Supplement> items = supplements("", "", "", null, null, null, false, page, size, customer).content();
+        if (items.isEmpty()) return List.of();
+
+        UUID[] ids = items.stream().map(Supplement::id).toArray(UUID[]::new);
+        LocalDate date = today();
+        Map<UUID, MobileOffer> offers = new HashMap<>();
+        jdbc.query("""
+                SELECT p.id, p.supplement_id, p.name, p.description, p.conditions, p.start_date, p.end_date,
+                       s.price_pen - (p.reference_price_pen - p.offer_price_pen) AS current_price
+                FROM supplement_promotions p
+                JOIN supplements s ON s.id = p.supplement_id
+                WHERE p.supplement_id = ANY (?) AND p.enabled AND p.start_date <= ? AND p.end_date >= ?
+                """, (rows) -> {
+            offers.put(rows.getObject("supplement_id", UUID.class), new MobileOffer(
+                    rows.getObject("id", UUID.class), rows.getString("name"), rows.getString("description"),
+                    rows.getString("conditions"), rows.getBigDecimal("current_price"),
+                    rows.getObject("start_date", LocalDate.class), rows.getObject("end_date", LocalDate.class)));
+        }, ids, date, date);
+
+        return items.stream().map(item -> {
+            MobileOffer offer = offers.get(item.id());
+            Integer discount = offer == null ? null : item.pricePen().subtract(offer.pricePen())
+                    .multiply(BigDecimal.valueOf(100)).divide(item.pricePen(), 0, RoundingMode.HALF_UP).intValueExact();
+            String image = item.images().isEmpty() ? null : "/api/v1/catalog/supplements/" + item.id()
+                    + "/images/" + item.images().getFirst().id() + "?thumbnail=true";
+            return new MobileProduct(item.id(), item.name(), item.description(), item.category(), item.pricePen(),
+                    offer != null, discount, image, item.brand(), item.availability(), item.presentation(),
+                    item.netContent(), item.flavor(), item.ingredients(), offer);
+        }).toList();
+    }
+
     private void lockSupplement(UUID id) {
         if(jdbc.query("SELECT id FROM supplements WHERE id=? FOR UPDATE",(r,n)->r.getObject(1,UUID.class),id).isEmpty())throw new ResourceNotFoundException("Suplemento no encontrado.");
     }

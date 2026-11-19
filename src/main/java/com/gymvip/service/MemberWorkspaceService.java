@@ -200,22 +200,14 @@ public class MemberWorkspaceService {
 
     @Transactional(readOnly = true)
     public List<GymFaqItem> listFaqs() {
-        try {
-            var rows = jdbc.query("SELECT id, question, answer, category, display_order FROM gym_faqs WHERE is_active=true ORDER BY display_order ASC",
-                    (r, n) -> new GymFaqItem(r.getString("id"), r.getString("question"), r.getString("answer"), r.getString("category"), r.getInt("display_order")));
-            if (!rows.isEmpty()) return rows;
-        } catch (Exception ignored) {}
-        return List.of(
-            new GymFaqItem("faq-1", "¿Cómo funciona la vigencia de mi membresía mensual?", "La membresía mensual tiene una duración estricta de 30 días calendario continuos desde su inicio, con cero tolerancia de días de gracia.", "Membresías", 1),
-            new GymFaqItem("faq-2", "¿Puedo pagar o renovar mi plan desde la aplicación móvil?", "No. Por política de seguridad y operación autorizada, todo pago y renovación se efectúa exclusivamente en el mostrador de recepción.", "Pagos", 2),
-            new GymFaqItem("faq-3", "¿Puedo ver mis pagos anteriores si mi membresía ya venció?", "Sí. Su historial de pagos y perfil permanecen accesibles en la app mientras su cuenta de socio se mantenga habilitada.", "Historial", 3),
-            new GymFaqItem("faq-4", "¿Qué horarios de atención tiene el gimnasio?", "Lunes a viernes de 6:00 a.m. a 10:00 p.m., sábados de 7:00 a.m. a 8:00 p.m. y domingos de 8:00 a.m. a 2:00 p.m.", "Instalaciones", 4),
-            new GymFaqItem("faq-5", "¿Cómo solicito mi activación si es mi primera vez?", "Tras registrarse en recepción, el personal le entregará un comprobante con su código de activación presencial para configurar su contraseña personal.", "Cuenta", 5),
-            new GymFaqItem("faq-6", "¿Cómo accedo a los suplementos y promociones?", "Consulte la sección Catálogo en la app móvil. Todas las compras y canjes se concretan directamente en recepción.", "Catálogo", 6)
-        );
+        return jdbc.query("""
+            SELECT id, question, answer, category, display_order
+            FROM gym_faqs WHERE is_active=true ORDER BY display_order, id
+            """, (row, index) -> new GymFaqItem(
+                row.getString("id"), row.getString("question"), row.getString("answer"),
+                row.getString("category"), row.getInt("display_order")));
     }
 
-    @Transactional(readOnly = true)
     public List<GymServiceItem> listServices() {
         try {
             var rows = jdbc.query("SELECT id, name, description, schedule, location, is_included FROM gym_services ORDER BY display_order ASC",

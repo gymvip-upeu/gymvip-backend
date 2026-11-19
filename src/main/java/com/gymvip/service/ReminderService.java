@@ -26,6 +26,9 @@ public class ReminderService {
     private static final Logger log = LoggerFactory.getLogger(ReminderService.class);
     private static final ZoneId LIMA_ZONE = ZoneId.of("America/Lima");
 
+    private static final Set<Integer> ALLOWED_ANTICIPATION_DAYS = Set.of(3, 5, 7, 15);
+    private static final Set<String> ALLOWED_CHANNELS = Set.of("WHATSAPP", "EMAIL", "APP");
+
     private final JdbcTemplate jdbc;
     private final CommsServiceClient commsClient;
     private final AuditService auditService;
@@ -59,6 +62,13 @@ public class ReminderService {
 
     @Transactional
     public ReminderConfigResponse updateConfig(ReminderConfigRequest req, String actor) {
+        if (req.anticipationDays().stream().anyMatch(day -> day == null || !ALLOWED_ANTICIPATION_DAYS.contains(day))) {
+            throw new IllegalArgumentException("Los días de anticipación permitidos son 3, 5, 7 y 15.");
+        }
+        if (req.channels().stream().anyMatch(channel -> channel == null || !ALLOWED_CHANNELS.contains(channel))) {
+            throw new IllegalArgumentException("El canal debe ser WHATSAPP, EMAIL o APP.");
+        }
+
         String anticipationStr = String.join(",", req.anticipationDays().stream().map(String::valueOf).toList());
         String channelsStr = String.join(",", req.channels());
         LocalDateTime now = LocalDateTime.now(clock);

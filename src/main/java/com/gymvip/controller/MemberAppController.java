@@ -102,6 +102,7 @@ public class MemberAppController {
     }
 
     @GetMapping("/inbox")
+    @PreAuthorize("hasRole('CLIENTE')")
     public Object inbox(Authentication auth) {
         if (service.mustChange(auth.getName())) {
             throw new org.springframework.security.access.AccessDeniedException("Cambia la contraseña temporal antes de continuar.");
@@ -110,6 +111,7 @@ public class MemberAppController {
     }
 
     @PostMapping("/inbox/{id}/read")
+    @PreAuthorize("hasRole('CLIENTE')")
     public Object markInboxRead(@PathVariable String id, Authentication auth) {
         if (service.mustChange(auth.getName())) {
             throw new org.springframework.security.access.AccessDeniedException("Cambia la contraseña temporal antes de continuar.");
@@ -118,11 +120,13 @@ public class MemberAppController {
     }
 
     @GetMapping("/consents")
+    @PreAuthorize("hasRole('CLIENTE')")
     public Object getConsents(Authentication auth) {
         return service.getConsents(service.ownClient(auth.getName()));
     }
 
     @PostMapping("/consents")
+    @PreAuthorize("hasRole('CLIENTE')")
     public Object saveConsents(@Valid @RequestBody MemberWorkspaceService.ConsentRequest request, Authentication auth) {
         return service.saveConsents(service.ownClient(auth.getName()), request);
     }

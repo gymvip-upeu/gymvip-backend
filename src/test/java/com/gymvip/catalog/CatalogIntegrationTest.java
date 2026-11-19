@@ -125,8 +125,40 @@ class CatalogIntegrationTest {
         mvc.perform(multipart("/api/v1/catalog/supplements").file(new MockMultipartFile("data","data.json","application/json",json.writeValueAsBytes(input("No permitido",BigDecimal.TEN,null,List.of(),null)))).file(photo("f.png"))).andExpect(status().isForbidden());
         mvc.perform(patch("/api/v1/catalog/supplements/"+p.id()+"/state").contentType(MediaType.APPLICATION_JSON).content(json.writeValueAsString(new StateInput(p.version(),"AGOTADO",true)))).andExpect(status().isForbidden());
     }
-    @Test void administrativeCatalogRejectsAnonymousAndClientRoles() throws Exception {
-        mvc.perform(get("/api/v1/catalog/supplements").with(org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.anonymous())).andExpect(status().isUnauthorized());
-        mvc.perform(get("/api/v1/catalog/supplements").with(org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user("cliente").roles("CLIENTE"))).andExpect(status().isForbidden());
+    @Test void memberReadsCurrentPublishedCatalogWithoutMembership() throws Exception {
+        var published = create();
+        var hidden = create();
+        catalog.state(hidden.id(), new StateInput(hidden.version(), "AGOTADO", false), ACTOR);
+        var updated = catalog.saveSupplement(published.id(),
+                input(published.name(), new BigDecimal("180.00"), published.version(),
+                        List.of(published.images().getFirst().id()), null), List.of(), ACTOR);
+        var offer = catalog.savePromotion(null, offer(updated, new BigDecimal("165.00"),
+                LocalDate.of(2026, 11, 1), LocalDate.of(2026, 11, 15), null), ACTOR);
+        catalog.state(updated.id(), new StateInput(updated.version(), "AGOTADO", true), ACTOR);
+
+        var member = org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors
+                .user("socio").roles("CLIENTE");
+        mvc.perform(get("/api/v1/catalog/supplements/{id}", published.id()).with(member))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.pricePen").value(180))
+                .andExpect(jsonPath("$.availability").value("AGOTADO"));
+        String item = "$[?(@.id == '" + published.id() + "')]";
+        mvc.perform(get("/api/v1/catalog/products").with(member))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath(item + ".brand").value(org.hamcrest.Matchers.contains("Marca test")))
+                .andExpect(jsonPath(item + ".availability").value(org.hamcrest.Matchers.contains("AGOTADO")))
+                .andExpect(jsonPath(item + ".offer.id").value(org.hamcrest.Matchers.contains(offer.id().toString())))
+                .andExpect(jsonPath("$[?(@.id == '" + hidden.id() + "')]").isEmpty());
+        clock.now = Instant.parse("2026-11-16T05:00:00Z");
+        mvc.perform(get("/api/v1/catalog/products").with(member))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath(item + ".isPromotion").value(org.hamcrest.Matchers.contains(false)));
+        mvc.perform(get("/api/v1/catalog/supplements/{id}", hidden.id()).with(member))
+                .andExpect(status().isNotFound());
+        mvc.perform(get("/api/v1/catalog/supplements/{id}/history", published.id()).with(member))
+                .andExpect(status().isForbidden());
+        mvc.perform(get("/api/v1/catalog/supplements").with(
+                        org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.anonymous()))
+                .andExpect(status().isUnauthorized());
     }
 }
