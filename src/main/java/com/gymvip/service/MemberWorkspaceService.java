@@ -200,19 +200,12 @@ public class MemberWorkspaceService {
 
     @Transactional(readOnly = true)
     public List<GymFaqItem> listFaqs() {
-        try {
-            var rows = jdbc.query("SELECT id, question, answer, category, display_order FROM gym_faqs WHERE is_active=true ORDER BY display_order ASC",
-                    (r, n) -> new GymFaqItem(r.getString("id"), r.getString("question"), r.getString("answer"), r.getString("category"), r.getInt("display_order")));
-            if (!rows.isEmpty()) return rows;
-        } catch (Exception ignored) {}
-        return List.of(
-            new GymFaqItem("faq-1", "¿Cómo funciona la vigencia de mi membresía mensual?", "La membresía mensual tiene una duración estricta de 30 días calendario continuos desde su inicio, con cero tolerancia de días de gracia.", "Membresías", 1),
-            new GymFaqItem("faq-2", "¿Puedo pagar o renovar mi plan desde la aplicación móvil?", "No. Por política de seguridad y operación autorizada, todo pago y renovación se efectúa exclusivamente en el mostrador de recepción.", "Pagos", 2),
-            new GymFaqItem("faq-3", "¿Puedo ver mis pagos anteriores si mi membresía ya venció?", "Sí. Su historial de pagos y perfil permanecen accesibles en la app mientras su cuenta de socio se mantenga habilitada.", "Historial", 3),
-            new GymFaqItem("faq-4", "¿Qué horarios de atención tiene el gimnasio?", "Lunes a viernes de 6:00 a.m. a 10:00 p.m., sábados de 7:00 a.m. a 8:00 p.m. y domingos de 8:00 a.m. a 2:00 p.m.", "Instalaciones", 4),
-            new GymFaqItem("faq-5", "¿Cómo solicito mi activación si es mi primera vez?", "Tras registrarse en recepción, el personal le entregará un comprobante con su código de activación presencial para configurar su contraseña personal.", "Cuenta", 5),
-            new GymFaqItem("faq-6", "¿Cómo accedo a los suplementos y promociones?", "Consulte la sección Catálogo en la app móvil. Todas las compras y canjes se concretan directamente en recepción.", "Catálogo", 6)
-        );
+        return jdbc.query("""
+            SELECT id, question, answer, category, display_order
+            FROM gym_faqs WHERE is_active=true ORDER BY display_order, id
+            """, (row, index) -> new GymFaqItem(
+                row.getString("id"), row.getString("question"), row.getString("answer"),
+                row.getString("category"), row.getInt("display_order")));
     }
 
     @Transactional(readOnly = true)
@@ -275,27 +268,22 @@ public class MemberWorkspaceService {
         clients.getClientById(clientId);
         List<MemberInboxItem> items = new ArrayList<>();
         Set<String> readIds = new HashSet<>();
-        try {
-            readIds.addAll(jdbc.query("SELECT item_id FROM member_inbox_reads WHERE client_id=?", (r, n) -> r.getString(1), clientId));
-        } catch (Exception ignored) {}
+        readIds.addAll(jdbc.query("SELECT item_id FROM member_inbox_reads WHERE client_id=?", (r, n) -> r.getString(1), clientId));
 
-        try {
-            var dispatches = jdbc.query("""
-                SELECT id, rule_type, channel, status, created_at
-                FROM sent_reminder_dispatches
-                WHERE client_id=?
-                ORDER BY created_at DESC
-                LIMIT 20
-            """, (r, n) -> {
-                String id = r.getString("id");
-                String rule = r.getString("rule_type");
-                String title = rule != null && rule.contains("VENCIDO") ? "Aviso de Vencimiento de Membresía" : "Recordatorio de Próxima Renovación";
-                String message = "Estimado socio, le recordamos mantener la vigencia de su membresía. Puede realizar su renovación presencialmente en recepción.";
-                String createdAt = String.valueOf(r.getObject("created_at"));
-                return new MemberInboxItem(id, clientId.toString(), title, message, "RECORDATORIO", createdAt, readIds.contains(id));
-            }, clientId);
-            items.addAll(dispatches);
-        } catch (Exception ignored) {}
+        items.addAll(jdbc.query("""
+            SELECT id, COALESCE(title, notice_title) AS title, COALESCE(message, notice_message) AS message, rule_type, created_at
+            FROM sent_reminder_dispatches
+            WHERE client_id=? AND channel='APP' AND status='DISPONIBLE'
+            ORDER BY created_at DESC LIMIT 100
+        """, (r, n) -> new MemberInboxItem(
+                r.getString("id"),
+                clientId.toString(),
+                r.getString("title"),
+                r.getString("message"),
+                r.getString("rule_type") != null && r.getString("rule_type").startsWith("POST_EXPIRY_") ? "VENCIMIENTO" : "RECORDATORIO",
+                r.getTimestamp("created_at").toInstant().toString(),
+                readIds.contains(r.getString("id"))
+        ), clientId));
 
         String welcomeId = "announcement_welcome_" + clientId;
         items.add(new MemberInboxItem(
@@ -325,13 +313,17 @@ public class MemberWorkspaceService {
     @Transactional
     public Map<String, Object> markInboxRead(UUID clientId, String itemId) {
         lockClient(clientId);
-        try {
-            jdbc.update("""
-                INSERT INTO member_inbox_reads(id, client_id, item_id, read_at_utc)
-                VALUES (?, ?, ?, ?)
-                ON CONFLICT (client_id, item_id) DO NOTHING
-            """, UUID.randomUUID(), clientId, itemId, now());
-        } catch (Exception ignored) {}
+        boolean legacy = itemId.equals("announcement_welcome_" + clientId) || itemId.equals("announcement_hygiene_" + clientId);
+        if (!legacy && !Boolean.TRUE.equals(jdbc.queryForObject("""
+            SELECT EXISTS(SELECT 1 FROM sent_reminder_dispatches
+            WHERE id::text=? AND client_id=? AND channel='APP' AND status='DISPONIBLE')
+        """, Boolean.class, itemId, clientId))) {
+            throw new ResourceNotFoundException("Aviso no encontrado.");
+        }
+        jdbc.update("""
+            INSERT INTO member_inbox_reads(id, client_id, item_id, read_at_utc) VALUES (?, ?, ?, ?)
+            ON CONFLICT(client_id, item_id) DO NOTHING
+        """, UUID.randomUUID(), clientId, itemId, now());
         return Map.of("itemId", itemId, "read", true);
     }
 

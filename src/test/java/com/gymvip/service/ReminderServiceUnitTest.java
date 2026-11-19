@@ -166,7 +166,7 @@ class ReminderServiceUnitTest {
     @Test
     @DisplayName("updateConfig actualiza valores y registra evento de auditoría (HU-14 T04 / T05)")
     void testUpdateConfigUpdatesAndAudits() {
-        when(jdbc.update(contains("UPDATE reminder_configurations"), anyBoolean(), anyString(), anyInt(), anyString(), anyString(), any()))
+        when(jdbc.update(contains("UPDATE reminder_configurations"), anyBoolean(), anyString(), anyInt(), anyString(), anyString(), anyString(), any()))
                 .thenReturn(1);
         when(jdbc.queryForMap(contains("FROM reminder_configurations")))
                 .thenReturn(mockConfigRow(true, "3,7,15", 3, "WHATSAPP"));

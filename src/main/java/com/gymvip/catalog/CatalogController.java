@@ -30,23 +30,9 @@ public class CatalogController {
     }
 
     @GetMapping("/products")
-    public List<Map<String, Object>> products(Authentication auth) {
-        boolean cust = isCustomer(auth);
-        var page = service.supplements("", "", "", cust ? Boolean.TRUE : null, null, null, false, 0, 50, cust);
-        List<Map<String, Object>> result = new ArrayList<>();
-        for (var s : page.content()) {
-            Map<String, Object> map = new LinkedHashMap<>();
-            map.put("id", s.id().toString());
-            map.put("name", s.name());
-            map.put("description", s.description());
-            map.put("category", s.category());
-            map.put("pricePen", s.pricePen().doubleValue());
-            map.put("isPromotion", false);
-            map.put("promotionDiscountPercent", null);
-            map.put("imageUrl", s.images().isEmpty() ? null : "/api/v1/catalog/supplements/" + s.id() + "/images/" + s.images().get(0).id() + "?thumbnail=true");
-            result.add(map);
-        }
-        return result;
+    public List<MobileProduct> products(@RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "50") int size, Authentication auth) {
+        return service.mobileProducts(page, size, isCustomer(auth));
     }
 
     @GetMapping("/supplements") public Page<Supplement> list(@RequestParam(defaultValue="") String query,@RequestParam(defaultValue="") String category,

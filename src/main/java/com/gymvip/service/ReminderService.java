@@ -53,7 +53,7 @@ public class ReminderService {
 
     @Transactional(readOnly = true)
     public ReminderConfigResponse getConfig() {
-        var row = jdbc.queryForMap("SELECT id, enabled, anticipation_days, post_expiry_days, channels, updated_by, updated_at FROM reminder_configurations LIMIT 1");
+        var row = jdbc.queryForMap("SELECT id, enabled, anticipation_days, post_expiry_days, post_expiry_days_selected, channels, updated_by, updated_at FROM reminder_configurations LIMIT 1");
         return mapRowToConfig(row);
     }
 
@@ -61,20 +61,21 @@ public class ReminderService {
     public ReminderConfigResponse updateConfig(ReminderConfigRequest req, String actor) {
         String anticipationStr = String.join(",", req.anticipationDays().stream().map(String::valueOf).toList());
         String channelsStr = String.join(",", req.channels());
+        String postSelectedStr = joinDays(req.postExpiryDaysSelected());
         LocalDateTime now = LocalDateTime.now(clock);
 
         int updated = jdbc.update("""
             UPDATE reminder_configurations
-            SET enabled = ?, anticipation_days = ?, post_expiry_days = ?, channels = ?, updated_by = ?, updated_at = ?
+            SET enabled = ?, anticipation_days = ?, post_expiry_days = ?, post_expiry_days_selected = ?, channels = ?, updated_by = ?, updated_at = ?
             WHERE id = (SELECT id FROM reminder_configurations LIMIT 1)
-        """, req.enabled(), anticipationStr, req.postExpiryDays(), channelsStr, actor, now);
+        """, req.enabled(), anticipationStr, req.postExpiryDays(), postSelectedStr, channelsStr, actor, now);
 
         if (updated == 0) {
             UUID id = UUID.randomUUID();
             jdbc.update("""
-                INSERT INTO reminder_configurations (id, enabled, anticipation_days, post_expiry_days, channels, updated_by, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-            """, id, req.enabled(), anticipationStr, req.postExpiryDays(), channelsStr, actor, now);
+                INSERT INTO reminder_configurations (id, enabled, anticipation_days, post_expiry_days, post_expiry_days_selected, channels, updated_by, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """, id, req.enabled(), anticipationStr, req.postExpiryDays(), postSelectedStr, channelsStr, actor, now);
         }
 
         auditService.recordEvent(actor, "UPDATE_REMINDER_CONFIG", "ReminderConfig", "GLOBAL",
@@ -211,6 +212,22 @@ public class ReminderService {
     }
 
     @Transactional(readOnly = true)
+    public List<Map<String, Object>> getCommunicationHistory() {
+        return jdbc.queryForList("""
+            SELECT d.id, d.client_id AS "clientId", d.period_id AS "periodId", d.channel,
+                   c.first_name || ' ' || c.last_name AS "clientName",
+                   COALESCE(d.title, d.notice_title) AS "title",
+                   COALESCE(d.message, d.notice_message) AS "message",
+                   d.rule_type AS "ruleType", d.template_name AS "templateName",
+                   CASE WHEN d.channel='APP' AND r.item_id IS NOT NULL THEN 'LEIDO' ELSE d.status END AS status,
+                   d.error_message AS "errorMessage", d.created_at AS "createdAt", r.read_at_utc AS "readAt"
+            FROM sent_reminder_dispatches d JOIN clients c ON c.id=d.client_id
+            LEFT JOIN member_inbox_reads r ON r.client_id=d.client_id AND r.item_id=d.id::text AND d.channel='APP'
+            ORDER BY d.created_at DESC LIMIT 500
+            """);
+    }
+
+    @Transactional(readOnly = true)
     public List<Map<String, Object>> getCutsHistory() {
         return jdbc.queryForList("""
             SELECT id, cut_date, triggered_by, eval_timestamp_utc, candidates_evaluated, notices_requested, notices_skipped
@@ -218,6 +235,11 @@ public class ReminderService {
             ORDER BY eval_timestamp_utc DESC
             LIMIT 50
         """);
+    }
+
+    private static String joinDays(List<Integer> days) {
+        if (days == null || days.isEmpty()) return "1,2";
+        return String.join(",", days.stream().map(String::valueOf).toList());
     }
 
     private ReminderConfigResponse mapRowToConfig(Map<String, Object> row) {
@@ -241,8 +263,21 @@ public class ReminderService {
                 .filter(s -> !s.isBlank())
                 .toList();
 
+        Object postSelectedObj = row.get("post_expiry_days_selected");
+        List<Integer> postSelectedList;
+        if (postSelectedObj != null) {
+            postSelectedList = Arrays.stream(String.valueOf(postSelectedObj).split(","))
+                    .map(String::trim)
+                    .filter(s -> !s.isBlank())
+                    .map(Integer::parseInt)
+                    .sorted()
+                    .toList();
+        } else {
+            postSelectedList = java.util.stream.IntStream.rangeClosed(1, Math.min(Math.max(postExpiryDays, 1), 5)).boxed().toList();
+        }
+
         return new ReminderConfigResponse(
-                id, enabled, anticipationList, postExpiryDays, channelsList,
+                id, enabled, anticipationList, postExpiryDays, channelsList, postSelectedList,
                 updatedBy, ts != null ? ts.toLocalDateTime() : null
         );
     }

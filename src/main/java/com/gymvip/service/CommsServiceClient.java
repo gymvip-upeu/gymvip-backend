@@ -128,6 +128,20 @@ public class CommsServiceClient {
         }
     }
 
+    public CommsDispatchResult sendReminderEmail(String email, String subject, String message, String template) {
+        try {
+            var result = restClient.post().uri("/api/v1/messages/email").contentType(MediaType.APPLICATION_JSON)
+                    .body(Map.of("to", email, "subject", subject, "template", template, "variables", Map.of("mensaje", message)))
+                    .retrieve().body(Map.class);
+            if (result == null) return new CommsDispatchResult(false, null, "FALLIDO", "Respuesta vacía del proveedor");
+            String id = String.valueOf(result.get("deliveryId"));
+            return new CommsDispatchResult(true, id, id.startsWith("sim_mail_") ? "SIMULADO" : "ACEPTADO_PROVEEDOR", null);
+        } catch (Exception e) {
+            log.warn("[COMMS CLIENT] Fallo al solicitar correo de recordatorio: {}", e.getClass().getSimpleName());
+            return new CommsDispatchResult(false, null, "FALLIDO", "Servicio de correo no disponible o envío rechazado");
+        }
+    }
+
     @SuppressWarnings("unchecked")
     public Map<String, Object> getCommunications(String status, String channel, String search, int page, int size) {
         try {
