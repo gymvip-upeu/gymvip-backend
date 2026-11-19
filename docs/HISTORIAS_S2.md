@@ -12,6 +12,14 @@ El catálogo móvil consulta productos publicados del backend, con filtros por n
 
 Administración publica las respuestas frecuentes y recepción puede presentar cambios para revisión. La app diferencia una consulta fallida de una lista vacía y permite buscar por texto y categoría. Está pendiente aprobar el tratamiento de respuestas automáticas en WhatsApp y verificar la información con el gimnasio.
 
+### Criterios y escenarios de QA para HU-26 y HU-27
+
+- Iniciar sesión con una cuenta de socio habilitada y una membresía vencida. Abrir Catálogo y Promociones vigentes. Confirmar que los productos publicados siguen disponibles para consulta. Una renovación mantiene el acceso de la cuenta habilitada. Desactivar la cuenta desde Administración debe revocar el acceso, incluso con un token anterior.
+- Cambiar precio, imagen o disponibilidad desde Administración y volver a abrir el catálogo. Revisar nombre, marca, descripción, presentación, contenido, precio e imagen. Un producto agotado sigue visible con su estado hasta que Administración lo cambie u oculte.
+- Combinar nombre o marca con categoría y precio máximo. En Promociones vigentes buscar por nombre del suplemento o de la oferta. Abrir el detalle y comprobar el precio vigente, el ahorro, las fechas en Lima y las condiciones publicadas.
+- Tras el fin de la vigencia, consultar la oferta vencida más reciente de cada producto publicado en Finalizadas. El detalle identifica el precio de la oferta como anterior y muestra el precio actual del producto. Las futuras y las desactivadas no aparecen.
+- Abrir el contacto de recepción y comprobar la URL de WhatsApp. Probar sin conexión para distinguir el error de una consulta exitosa sin productos u ofertas.
+
 ## Verificación
 
 El backend ejecuta sus pruebas contra PostgreSQL 17 en un esquema aislado. El frontend ejecuta la suite de Node y el empaquetado de Vite. El cliente Kotlin Multiplatform ejecuta las pruebas del destino JVM desktop. El microservicio ejecuta las pruebas de destinatarios, permisos, filtros, estados y webhook. Las pruebas de WhatsApp del repositorio utilizan simulación. La aprobación de plantillas y la entrega real deben comprobarse con destinatarios de prueba autorizados en Meta.

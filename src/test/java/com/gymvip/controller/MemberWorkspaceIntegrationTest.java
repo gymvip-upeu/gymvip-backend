@@ -68,6 +68,62 @@ class MemberWorkspaceIntegrationTest {
         mvc.perform(get("/api/v1/member-app/me").header("Authorization","Bearer "+fresh.token())).andExpect(status().isOk()).andExpect(jsonPath("$.client.id").value(member.client().id().toString()));
         mvc.perform(get("/api/v1/members/"+member.client().id()).header("Authorization","Bearer "+fresh.token())).andExpect(status().isForbidden());
     }
+    @Test
+    @org.springframework.security.test.context.support.WithAnonymousUser
+    void authorizedMemberWithExpiredMembershipReadsPublishedOffers() throws Exception {
+        enroll();
+        LocalDate today = LocalDate.now(clock.withZone(ZoneId.of("America/Lima")));
+        jdbc.update("""
+                UPDATE membership_periods SET start_date = ?, end_date = ?
+                WHERE membership_id IN (SELECT id FROM memberships WHERE client_id = ?)
+                """, today.minusDays(31), today.minusDays(1), member.client().id());
+
+        var supplement = UUID.randomUUID();
+        jdbc.update("""
+                INSERT INTO supplements(id, name, brand, category, presentation, net_content, description,
+                    price_pen, availability, created_at_utc, updated_at_utc)
+                VALUES (?, ?, 'Marca QA', 'PROTEINA', 'Pote', '900 g', 'Detalle QA',
+                        150, 'AGOTADO', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                """, supplement, "Suplemento QA " + supplement);
+        jdbc.update("""
+                INSERT INTO supplement_promotions(id, supplement_id, name, description, conditions,
+                    reference_price_pen, offer_price_pen, start_date, end_date, created_at_utc, updated_at_utc)
+                VALUES (?, ?, 'Oferta QA', 'Descripción QA', 'Solo en recepción',
+                        150, 135, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                """, UUID.randomUUID(), supplement, today.minusDays(1), today.plusDays(1));
+
+        var access = workspace.provision(member.client().id(), ACTOR);
+        workspace.changePassword(access.username(),
+                new MemberWorkspaceService.PasswordChange(access.temporaryPassword(), "NuevaClave1234!"));
+        var login = auth.login(new LoginRequest(access.username(), "NuevaClave1234!"), "127.0.0.1", "qa-test");
+        String product = "$[?(@.id == '" + supplement + "')]";
+        mvc.perform(get("/api/v1/catalog/products").header("Authorization", "Bearer " + login.token())
+                        .param("size", "60").param("page", findCatalogPage(supplement)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath(product + ".availability").value(org.hamcrest.Matchers.contains("AGOTADO")))
+                .andExpect(jsonPath(product + ".offer.name").value(org.hamcrest.Matchers.contains("Oferta QA")))
+                .andExpect(jsonPath(product + ".offer.description").value(org.hamcrest.Matchers.contains("Descripción QA")))
+                .andExpect(jsonPath(product + ".offer.conditions").value(org.hamcrest.Matchers.contains("Solo en recepción")))
+                .andExpect(jsonPath(product + ".offer.pricePen").value(org.hamcrest.Matchers.contains(135.0)));
+        var current = clients.getClientById(member.client().id());
+        workspace.status(current.id(), new MemberWorkspaceService.StatusChange("INACTIVO", current.version()), ACTOR);
+        mvc.perform(get("/api/v1/catalog/products").header("Authorization", "Bearer " + login.token())
+                        .with(org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.anonymous()))
+                .andExpect(status().isUnauthorized());
+        mvc.perform(get("/api/v1/catalog/products").with(
+                        org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.anonymous()))
+                .andExpect(status().isUnauthorized());
+    }
+
+    private String findCatalogPage(UUID supplement) {
+        Long index = jdbc.queryForObject("""
+                SELECT count(*) FROM supplements p CROSS JOIN supplements item
+                WHERE item.id = ? AND p.published
+                AND (lower(p.name), lower(p.brand), p.id) < (lower(item.name), lower(item.brand), item.id)
+                """, Long.class, supplement);
+        return Long.toString(index / 60);
+    }
+
     @Test void attendanceRequiresPaidCoverageAndDuplicateDayDoesNotCreateAnotherRecord() {
         assertThrows(ConflictException.class,()->workspace.checkIn(member.client().id(),ACTOR));
         enroll();assertEquals(true,workspace.checkIn(member.client().id(),ACTOR).get("recorded"));

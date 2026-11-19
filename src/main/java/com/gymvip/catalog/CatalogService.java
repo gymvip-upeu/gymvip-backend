@@ -67,18 +67,25 @@ public class CatalogService {
         UUID[] ids = items.stream().map(Supplement::id).toArray(UUID[]::new);
         LocalDate date = today();
         Map<UUID, MobileOffer> offers = new HashMap<>();
+        Map<UUID, MobileOffer> finished = new HashMap<>();
         jdbc.query("""
+                SELECT DISTINCT ON (supplement_id, finished) * FROM (
                 SELECT p.id, p.supplement_id, p.name, p.description, p.conditions, p.start_date, p.end_date,
-                       s.price_pen - (p.reference_price_pen - p.offer_price_pen) AS current_price
+                       p.end_date < ? AS finished,
+                       CASE WHEN p.end_date < ? THEN p.offer_price_pen
+                            ELSE s.price_pen - (p.reference_price_pen - p.offer_price_pen) END AS display_price
                 FROM supplement_promotions p
                 JOIN supplements s ON s.id = p.supplement_id
-                WHERE p.supplement_id = ANY (?) AND p.enabled AND p.start_date <= ? AND p.end_date >= ?
+                WHERE p.supplement_id = ANY (?) AND p.enabled AND p.start_date <= ?
+                ) entries
+                ORDER BY supplement_id, finished, end_date DESC, id
                 """, (rows) -> {
-            offers.put(rows.getObject("supplement_id", UUID.class), new MobileOffer(
+            var target = rows.getBoolean("finished") ? finished : offers;
+            target.putIfAbsent(rows.getObject("supplement_id", UUID.class), new MobileOffer(
                     rows.getObject("id", UUID.class), rows.getString("name"), rows.getString("description"),
-                    rows.getString("conditions"), rows.getBigDecimal("current_price"),
+                    rows.getString("conditions"), rows.getBigDecimal("display_price"),
                     rows.getObject("start_date", LocalDate.class), rows.getObject("end_date", LocalDate.class)));
-        }, ids, date, date);
+        }, date, date, ids, date);
 
         return items.stream().map(item -> {
             MobileOffer offer = offers.get(item.id());
@@ -88,7 +95,7 @@ public class CatalogService {
                     + "/images/" + item.images().getFirst().id() + "?thumbnail=true";
             return new MobileProduct(item.id(), item.name(), item.description(), item.category(), item.pricePen(),
                     offer != null, discount, image, item.brand(), item.availability(), item.presentation(),
-                    item.netContent(), item.flavor(), item.ingredients(), offer);
+                    item.netContent(), item.flavor(), item.ingredients(), offer, finished.get(item.id()));
         }).toList();
     }
 

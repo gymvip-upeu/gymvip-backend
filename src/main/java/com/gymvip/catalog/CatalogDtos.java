@@ -32,7 +32,7 @@ public final class CatalogDtos {
     public record MobileProduct(UUID id, String name, String description, String category,
         BigDecimal pricePen, boolean isPromotion, Integer promotionDiscountPercent, String imageUrl,
         String brand, String availability, String presentation, String netContent, String flavor,
-        String ingredients, MobileOffer offer) {}
+        String ingredients, MobileOffer offer, MobileOffer finishedOffer) {}
     public record StateInput(@NotNull Long version,
         @NotBlank @Pattern(regexp="DISPONIBLE|AGOTADO") String availability, boolean published) {}
     public record PromotionInput(@NotNull UUID supplementId,@NotBlank @Size(max=160) String name,

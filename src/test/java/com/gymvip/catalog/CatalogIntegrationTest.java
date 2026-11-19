@@ -149,10 +149,29 @@ class CatalogIntegrationTest {
                 .andExpect(jsonPath(item + ".availability").value(org.hamcrest.Matchers.contains("AGOTADO")))
                 .andExpect(jsonPath(item + ".offer.id").value(org.hamcrest.Matchers.contains(offer.id().toString())))
                 .andExpect(jsonPath("$[?(@.id == '" + hidden.id() + "')]").isEmpty());
+        String photoUrl = "/api/v1/catalog/supplements/" + published.id() + "/images/"
+                + updated.images().getFirst().id() + "?thumbnail=true";
+        mvc.perform(get(photoUrl).with(member)).andExpect(status().isOk())
+                .andExpect(content().contentType(MediaType.IMAGE_PNG));
+        mvc.perform(patch("/api/v1/catalog/supplements/{id}/state", published.id()).with(member)
+                        .contentType(MediaType.APPLICATION_JSON).content("""
+                                {"version":1,"availability":"DISPONIBLE","published":true}
+                                """))
+                .andExpect(status().isForbidden());
+        var futureProduct = create();
+        var future = catalog.savePromotion(null, offer(futureProduct,
+                new BigDecimal("140.00"), LocalDate.of(2026, 11, 20), LocalDate.of(2026, 11, 25), null), ACTOR);
+        var disabledProduct = create();
+        var disabled = active(disabledProduct);
+        catalog.deactivatePromotion(disabled.id(), new PromotionCancellation(disabled.version()), ACTOR);
         clock.now = Instant.parse("2026-11-16T05:00:00Z");
         mvc.perform(get("/api/v1/catalog/products").with(member))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath(item + ".isPromotion").value(org.hamcrest.Matchers.contains(false)));
+                .andExpect(jsonPath(item + ".isPromotion").value(org.hamcrest.Matchers.contains(false)))
+                .andExpect(jsonPath(item + ".finishedOffer.id").value(org.hamcrest.Matchers.contains(offer.id().toString())))
+                .andExpect(jsonPath(item + ".finishedOffer.pricePen").value(org.hamcrest.Matchers.contains(165.0)))
+                .andExpect(jsonPath("$[?(@.offer.id == '" + future.id() + "')]").isEmpty())
+                .andExpect(jsonPath("$[?(@.finishedOffer.id == '" + disabled.id() + "')]").isEmpty());
         mvc.perform(get("/api/v1/catalog/supplements/{id}", hidden.id()).with(member))
                 .andExpect(status().isNotFound());
         mvc.perform(get("/api/v1/catalog/supplements/{id}/history", published.id()).with(member))
