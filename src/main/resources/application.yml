@@ -8,6 +8,13 @@ jwt:
   secret: ${JWT_SECRET:}
   expiration-hours: ${JWT_EXPIRATION_HOURS:24}
 
+app:
+  apiperudev:
+    base-url: ${APIPERUDEV_BASE_URL:https://api.apiperu.dev}
+    token: ${APIPERUDEV_TOKEN:}
+    enabled: ${APIPERUDEV_ENABLED:true}
+    timeout-ms: ${APIPERUDEV_TIMEOUT_MS:5000}
+
 spring:
   servlet:
     multipart:

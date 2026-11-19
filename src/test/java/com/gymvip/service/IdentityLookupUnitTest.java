@@ -279,4 +279,82 @@ class IdentityLookupUnitTest {
         assertEquals(IdentityLookupStatus.ENCONTRADO, r1.status());
         assertEquals(IdentityLookupStatus.ENCONTRADO, r2.status());
     }
+
+    @Test
+    @DisplayName("Debe deserializar con éxito el JSON real de ApiPeruDev conteniendo campos no mapeados (time, retryable, ubigeo, etc.)")
+    void testLookupSuccessWithRealApiPeruDevPayloadWithExtraFields() {
+        RestClient.Builder builder = RestClient.builder().baseUrl("https://api.apiperu.dev");
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        RestClient restClient = builder.build();
+
+        String realJsonFromApiPeruDev = """
+            {
+              "success": true,
+              "data": {
+                "numero": "72154896",
+                "nombre_completo": "CHERO VALVERDE CHELSI CANDY",
+                "nombres": "CHELSI CANDY",
+                "apellido_paterno": "CHERO",
+                "apellido_materno": "VALVERDE",
+                "codigo_verificacion": 3,
+                "fecha_nacimiento": "1998-05-12",
+                "sexo": "FEMENINO",
+                "estado_civil": "SOLTERO",
+                "departamento": "SAN MARTIN",
+                "provincia": "SAN MARTIN",
+                "distrito": "TARAPOTO",
+                "direccion": "JR. ALERTA 123",
+                "direccion_completa": "JR. ALERTA 123 TARAPOTO SAN MARTIN",
+                "ubigeo_reniec": "210601",
+                "ubigeo_sunat": "220901",
+                "ubigeo": ["22", "09", "01"]
+              },
+              "time": 0.078,
+              "code": "found",
+              "retryable": false
+            }
+            """;
+
+        server.expect(requestTo("https://api.apiperu.dev/dni"))
+                .andExpect(method(HttpMethod.POST))
+                .andExpect(content().contentType(MediaType.APPLICATION_JSON))
+                .andRespond(withSuccess(realJsonFromApiPeruDev, MediaType.APPLICATION_JSON));
+
+        ApiPeruDevIdentityProvider provider = new ApiPeruDevIdentityProvider(
+                restClient, "test-token-real", "https://api.apiperu.dev", true
+        );
+
+        IdentityLookupResponse response = provider.lookupDni("72154896");
+
+        assertEquals(IdentityLookupStatus.ENCONTRADO, response.status());
+        assertEquals("72154896", response.dni());
+        assertEquals("CHELSI CANDY", response.nombres());
+        assertEquals("CHERO", response.apellidoPaterno());
+        assertEquals("VALVERDE", response.apellidoMaterno());
+        assertEquals("CHERO VALVERDE", response.apellidos());
+        server.verify();
+    }
+
+    @Test
+    @DisplayName("Debe manejar respuesta JSON malformada sin propagar excepción al cliente")
+    void testLookupMalformedJsonReturnsError() {
+        RestClient.Builder builder = RestClient.builder().baseUrl("https://api.apiperu.dev");
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        RestClient restClient = builder.build();
+
+        server.expect(requestTo("https://api.apiperu.dev/dni"))
+                .andRespond(withSuccess("ESTO_NO_ES_JSON_VALIDO{", MediaType.APPLICATION_JSON));
+
+        ApiPeruDevIdentityProvider provider = new ApiPeruDevIdentityProvider(
+                restClient, "test-token-real", "https://api.apiperu.dev", true
+        );
+
+        IdentityLookupResponse response = provider.lookupDni("72154896");
+
+        assertNotNull(response);
+        assertTrue(response.status() == IdentityLookupStatus.RESPUESTA_INCOMPLETA ||
+                   response.status() == IdentityLookupStatus.SERVICIO_NO_DISPONIBLE);
+        assertNotNull(response.mensaje());
+        server.verify();
+    }
 }

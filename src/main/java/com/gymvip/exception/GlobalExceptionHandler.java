@@ -158,6 +158,46 @@ public class GlobalExceptionHandler {
             "Cada imagen puede pesar hasta 5 MB. Adjunta como máximo 5 imágenes.",request.getRequestURI(),getCorrelationId(request)));
     }
 
+    @ExceptionHandler(org.springframework.web.HttpRequestMethodNotSupportedException.class)
+    public ResponseEntity<ErrorResponse> handleMethodNotAllowed(org.springframework.web.HttpRequestMethodNotSupportedException ex, HttpServletRequest request) {
+        ErrorResponse error = new ErrorResponse(
+                HttpStatus.METHOD_NOT_ALLOWED.value(),
+                HttpStatus.METHOD_NOT_ALLOWED.getReasonPhrase(),
+                "METHOD_NOT_ALLOWED",
+                "Método HTTP no permitido para este recurso: " + ex.getMethod(),
+                request.getRequestURI(),
+                getCorrelationId(request)
+        );
+        return ResponseEntity.status(HttpStatus.METHOD_NOT_ALLOWED).body(error);
+    }
+
+    @ExceptionHandler(org.springframework.web.servlet.resource.NoResourceFoundException.class)
+    public ResponseEntity<ErrorResponse> handleNoResourceFound(org.springframework.web.servlet.resource.NoResourceFoundException ex, HttpServletRequest request) {
+        ErrorResponse error = new ErrorResponse(
+                HttpStatus.NOT_FOUND.value(),
+                HttpStatus.NOT_FOUND.getReasonPhrase(),
+                "RESOURCE_NOT_FOUND",
+                "Recurso no encontrado: " + request.getRequestURI(),
+                request.getRequestURI(),
+                getCorrelationId(request)
+        );
+        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(error);
+    }
+
+    @ExceptionHandler({jakarta.validation.ConstraintViolationException.class,
+            org.springframework.web.bind.MissingServletRequestParameterException.class})
+    public ResponseEntity<ErrorResponse> handleConstraintViolation(Exception ex, HttpServletRequest request) {
+        ErrorResponse error = new ErrorResponse(
+                HttpStatus.BAD_REQUEST.value(),
+                HttpStatus.BAD_REQUEST.getReasonPhrase(),
+                "VALIDATION_ERROR",
+                "Parámetro de solicitud inválido: " + ex.getMessage(),
+                request.getRequestURI(),
+                getCorrelationId(request)
+        );
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(error);
+    }
+
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ErrorResponse> handleGeneral(Exception ex, HttpServletRequest request) {
         org.slf4j.LoggerFactory.getLogger(GlobalExceptionHandler.class).error("ERROR 500 en " + request.getRequestURI() + ": " + ex.getMessage(), ex);
