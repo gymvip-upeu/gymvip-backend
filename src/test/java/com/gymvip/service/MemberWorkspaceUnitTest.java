@@ -247,12 +247,18 @@ class MemberWorkspaceUnitTest {
     }
 
     @Test
-    @DisplayName("listFaqs debe retornar las FAQs oficiales del gimnasio (HU-28)")
+    @DisplayName("listFaqs conserva vacío el catálogo sin respuestas publicadas (HU-28)")
     void testListFaqs() {
         var faqs = service.listFaqs();
         assertNotNull(faqs);
-        assertFalse(faqs.isEmpty());
-        assertTrue(faqs.stream().anyMatch(f -> f.question().contains("vigencia")));
+        assertTrue(faqs.isEmpty());
+    }
+
+    @Test
+    void faqQueryFailureIsReportedInsteadOfReturningFixtures() {
+        when(jdbc.query(contains("FROM gym_faqs"), any(RowMapper.class)))
+            .thenThrow(new org.springframework.dao.DataAccessResourceFailureException("Consulta no disponible"));
+        assertThrows(org.springframework.dao.DataAccessResourceFailureException.class, service::listFaqs);
     }
 
     @Test
