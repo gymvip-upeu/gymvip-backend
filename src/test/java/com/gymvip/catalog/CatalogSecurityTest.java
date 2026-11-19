@@ -81,10 +81,19 @@ class CatalogSecurityTest {
     }
 
     @Test void anonymousCannotReadCatalog() throws Exception {
-        for (var path : List.of("/options", "/supplements", "/supplements/" + ID, "/supplements/" + ID + "/images/" + IMAGE,
+        for (var path : List.of("/options", "/products", "/supplements", "/supplements/" + ID, "/supplements/" + ID + "/images/" + IMAGE,
                 "/promotions", "/promotions/" + ID))
             mvc.perform(get(BASE + path).with(anonymous())).andExpect(status().isUnauthorized());
         verifyNoInteractions(service);
+    }
+
+    @ParameterizedTest @ValueSource(strings = {"ADMIN", "RECEPCION", "CLIENTE"})
+    void mobileProductsEndpointUsesCustomerPublicationFilter(String role) throws Exception {
+        reads();
+        mvc.perform(get(BASE + "/products").with(user("lector").roles(role)))
+                .andExpect(status().isOk()).andExpect(jsonPath("$[0].id").value(ID.toString()));
+        boolean customer = role.equals("CLIENTE");
+        verify(service).supplements("", "", "", customer ? Boolean.TRUE : null, null, null, false, 0, 50, customer);
     }
 
     @ParameterizedTest @ValueSource(strings = {"ADMIN", "RECEPCION"})
