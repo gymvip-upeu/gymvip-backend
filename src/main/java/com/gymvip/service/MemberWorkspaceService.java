@@ -273,16 +273,15 @@ public class MemberWorkspaceService {
 
         try {
             var dispatches = jdbc.query("""
-                SELECT id, rule_type, channel, status, created_at
+                SELECT id, notice_title, notice_message, created_at
                 FROM sent_reminder_dispatches
-                WHERE client_id=?
-                ORDER BY created_at DESC
+                WHERE client_id=? AND channel='APP' AND status='ENTREGADO'
+                ORDER BY created_at DESC, id
                 LIMIT 20
             """, (r, n) -> {
                 String id = r.getString("id");
-                String rule = r.getString("rule_type");
-                String title = rule != null && rule.contains("VENCIDO") ? "Aviso de Vencimiento de Membresía" : "Recordatorio de Próxima Renovación";
-                String message = "Estimado socio, le recordamos mantener la vigencia de su membresía. Puede realizar su renovación presencialmente en recepción.";
+                String title = r.getString("notice_title");
+                String message = r.getString("notice_message");
                 String createdAt = String.valueOf(r.getObject("created_at"));
                 return new MemberInboxItem(id, clientId.toString(), title, message, "RECORDATORIO", createdAt, readIds.contains(id));
             }, clientId);

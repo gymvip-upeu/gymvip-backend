@@ -24,6 +24,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 class MemberWorkspaceIntegrationTest {
     @Autowired MemberWorkspaceService workspace;
     @Autowired MembershipService memberships;
+    @Autowired ReminderService reminders;
     @Autowired PlanService plans;
     @Autowired ClientService clients;
     @Autowired CoverageService coverage;
@@ -137,6 +138,41 @@ class MemberWorkspaceIntegrationTest {
             mvc.perform(get("/api/v1/member-app/consents").with(staff)).andExpect(status().isForbidden());
         }
     }
+    @Test
+    void appReminderUsesConsentCurrentPeriodAndPrivateInbox() {
+        enroll();
+        UUID id = member.client().id();
+        LocalDate expiry = LocalDate.now(clock.withZone(ZoneId.of("America/Lima"))).plusDays(7);
+        jdbc.update("""
+                UPDATE membership_periods SET end_date = ?
+                WHERE membership_id IN (SELECT id FROM memberships WHERE client_id = ?)
+                """, expiry, id);
+        var original = reminders.getConfig();
+        try {
+            reminders.updateConfig(new ReminderConfigRequest(true, List.of(7), 5, List.of("APP")), ACTOR);
+            reminders.evaluateReminders(ACTOR);
+            assertEquals(0, appReminders(id).size());
+
+            workspace.saveConsents(id, new MemberWorkspaceService.ConsentRequest(true, true, false, "qa-app"));
+            reminders.evaluateReminders(ACTOR);
+            reminders.evaluateReminders(ACTOR);
+
+            var notices = appReminders(id);
+            assertEquals(1, notices.size());
+            assertTrue(notices.getFirst().message().contains("7 días restantes"));
+            assertTrue(notices.getFirst().message().contains(expiry.toString()));
+            assertEquals(id.toString(), notices.getFirst().accountId());
+        } finally {
+            reminders.updateConfig(new ReminderConfigRequest(original.enabled(), original.anticipationDays(),
+                    original.postExpiryDays(), original.channels()), ACTOR);
+        }
+    }
+
+    private List<MemberWorkspaceService.MemberInboxItem> appReminders(UUID client) {
+        return workspace.listInbox(client).stream()
+                .filter(item -> "RECORDATORIO".equals(item.category())).toList();
+    }
+
     @Test void memberStatusRejectsConcurrentVersion() {
         var current=clients.getClientById(member.client().id());
         workspace.status(member.client().id(),new MemberWorkspaceService.StatusChange("INACTIVO",current.version()),ACTOR);

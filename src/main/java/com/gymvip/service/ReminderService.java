@@ -111,11 +111,14 @@ public class ReminderService {
         // Regla HU-14 CA-06: Se descartan vencimientos de periodos que ya fueron renovados.
         String sql = """
             SELECT p.id AS period_id, m.client_id, c.first_name, c.last_name, c.phone,
-                   c.consent_whatsapp, c.consent_app, v.name AS plan_name, p.end_date
+                   (c.consent_whatsapp AND coalesce(mc.whatsapp_consent, false)) AS consent_whatsapp,
+                   (c.consent_app AND coalesce(mc.terms_accepted AND mc.privacy_acknowledged, false)) AS consent_app,
+                   v.name AS plan_name, p.end_date
             FROM membership_periods p
             JOIN memberships m ON m.id = p.membership_id
             JOIN clients c ON c.id = m.client_id
             JOIN plan_versions v ON v.id = p.plan_version_id
+            LEFT JOIN member_consents mc ON mc.client_id = c.id
             WHERE p.cancelled_at_utc IS NULL
               AND c.status = 'ACTIVO'
               AND EXISTS (
@@ -164,47 +167,57 @@ public class ReminderService {
                 }
             }
 
-            if (ruleType != null && templateName != null) {
-                // Clave determinista de idempotencia (HU-14 T07)
-                String idempotencyKey = String.format("REM-%s-%s-%s-WHATSAPP", periodId, ruleType, today);
+            if (ruleType == null) {
+                skipped++;
+                continue;
+            }
 
-                // Comprobar si ya fue despachado hoy
+            boolean sent = false;
+            String key = String.format("REM-%s-%s-%s", periodId, ruleType, today);
+            String whatsApp = normalizeWhatsApp(phone);
+            boolean whatsAppConfigured = config.channels().contains("WHATSAPP");
+            boolean publishInApp = config.channels().contains("APP") ||
+                    (whatsAppConfigured && whatsApp == null);
+            if (publishInApp && Boolean.TRUE.equals(row.get("consent_app"))) {
+                boolean upcoming = diffDays > 0;
+                String title = upcoming ? "Próximo vencimiento de membresía" : "Membresía vencida";
+                String message = String.format(
+                        "%s, tu plan %s de GYM VIP %s el %s (%d %s).",
+                        clientName, planName, upcoming ? "vence" : "venció",
+                        endDate, Math.abs(diffDays), upcoming ? "días restantes" : "días de vencido");
+                sent = jdbc.update("""
+                        INSERT INTO sent_reminder_dispatches (
+                            id, idempotency_key, client_id, period_id, channel, rule_type, target_date,
+                            status, notice_title, notice_message, created_at
+                        )
+                        VALUES (?, ?, ?, ?, 'APP', ?, ?, 'ENTREGADO', ?, ?, ?)
+                        ON CONFLICT (idempotency_key) DO NOTHING
+                        """, UUID.randomUUID(), key + "-APP", clientId, periodId, ruleType, today,
+                        title, message, LocalDateTime.now(clock)) > 0;
+            }
+
+            if (whatsAppConfigured && whatsApp != null) {
+                String whatsappKey = key + "-WHATSAPP";
                 Integer alreadySent = jdbc.queryForObject(
                         "SELECT COUNT(*) FROM sent_reminder_dispatches WHERE idempotency_key = ?",
-                        Integer.class, idempotencyKey
-                );
-
-                if (alreadySent != null && alreadySent > 0) {
-                    skipped++;
-                    continue;
+                        Integer.class, whatsappKey);
+                if ((alreadySent == null || alreadySent == 0) && Boolean.TRUE.equals(consentWhatsapp)) {
+                    var dispatch = commsClient.sendWhatsAppReminder(
+                            whatsappKey, whatsApp, templateName, params, true, clientId, clientName, periodId);
+                    jdbc.update("""
+                            INSERT INTO sent_reminder_dispatches (
+                                id, idempotency_key, client_id, period_id, channel, rule_type, target_date,
+                                status, external_delivery_id, error_message, created_at
+                            )
+                            VALUES (?, ?, ?, ?, 'WHATSAPP', ?, ?, ?, ?, ?, ?)
+                            ON CONFLICT (idempotency_key) DO NOTHING
+                            """, UUID.randomUUID(), whatsappKey, clientId, periodId, ruleType, today,
+                            dispatch.status(), dispatch.deliveryId(), dispatch.errorMessage(), LocalDateTime.now(clock));
+                    sent |= dispatch.dispatched();
                 }
-
-                // Validar consentimiento antes de solicitar
-                if (consentWhatsapp == null || !consentWhatsapp) {
-                    log.info("[EVALUADOR RECORDATORIOS] Socio {} omitido: sin consentimiento de WhatsApp", clientId);
-                    skipped++;
-                    continue;
-                }
-
-                // Despachar hacia microservicio de comunicaciones
-                var dispatch = commsClient.sendWhatsAppReminder(
-                        idempotencyKey, phone, templateName, params, true, clientId, clientName, periodId
-                );
-
-                jdbc.update("""
-                    INSERT INTO sent_reminder_dispatches (id, idempotency_key, client_id, period_id, channel, rule_type, target_date, status, external_delivery_id, error_message, created_at)
-                    VALUES (?, ?, ?, ?, 'WHATSAPP', ?, ?, ?, ?, ?, ?)
-                """, UUID.randomUUID(), idempotencyKey, clientId, periodId, ruleType, today,
-                        dispatch.status(), dispatch.deliveryId(), dispatch.errorMessage(), LocalDateTime.now(clock));
-
-                if (dispatch.dispatched()) {
-                    requested++;
-                } else {
-                    skipped++;
-                }
-            } else {
-                skipped++;
             }
+            if (sent) requested++;
+            else skipped++;
         }
 
         // Registrar auditoría del corte ejecutado
@@ -218,6 +231,13 @@ public class ReminderService {
 
         return new EvaluationSummary(today, evaluated, requested, skipped,
                 String.format("Evaluación completada: %d evaluados, %d solicitados, %d omitidos.", evaluated, requested, skipped));
+    }
+
+    private static String normalizeWhatsApp(String phone) {
+        if (phone == null) return null;
+        String clean = phone.trim().replaceAll("[ ()-]", "");
+        if (clean.matches("9[0-9]{8}")) return "+51" + clean;
+        return clean.matches("\\+[1-9][0-9]{7,14}") ? clean : null;
     }
 
     @Transactional(readOnly = true)

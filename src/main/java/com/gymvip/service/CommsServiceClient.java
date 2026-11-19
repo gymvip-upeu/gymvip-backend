@@ -75,16 +75,19 @@ public class CommsServiceClient {
 
             if (res.getStatusCode().is2xxSuccessful() && res.getBody() != null) {
                 var resBody = res.getBody();
-                String extId = String.valueOf(resBody.get("externalMessageId"));
-                String status = String.valueOf(resBody.get("status"));
-                return new CommsDispatchResult(true, extId, status, null);
+                String extId = Objects.toString(resBody.get("externalMessageId"), null);
+                String state = Objects.toString(resBody.get("status"), "DESCONOCIDO");
+                boolean sent = Set.of("SOLICITADO", "ACEPTADO_PROVEEDOR", "ENVIADO", "ENTREGADO", "LEIDO")
+                        .contains(state);
+                return new CommsDispatchResult(sent, extId, state,
+                        sent ? null : "El proveedor no confirmó el envío.");
             }
 
             return new CommsDispatchResult(false, null, "FALLIDO", "Error retornado por microservicio: HTTP " + res.getStatusCode().value());
 
         } catch (Exception e) {
             log.warn("[COMMS CLIENT] No fue posible contactar a gymvip-comunicaciones en {}: {}", commsUrl, e.getMessage());
-            return new CommsDispatchResult(false, null, "FALLIDO", "Microservicio de comunicaciones no disponible: " + e.getMessage());
+            return new CommsDispatchResult(false, null, "FALLIDO", "Microservicio de comunicaciones no disponible.");
         }
     }
 
@@ -131,13 +134,12 @@ public class CommsServiceClient {
     @SuppressWarnings("unchecked")
     public Map<String, Object> getCommunications(String status, String channel, String search, int page, int size) {
         try {
-            String uri = String.format("/api/v1/communications?page=%d&size=%d", page, size);
-            if (status != null && !status.isBlank()) uri += "&status=" + status;
-            if (channel != null && !channel.isBlank()) uri += "&channel=" + channel;
-            if (search != null && !search.isBlank()) uri += "&search=" + search;
-
             var res = restClient.get()
-                    .uri(uri)
+                    .uri(builder -> builder.path("/api/v1/communications")
+                            .queryParam("page", page).queryParam("size", size)
+                            .queryParamIfPresent("status", Optional.ofNullable(status))
+                            .queryParamIfPresent("channel", Optional.ofNullable(channel))
+                            .queryParam("search", "{term}").build(Map.of("term", Objects.toString(search, ""))))
                     .retrieve()
                     .body(Map.class);
 
