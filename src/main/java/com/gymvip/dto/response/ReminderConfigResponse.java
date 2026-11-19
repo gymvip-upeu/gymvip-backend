@@ -10,6 +10,7 @@ public record ReminderConfigResponse(
         List<Integer> anticipationDays,
         int postExpiryDays,
         List<String> channels,
+        List<Integer> postExpiryDaysSelected,
         String updatedBy,
         LocalDateTime updatedAt
 ) {}

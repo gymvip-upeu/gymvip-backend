@@ -267,27 +267,16 @@ public class MemberWorkspaceService {
         clients.getClientById(clientId);
         List<MemberInboxItem> items = new ArrayList<>();
         Set<String> readIds = new HashSet<>();
-        try {
-            readIds.addAll(jdbc.query("SELECT item_id FROM member_inbox_reads WHERE client_id=?", (r, n) -> r.getString(1), clientId));
-        } catch (Exception ignored) {}
+        readIds.addAll(jdbc.query("SELECT item_id FROM member_inbox_reads WHERE client_id=?", (r, n) -> r.getString(1), clientId));
 
-        try {
-            var dispatches = jdbc.query("""
-                SELECT id, rule_type, channel, status, created_at
-                FROM sent_reminder_dispatches
-                WHERE client_id=?
-                ORDER BY created_at DESC
-                LIMIT 20
-            """, (r, n) -> {
-                String id = r.getString("id");
-                String rule = r.getString("rule_type");
-                String title = rule != null && rule.contains("VENCIDO") ? "Aviso de Vencimiento de Membresía" : "Recordatorio de Próxima Renovación";
-                String message = "Estimado socio, le recordamos mantener la vigencia de su membresía. Puede realizar su renovación presencialmente en recepción.";
-                String createdAt = String.valueOf(r.getObject("created_at"));
-                return new MemberInboxItem(id, clientId.toString(), title, message, "RECORDATORIO", createdAt, readIds.contains(id));
-            }, clientId);
-            items.addAll(dispatches);
-        } catch (Exception ignored) {}
+        items.addAll(jdbc.query("""
+            SELECT id,title,message,rule_type,created_at FROM sent_reminder_dispatches
+            WHERE client_id=? AND channel='APP' AND status='DISPONIBLE'
+            ORDER BY created_at DESC LIMIT 100
+            """, (r,n) -> new MemberInboxItem(r.getString("id"),clientId.toString(),
+                r.getString("title"),r.getString("message"),
+                r.getString("rule_type").startsWith("POST_EXPIRY_") ? "VENCIMIENTO" : "RECORDATORIO",
+                r.getTimestamp("created_at").toInstant().toString(),readIds.contains(r.getString("id"))),clientId));
 
         String welcomeId = "announcement_welcome_" + clientId;
         items.add(new MemberInboxItem(
@@ -317,13 +306,15 @@ public class MemberWorkspaceService {
     @Transactional
     public Map<String, Object> markInboxRead(UUID clientId, String itemId) {
         lockClient(clientId);
-        try {
-            jdbc.update("""
-                INSERT INTO member_inbox_reads(id, client_id, item_id, read_at_utc)
-                VALUES (?, ?, ?, ?)
-                ON CONFLICT (client_id, item_id) DO NOTHING
-            """, UUID.randomUUID(), clientId, itemId, now());
-        } catch (Exception ignored) {}
+        boolean legacy=itemId.equals("announcement_welcome_"+clientId) || itemId.equals("announcement_hygiene_"+clientId);
+        if (!legacy && !Boolean.TRUE.equals(jdbc.queryForObject("""
+            SELECT EXISTS(SELECT 1 FROM sent_reminder_dispatches
+            WHERE id::text=? AND client_id=? AND channel='APP' AND status='DISPONIBLE')
+            """,Boolean.class,itemId,clientId))) throw new ResourceNotFoundException("Aviso no encontrado.");
+        jdbc.update("""
+            INSERT INTO member_inbox_reads(id,client_id,item_id,read_at_utc) VALUES (?,?,?,?)
+            ON CONFLICT(client_id,item_id) DO NOTHING
+            """,UUID.randomUUID(),clientId,itemId,OffsetDateTime.now(clock));
         return Map.of("itemId", itemId, "read", true);
     }
 

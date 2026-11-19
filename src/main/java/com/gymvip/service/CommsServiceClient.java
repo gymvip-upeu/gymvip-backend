@@ -29,7 +29,10 @@ public class CommsServiceClient {
     ) {
         this.commsUrl = commsUrl;
         this.serviceToken = serviceToken;
-        this.restClient = RestClient.builder()
+        var factory = new org.springframework.http.client.JdkClientHttpRequestFactory(
+                java.net.http.HttpClient.newBuilder().connectTimeout(java.time.Duration.ofSeconds(3)).build());
+        factory.setReadTimeout(java.time.Duration.ofSeconds(20));
+        this.restClient = RestClient.builder().requestFactory(factory)
                 .baseUrl(commsUrl)
                 .defaultHeader("X-Service-Key", serviceToken)
                 .build();
@@ -77,14 +80,30 @@ public class CommsServiceClient {
                 var resBody = res.getBody();
                 String extId = String.valueOf(resBody.get("externalMessageId"));
                 String status = String.valueOf(resBody.get("status"));
-                return new CommsDispatchResult(true, extId, status, null);
+                boolean success=!"FALLIDO".equals(status);
+                if (extId.startsWith("wamid.sim_")) status="SIMULADO";
+                return new CommsDispatchResult(success, extId, status, success ? null : "Proveedor rechazó el envío");
             }
 
             return new CommsDispatchResult(false, null, "FALLIDO", "Error retornado por microservicio: HTTP " + res.getStatusCode().value());
 
         } catch (Exception e) {
             log.warn("[COMMS CLIENT] No fue posible contactar a gymvip-comunicaciones en {}: {}", commsUrl, e.getMessage());
-            return new CommsDispatchResult(false, null, "FALLIDO", "Microservicio de comunicaciones no disponible: " + e.getMessage());
+            return new CommsDispatchResult(false, null, "FALLIDO", "Servicio de WhatsApp no disponible o envío rechazado");
+        }
+    }
+
+    public CommsDispatchResult sendReminderEmail(String email, String subject, String message, String template) {
+        try {
+            var result=restClient.post().uri("/api/v1/messages/email").contentType(MediaType.APPLICATION_JSON)
+                .body(Map.of("to",email,"subject",subject,"template",template,"variables",Map.of("mensaje",message)))
+                .retrieve().body(Map.class);
+            if (result==null) return new CommsDispatchResult(false,null,"FALLIDO","Respuesta vacía del proveedor");
+            String id=String.valueOf(result.get("deliveryId"));
+            return new CommsDispatchResult(true,id,id.startsWith("sim_mail_") ? "SIMULADO" : "ACEPTADO_PROVEEDOR",null);
+        } catch (Exception e) {
+            log.warn("[COMMS CLIENT] Fallo al solicitar correo de recordatorio: {}",e.getClass().getSimpleName());
+            return new CommsDispatchResult(false,null,"FALLIDO","Servicio de correo no disponible o envío rechazado");
         }
     }
 

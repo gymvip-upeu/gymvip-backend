@@ -295,11 +295,14 @@ class MemberWorkspaceUnitTest {
         UUID clientId = UUID.randomUUID();
         when(jdbc.query(contains("FOR UPDATE"), any(RowMapper.class), eq(clientId))).thenReturn(List.of(clientId));
 
+        when(jdbc.query(contains("FROM member_inbox_reads"),any(RowMapper.class),eq(clientId))).thenReturn(List.of());
+        when(jdbc.query(contains("FROM sent_reminder_dispatches"),any(RowMapper.class),eq(clientId))).thenReturn(List.of());
         var inbox = service.listInbox(clientId);
         assertNotNull(inbox);
         assertFalse(inbox.isEmpty());
         assertTrue(inbox.stream().anyMatch(i -> i.title().contains("GYM VIP")));
 
+        when(jdbc.queryForObject(contains("SELECT EXISTS"),eq(Boolean.class),eq("item-123"),eq(clientId))).thenReturn(true);
         var result = service.markInboxRead(clientId, "item-123");
         assertEquals("item-123", result.get("itemId"));
         assertEquals(true, result.get("read"));
@@ -389,5 +392,12 @@ class MemberWorkspaceUnitTest {
         // Validación de token vacío
         assertThrows(IllegalArgumentException.class, () ->
                 service.registerDeviceToken(clientId, new MemberWorkspaceService.DeviceTokenRegistration("  ", "android", null)));
+    }
+
+    @Test void cannotMarkAnotherMembersNoticeOrMissingNoticeAsRead() {
+        UUID clientId=UUID.randomUUID();
+        when(jdbc.query(contains("FOR UPDATE"),any(RowMapper.class),eq(clientId))).thenReturn(List.of(clientId));
+        assertThrows(com.gymvip.exception.ResourceNotFoundException.class,()->service.markInboxRead(clientId,"foreign-notice"));
+        verify(jdbc,never()).update(contains("INSERT INTO member_inbox_reads"),any(Object[].class));
     }
 }

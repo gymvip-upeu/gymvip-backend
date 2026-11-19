@@ -46,6 +46,11 @@ public class ReminderConfigController {
         return ResponseEntity.ok(reminderService.evaluateReminders(auth.getName()));
     }
 
+    @GetMapping("/communications")
+    public ResponseEntity<List<Map<String,Object>>> getCommunicationHistory() {
+        return ResponseEntity.ok(reminderService.getCommunicationHistory());
+    }
+
     @GetMapping("/cuts")
     public ResponseEntity<List<Map<String, Object>>> getCutsHistory() {
         return ResponseEntity.ok(reminderService.getCutsHistory());
