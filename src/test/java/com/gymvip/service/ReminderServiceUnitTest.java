@@ -164,6 +164,28 @@ class ReminderServiceUnitTest {
     }
 
     @Test
+    void invalidWhatsAppContactUsesOnlyAuthorizedAppChannel() {
+        when(jdbc.queryForMap(contains("FROM reminder_configurations")))
+                .thenReturn(mockConfigRow(true, "7", 5, "WHATSAPP"));
+        var candidate = new HashMap<String, Object>();
+        candidate.put("period_id", UUID.randomUUID());
+        candidate.put("client_id", UUID.randomUUID());
+        candidate.put("phone", "invalido");
+        candidate.put("first_name", "Socio");
+        candidate.put("last_name", "QA");
+        candidate.put("plan_name", "Plan QA");
+        candidate.put("consent_whatsapp", true);
+        candidate.put("consent_app", true);
+        candidate.put("end_date", java.sql.Date.valueOf(LocalDate.of(2026, 11, 10)));
+        when(jdbc.queryForList(contains("FROM membership_periods p"))).thenReturn(List.of(candidate));
+        when(jdbc.update(contains("notice_title"), any(), any(), any(), any(), any(), any(), any(), any(), any()))
+                .thenReturn(1);
+
+        assertEquals(1, reminderService.evaluateReminders("qa").noticesRequested());
+        verifyNoInteractions(commsClient);
+    }
+
+    @Test
     @DisplayName("updateConfig actualiza valores y registra evento de auditoría (HU-14 T04 / T05)")
     void testUpdateConfigUpdatesAndAudits() {
         when(jdbc.update(contains("UPDATE reminder_configurations"), anyBoolean(), anyString(), anyInt(), anyString(), anyString(), any()))
