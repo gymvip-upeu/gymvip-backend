@@ -348,5 +348,90 @@ class ClientImportUnitTest {
         assertNotNull(row.nameDiscrepancy());
         assertTrue(row.nameDiscrepancy().contains("MARIA DEL PILAR"));
     }
+
+    @Test
+    @DisplayName("HU-06: Confirmación de importación respeta exclusión manual de fila")
+    void testConfirmImportWithExcludedRow() throws IOException {
+        String[][] rows = {
+                {"Carlos", "Mendoza", "1990-05-15", "PE", "DNI", "71112233", "987111222", "carlos@test.local"},
+                {"Lucia", "Gomez", "1995-10-20", "PE", "DNI", "74445566", "987444555", "lucia@test.local"}
+        };
+        byte[] bytes = createTestExcel(defaultHeaders(), rows);
+        MockMultipartFile file = new MockMultipartFile("file", "exclusiones.xlsx",
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", bytes);
+
+        when(documentRepository.existsByCountryCodeAndDocumentTypeAndDocumentNumber(anyString(), anyString(), anyString()))
+                .thenReturn(false);
+        when(clientRepository.existsByMemberCode(anyString())).thenReturn(false);
+        when(clientRepository.save(any(Client.class))).thenAnswer(inv -> {
+            Client c = inv.getArgument(0);
+            return c;
+        });
+
+        // Decisión: Fila 2 del Excel excluida manualmente, Fila 3 confirmada
+        String decisionsJson = """
+                [
+                    {"rowNumber": 2, "excluded": true, "edited": false},
+                    {"rowNumber": 3, "excluded": false, "edited": false}
+                ]
+                """;
+
+        ClientImportResultResponse result = importService.confirmImport(file, "admin@gymvip.pe", false, decisionsJson);
+
+        assertNotNull(result);
+        assertEquals(2, result.totalRows());
+        assertEquals(1, result.createdCount(), "Debe haberse creado únicamente la fila 3 no excluida");
+        assertEquals(1, result.skippedCount(), "Debe haberse omitido la fila 2 excluida manualmente");
+
+        verify(clientRepository, times(1)).save(any(Client.class));
+    }
+
+    @Test
+    @DisplayName("HU-06: Confirmación de importación aplica campos editados manualmente")
+    void testConfirmImportWithEditedRow() throws IOException {
+        String[][] rows = {
+                {"Carlos", "Mendoza", "1990-05-15", "PE", "DNI", "71112233", "987111222", "carlos@test.local"}
+        };
+        byte[] bytes = createTestExcel(defaultHeaders(), rows);
+        MockMultipartFile file = new MockMultipartFile("file", "edicion.xlsx",
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", bytes);
+
+        when(documentRepository.existsByCountryCodeAndDocumentTypeAndDocumentNumber(anyString(), anyString(), anyString()))
+                .thenReturn(false);
+        when(clientRepository.existsByMemberCode(anyString())).thenReturn(false);
+        when(clientRepository.save(any(Client.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        // Decisión: Fila 2 del Excel con nombre y apellido corregidos
+        String decisionsJson = """
+                [
+                    {
+                        "rowNumber": 2,
+                        "excluded": false,
+                        "edited": true,
+                        "firstName": "Carlos Alberto",
+                        "lastName": "Mendoza Quispe",
+                        "birthDate": "1990-05-15",
+                        "countryCode": "PE",
+                        "documentType": "DNI",
+                        "documentNumber": "71112233",
+                        "phone": "999888777",
+                        "email": "carlos.nuevo@gymvip.pe"
+                    }
+                ]
+                """;
+
+        ClientImportResultResponse result = importService.confirmImport(file, "admin@gymvip.pe", false, decisionsJson);
+
+        assertNotNull(result);
+        assertEquals(1, result.createdCount());
+        assertEquals("Carlos Alberto Mendoza Quispe", result.results().get(0).fullName());
+
+        verify(clientRepository, times(1)).save(argThat(c ->
+                "Carlos Alberto".equals(c.getFirstName()) &&
+                "Mendoza Quispe".equals(c.getLastName()) &&
+                "999888777".equals(c.getPhone()) &&
+                "carlos.nuevo@gymvip.pe".equals(c.getEmail())
+        ));
+    }
 }
 

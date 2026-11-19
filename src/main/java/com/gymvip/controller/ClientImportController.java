@@ -48,16 +48,18 @@ public class ClientImportController {
     }
 
     /**
-     * Confirmación de importación masiva: persiste únicamente las filas válidas y audita la operación.
+     * Confirmación de importación masiva: persiste únicamente las filas válidas y seleccionadas,
+     * aplicando decisiones de exclusión, edición y resolución de discrepancias (HU-06).
      */
     @PostMapping(value = "/confirm", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ResponseEntity<ClientImportResultResponse> confirmImport(
             @RequestParam("file") MultipartFile file,
             @RequestParam(value = "verifyDni", defaultValue = "false") boolean verifyDni,
+            @RequestParam(value = "decisions", required = false) String decisions,
             Authentication authentication
     ) {
         String actor = authentication != null ? authentication.getName() : "recepcion_sistema";
-        ClientImportResultResponse response = clientImportService.confirmImport(file, actor, verifyDni);
+        ClientImportResultResponse response = clientImportService.confirmImport(file, actor, verifyDni, decisions);
         return ResponseEntity.ok(response);
     }
 }

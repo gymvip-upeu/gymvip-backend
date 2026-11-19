@@ -1,5 +1,9 @@
 package com.gymvip.service.impl;
 
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
+import com.gymvip.dto.request.ClientImportDecisionDto;
 import com.gymvip.dto.request.RegisterClientRequest;
 import com.gymvip.dto.response.*;
 import com.gymvip.entity.Client;
@@ -278,18 +282,100 @@ public class ClientImportServiceImpl implements ClientImportService {
     @Override
     @Transactional
     public ClientImportResultResponse confirmImport(MultipartFile file, String actorEmail, boolean verifyDni) {
+        return confirmImport(file, actorEmail, verifyDni, null);
+    }
+
+    @Override
+    @Transactional
+    public ClientImportResultResponse confirmImport(MultipartFile file, String actorEmail, boolean verifyDni, String decisionsJson) {
         validateFileMetadata(file);
 
         List<ParsedRow> parsedRows = parseAndValidateRows(file);
         String fileName = file.getOriginalFilename() != null ? file.getOriginalFilename() : "archivo.xlsx";
 
+        Map<Integer, ClientImportDecisionDto> decisionMap = new HashMap<>();
+        if (decisionsJson != null && !decisionsJson.isBlank()) {
+            try {
+                ObjectMapper mapper = new ObjectMapper().registerModule(new JavaTimeModule());
+                List<ClientImportDecisionDto> decisionList = mapper.readValue(decisionsJson, new TypeReference<List<ClientImportDecisionDto>>() {});
+                for (ClientImportDecisionDto d : decisionList) {
+                    decisionMap.put(d.rowNumber(), d);
+                }
+            } catch (Exception ex) {
+                log.warn("No se pudo deserializar decisionsJson en confirmación de importación: {}", ex.getMessage());
+            }
+        }
+
         int createdCount = 0;
         int skippedCount = 0;
         int rejectedCount = 0;
+        int excludedCount = 0;
+        int editedCount = 0;
 
         List<ClientImportRowResultDto> resultRows = new ArrayList<>();
 
         for (ParsedRow row : parsedRows) {
+            ClientImportDecisionDto decision = decisionMap.get(row.rowNumber);
+
+            // 1. Manejo de exclusión manual
+            if (decision != null && decision.excluded()) {
+                skippedCount++;
+                excludedCount++;
+                String fullName = (row.firstName + " " + row.lastName).trim();
+                resultRows.add(new ClientImportRowResultDto(
+                        row.rowNumber,
+                        fullName,
+                        row.countryCode,
+                        row.documentType,
+                        row.documentNumber,
+                        null,
+                        "SKIPPED_EXCLUDED",
+                        "Omitido: excluido manualmente por el operador antes de la confirmación."
+                ));
+                continue;
+            }
+
+            // 2. Aplicar edición si existe
+            if (decision != null && (decision.edited() || "USE_SOURCE".equals(decision.discrepancyResolution()) || "MANUAL_EDIT".equals(decision.discrepancyResolution()))) {
+                if (decision.firstName() != null && !decision.firstName().isBlank()) {
+                    row.firstName = decision.firstName().trim();
+                }
+                if (decision.lastName() != null && !decision.lastName().isBlank()) {
+                    row.lastName = decision.lastName().trim();
+                }
+                if (decision.birthDate() != null) {
+                    row.birthDate = decision.birthDate();
+                }
+                if (decision.documentNumber() != null && !decision.documentNumber().isBlank()) {
+                    row.documentNumber = decision.documentNumber().trim();
+                }
+                if (decision.phone() != null) {
+                    row.phone = decision.phone().trim();
+                }
+                if (decision.email() != null) {
+                    row.email = decision.email().trim();
+                }
+                editedCount++;
+
+                // Revalidar fila editada
+                if (row.firstName.isBlank() || row.lastName.isBlank()) {
+                    row.status = "INVALID";
+                    row.message = "Nombres y apellidos son obligatorios.";
+                } else if ("DNI".equalsIgnoreCase(row.documentType) && !row.documentNumber.matches("^\\d{8}$")) {
+                    row.status = "INVALID";
+                    row.message = "El DNI editado debe contener exactamente 8 dígitos numéricos.";
+                } else if (row.birthDate != null && row.birthDate.isAfter(LocalDate.now())) {
+                    row.status = "INVALID";
+                    row.message = "La fecha de nacimiento no puede ser futura.";
+                } else if (row.birthDate != null && Period.between(row.birthDate, LocalDate.now()).getYears() < 14) {
+                    row.status = "INVALID";
+                    row.message = "La edad mínima permitida para registrarse es de 14 años.";
+                } else {
+                    row.status = "VALID";
+                    row.message = null;
+                }
+            }
+
             String fullName = (row.firstName + " " + row.lastName).trim();
 
             if ("VALID".equals(row.status)) {
@@ -405,8 +491,8 @@ public class ClientImportServiceImpl implements ClientImportService {
                 "IMPORT_CLIENTS",
                 "Client",
                 "BATCH",
-                String.format("Importación masiva completada: %d creados, %d omitidos por duplicado, %d rechazados. Archivo: %s",
-                        createdCount, skippedCount, rejectedCount, fileName)
+                String.format("Importación masiva completada: %d creados, %d omitidos (%d excluidos manualmente), %d editados, %d rechazados. Archivo: %s",
+                        createdCount, skippedCount, excludedCount, editedCount, rejectedCount, fileName)
         );
 
         return new ClientImportResultResponse(
@@ -636,16 +722,16 @@ public class ClientImportServiceImpl implements ClientImportService {
 
     private static class ParsedRow {
         final int rowNumber;
-        final String firstName;
-        final String lastName;
-        final LocalDate birthDate;
-        final String countryCode;
-        final String documentType;
-        final String documentNumber;
-        final String phone;
-        final String email;
-        final String status;
-        final String message;
+        String firstName;
+        String lastName;
+        LocalDate birthDate;
+        String countryCode;
+        String documentType;
+        String documentNumber;
+        String phone;
+        String email;
+        String status;
+        String message;
 
         ParsedRow(int rowNumber, String firstName, String lastName, LocalDate birthDate,
                   String countryCode, String documentType, String documentNumber,

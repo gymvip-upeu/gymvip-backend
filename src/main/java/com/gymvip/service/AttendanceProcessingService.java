@@ -245,8 +245,11 @@ public class AttendanceProcessingService {
         String queryParam = query != null ? "%" + query.trim().toLowerCase() + "%" : "%";
 
         // Query aprobados
-        boolean includeAprobados = statusFilter == null || "TODOS".equalsIgnoreCase(statusFilter) || "APROBADO".equalsIgnoreCase(statusFilter);
-        boolean includeRechazados = statusFilter == null || "TODOS".equalsIgnoreCase(statusFilter) || "RECHAZADO".equalsIgnoreCase(statusFilter);
+        boolean includeAprobados = statusFilter == null || "TODOS".equalsIgnoreCase(statusFilter)
+                || "APROBADO".equalsIgnoreCase(statusFilter) || "ATTENDANCE_RECORDED".equalsIgnoreCase(statusFilter);
+        boolean includeRechazados = statusFilter == null || "TODOS".equalsIgnoreCase(statusFilter)
+                || "RECHAZADO".equalsIgnoreCase(statusFilter) || "ALREADY_REGISTERED".equalsIgnoreCase(statusFilter)
+                || "COVERAGE_EXPIRED".equalsIgnoreCase(statusFilter);
 
         List<AgendaItemDto> items = new ArrayList<>();
 
@@ -255,13 +258,13 @@ public class AttendanceProcessingService {
             var aprobados = jdbc.sql("""
                     SELECT a.id, a.client_id, c.first_name, c.last_name, c.member_code, c.document_number,
                            a.attendance_date, a.checked_at_utc, a.check_in_method, a.recorded_by,
-                           a.terminal_id, t.name AS terminal_name, 'APROBADO' AS status, 'Ingreso autorizado' AS details
+                           a.terminal_id, t.name AS terminal_name, 'ATTENDANCE_RECORDED' AS status, 'Ingreso autorizado' AS details
                     FROM member_attendance a
                     JOIN clients c ON c.id = a.client_id
                     LEFT JOIN attendance_terminals t ON t.id = a.terminal_id
                     WHERE a.attendance_date BETWEEN :from AND :to
                       AND (lower(c.first_name) LIKE :q OR lower(c.last_name) LIKE :q OR lower(c.member_code) LIKE :q OR lower(c.document_number) LIKE :q)
-                      AND (:method = '%' OR a.check_in_method = :method)
+                      AND (CAST(:method AS varchar) = '%' OR a.check_in_method = :method)
                     ORDER BY a.checked_at_utc DESC
                     LIMIT :lim OFFSET :off
                     """)
@@ -283,7 +286,7 @@ public class AttendanceProcessingService {
                             rs.getString("recorded_by"),
                             rs.getObject("terminal_id", UUID.class),
                             rs.getString("terminal_name") != null ? rs.getString("terminal_name") : "Mostrador General",
-                            "APROBADO",
+                            rs.getString("status"),
                             rs.getString("details")
                     ))
                     .list();
@@ -296,13 +299,18 @@ public class AttendanceProcessingService {
                     SELECT r.id, r.client_id, c.first_name, c.last_name, c.member_code, c.document_number,
                            r.attendance_date, r.attempted_at_utc AS checked_at_utc,
                            'RECHAZO' AS check_in_method, r.recorded_by, r.terminal_id,
-                           t.name AS terminal_name, 'RECHAZADO' AS status,
+                           t.name AS terminal_name,
+                           CASE
+                               WHEN r.rejection_reason = 'ALREADY_REGISTERED' THEN 'ALREADY_REGISTERED'
+                               WHEN r.rejection_reason = 'COVERAGE_EXPIRED' THEN 'COVERAGE_EXPIRED'
+                               ELSE 'RECHAZADO'
+                           END AS status,
                            concat(r.rejection_reason, ': ', coalesce(r.details, '')) AS details
                     FROM attendance_rejection_logs r
                     LEFT JOIN clients c ON c.id = r.client_id
                     LEFT JOIN attendance_terminals t ON t.id = r.terminal_id
                     WHERE r.attendance_date BETWEEN :from AND :to
-                      AND (:q = '%' OR lower(coalesce(c.first_name, '')) LIKE :q OR lower(coalesce(c.last_name, '')) LIKE :q OR lower(coalesce(c.member_code, '')) LIKE :q)
+                      AND (CAST(:q AS varchar) = '%' OR lower(coalesce(c.first_name, '')) LIKE :q OR lower(coalesce(c.last_name, '')) LIKE :q OR lower(coalesce(c.member_code, '')) LIKE :q)
                     ORDER BY r.attempted_at_utc DESC
                     LIMIT :lim
                     """)
@@ -322,7 +330,7 @@ public class AttendanceProcessingService {
                             rs.getString("recorded_by"),
                             rs.getObject("terminal_id", UUID.class),
                             rs.getString("terminal_name") != null ? rs.getString("terminal_name") : "Terminal",
-                            "RECHAZADO",
+                            rs.getString("status"),
                             rs.getString("details")
                     ))
                     .list();

@@ -64,9 +64,12 @@ public class AttendanceTerminalController {
         return terminalService.generateChallenge(id, auth.getName());
     }
 
-    @GetMapping("/feed")
+    @GetMapping({"/feed", "/terminals/{id}/feed"})
     @PreAuthorize("hasAnyRole('ADMIN', 'RECEPCION')")
-    public List<Map<String, Object>> getRecentFeed(@RequestParam(defaultValue = "15") int limit) {
+    public List<Map<String, Object>> getRecentFeed(
+            @PathVariable(required = false) UUID id,
+            @RequestParam(defaultValue = "15") int limit
+    ) {
         return processingService.getRecentFeed(limit);
     }
 
@@ -75,13 +78,17 @@ public class AttendanceTerminalController {
     public AgendaPageResponse getAgenda(
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate startDate,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate endDate,
             @RequestParam(required = false) String query,
             @RequestParam(required = false, defaultValue = "TODOS") String method,
             @RequestParam(required = false, defaultValue = "TODOS") String status,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size
     ) {
-        return processingService.queryAttendanceAgenda(from, to, query, method, status, page, size);
+        LocalDate effectiveFrom = from != null ? from : startDate;
+        LocalDate effectiveTo = to != null ? to : endDate;
+        return processingService.queryAttendanceAgenda(effectiveFrom, effectiveTo, query, method, status, page, size);
     }
 
     @GetMapping(value = "/agenda/export", produces = "text/csv")
@@ -89,11 +96,15 @@ public class AttendanceTerminalController {
     public ResponseEntity<String> exportAgenda(
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate startDate,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate endDate,
             @RequestParam(required = false) String query,
             @RequestParam(required = false, defaultValue = "TODOS") String method,
             @RequestParam(required = false, defaultValue = "TODOS") String status
     ) {
-        String csv = processingService.exportAttendanceCsv(from, to, query, method, status);
+        LocalDate effectiveFrom = from != null ? from : startDate;
+        LocalDate effectiveTo = to != null ? to : endDate;
+        String csv = processingService.exportAttendanceCsv(effectiveFrom, effectiveTo, query, method, status);
         return ResponseEntity.ok()
                 .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"asistencias_" + LocalDate.now() + ".csv\"")
                 .contentType(MediaType.parseMediaType("text/csv; charset=UTF-8"))

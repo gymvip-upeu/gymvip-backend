@@ -32,4 +32,10 @@ public interface ClientImportService {
      * Confirma la importación persistiendo filas válidas y aplicando la verificación de identidad solicitada.
      */
     ClientImportResultResponse confirmImport(MultipartFile file, String actorEmail, boolean verifyDni);
+
+    /**
+     * Confirma la importación aplicando decisiones de fila (exclusiones, ediciones manuales y resolución de discrepancias).
+     * Solo persiste las filas efectivamente seleccionadas, aprobadas y no excluidas.
+     */
+    ClientImportResultResponse confirmImport(MultipartFile file, String actorEmail, boolean verifyDni, String decisionsJson);
 }
