@@ -288,6 +288,9 @@ class MemberWorkspaceUnitTest {
     void testInboxAndMarkRead() {
         UUID clientId = UUID.randomUUID();
         when(jdbc.query(contains("FOR UPDATE"), any(RowMapper.class), eq(clientId))).thenReturn(List.of(clientId));
+        lenient().when(jdbc.query(contains("member_inbox_reads"), any(RowMapper.class), eq(clientId))).thenReturn(List.of());
+        lenient().when(jdbc.query(contains("sent_reminder_dispatches"), any(RowMapper.class), any())).thenReturn(List.of());
+        lenient().when(jdbc.queryForObject(contains("EXISTS"), eq(Boolean.class), eq("item-123"), eq(clientId))).thenReturn(true);
 
         var inbox = service.listInbox(clientId);
         assertNotNull(inbox);

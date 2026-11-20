@@ -33,11 +33,12 @@ USER gymvip
 
 # Variables de entorno por defecto (Render inyecta PORT dinámicamente)
 ENV PORT=8080
+ENV SERVER_ADDRESS=0.0.0.0
 ENV SPRING_PROFILES_ACTIVE=prod
 ENV TZ=America/Lima
 
 EXPOSE 8080
 
-# Iniciar Spring Boot con zona horaria America/Lima y mapeo de puerto dinámico
-ENTRYPOINT ["sh", "-c", "java -Duser.timezone=America/Lima -Dserver.port=${PORT} -jar app.jar"]
+# Iniciar Spring Boot con zona horaria America/Lima, escucha 0.0.0.0 y mapeo de puerto dinámico
+ENTRYPOINT ["sh", "-c", "java -Duser.timezone=America/Lima -Dserver.address=0.0.0.0 -Dserver.port=${PORT} -jar app.jar"]
 
