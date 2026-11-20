@@ -59,6 +59,8 @@ public class ReminderService {
 
     @Transactional
     public ReminderConfigResponse updateConfig(ReminderConfigRequest req, String actor) {
+        if (req.channels().isEmpty() || req.channels().stream().anyMatch(c -> !Set.of("APP", "WHATSAPP").contains(c)))
+            throw new IllegalArgumentException("Selecciona WhatsApp o app móvil como canal de recordatorios.");
         String anticipationStr = String.join(",", req.anticipationDays().stream().map(String::valueOf).toList());
         String channelsStr = String.join(",", req.channels());
         OffsetDateTime now = OffsetDateTime.now(clock);
@@ -128,8 +130,7 @@ public class ReminderService {
             for (String channel : config.channels().stream().sorted(Comparator.comparingInt(c -> c.equals("APP") ? 0 : 1)).toList()) {
                 boolean allowed=!channel.equals("WHATSAPP") || Boolean.TRUE.equals(row.get("consent_whatsapp"));
                 allowed &= !channel.equals("APP") || Boolean.TRUE.equals(row.get("consent_app"));
-                String target=String.valueOf(row.get(channel.equals("EMAIL") ? "email" : "phone"));
-                if (channel.equals("EMAIL") && (target.equals("null") || !target.contains("@"))) allowed=false;
+                String target=String.valueOf(row.get("phone"));
                 String key=String.format("REM-%s-%s-%s-%s",periodId,rule,today,channel);
                 UUID id=UUID.randomUUID();
                 String status=!allowed ? "OMITIDO" : channel.equals("APP") ? "DISPONIBLE" : "SOLICITADO";
@@ -144,9 +145,7 @@ public class ReminderService {
                 if (!channel.equals("APP")) external.add(Map.of("id",id,"key",key,"channel",channel,"target",target));
             }
             for (var attempt : external) {
-                var result=attempt.get("channel").equals("WHATSAPP")
-                    ? commsClient.sendWhatsAppReminder((String)attempt.get("key"),(String)attempt.get("target"),template,params,true,clientId,name,periodId)
-                    : commsClient.sendReminderEmail((String)attempt.get("target"),title,message,template);
+                var result=commsClient.sendWhatsAppReminder((String)attempt.get("key"),(String)attempt.get("target"),template,params,true,clientId,name,periodId);
                 jdbc.update("UPDATE sent_reminder_dispatches SET status=?,external_delivery_id=?,error_message=?,updated_at=? WHERE id=?",
                     result.status(),result.deliveryId(),result.errorMessage(),OffsetDateTime.now(clock),attempt.get("id"));
             }
@@ -169,6 +168,7 @@ public class ReminderService {
                    d.error_message AS "errorMessage", d.created_at AS "createdAt", r.read_at_utc AS "readAt"
             FROM sent_reminder_dispatches d JOIN clients c ON c.id=d.client_id
             LEFT JOIN member_inbox_reads r ON r.client_id=d.client_id AND r.item_id=d.id::text AND d.channel='APP'
+            WHERE d.channel IN ('APP','WHATSAPP')
             ORDER BY d.created_at DESC LIMIT 500
             """);
     }
@@ -204,7 +204,8 @@ public class ReminderService {
 
         List<String> channelsList = Arrays.stream(channelsStr.split(","))
                 .map(String::trim)
-                .filter(s -> !s.isBlank())
+                .filter(s -> Set.of("APP", "WHATSAPP").contains(s))
+                .distinct()
                 .toList();
 
         return new ReminderConfigResponse(

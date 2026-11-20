@@ -20,22 +20,55 @@ public class CommsServiceClient {
     private static final Logger log = LoggerFactory.getLogger(CommsServiceClient.class);
 
     private final RestClient restClient;
+    private final RestClient statusClient;
     private final String commsUrl;
     private final String serviceToken;
 
+    @org.springframework.beans.factory.annotation.Autowired
     public CommsServiceClient(
             @Value("${app.comms.url:http://localhost:8085}") String commsUrl,
             @Value("${app.comms.token:gymvip-internal-token-2026}") String serviceToken
     ) {
+        this(commsUrl, serviceToken, null);
+    }
+
+    CommsServiceClient(String commsUrl, String serviceToken, RestClient.Builder statusBuilder) {
         this.commsUrl = commsUrl;
         this.serviceToken = serviceToken;
         var factory = new org.springframework.http.client.JdkClientHttpRequestFactory(
                 java.net.http.HttpClient.newBuilder().connectTimeout(java.time.Duration.ofSeconds(3)).build());
         factory.setReadTimeout(java.time.Duration.ofSeconds(20));
+        var statusFactory = new org.springframework.http.client.JdkClientHttpRequestFactory(
+                java.net.http.HttpClient.newBuilder().connectTimeout(java.time.Duration.ofSeconds(2)).build());
+        statusFactory.setReadTimeout(java.time.Duration.ofSeconds(3));
+        this.statusClient = (statusBuilder == null ? RestClient.builder().requestFactory(statusFactory) : statusBuilder).baseUrl(commsUrl)
+                .defaultHeader("X-Service-Key", serviceToken).build();
         this.restClient = RestClient.builder().requestFactory(factory)
                 .baseUrl(commsUrl)
                 .defaultHeader("X-Service-Key", serviceToken)
                 .build();
+    }
+
+
+    public Map<String,Object> getWhatsAppChannelStatus() {
+        try {
+            var body=statusClient.get().uri("/api/v1/channels/status").retrieve().body(Map.class);
+            if (body==null || !(body.get("channels") instanceof Map<?,?> channels)
+                    || !(channels.get("whatsapp") instanceof Map<?,?> wa)
+                    || !(wa.get("enabled") instanceof Boolean enabled)) throw new IllegalStateException("Invalid status");
+            String status=String.valueOf(wa.get("status"));
+            if (!Set.of("DISABLED","SIMULATION","UNCONFIGURED","CONFIGURED_REAL").contains(status)
+                    || (!enabled && !status.equals("DISABLED"))
+                    || (enabled && status.equals("DISABLED"))
+                    || (status.equals("CONFIGURED_REAL") && !Boolean.TRUE.equals(wa.get("configurationComplete"))))
+                throw new IllegalStateException("Invalid configuration status");
+            return Map.of("channel","WHATSAPP","enabled",enabled,"status",status,
+                    "source","comunicaciones","configurationComplete",Boolean.TRUE.equals(wa.get("configurationComplete")),
+                    "connectionVerified",false);
+        } catch (Exception ignored) {
+            return Map.of("channel","WHATSAPP","status","UNVERIFIED","source","comunicaciones",
+                    "message","No se pudo verificar","connectionVerified",false);
+        }
     }
 
     public record CommsDispatchResult(

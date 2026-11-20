@@ -196,9 +196,8 @@ class ReminderServiceUnitTest {
         when(jdbc.update(contains("ON CONFLICT(idempotency_key)"),any(Object[].class))).thenReturn(1);
         when(commsClient.sendWhatsAppReminder(any(),any(),any(),any(),anyBoolean(),any(),any(),any()))
             .thenReturn(new CommsServiceClient.CommsDispatchResult(false,null,"FALLIDO","offline"));
-        when(commsClient.sendReminderEmail(any(),any(),any(),any()))
-            .thenReturn(new CommsServiceClient.CommsDispatchResult(true,"sim_mail_1","SIMULADO",null));
-        assertEquals(3,reminderService.evaluateReminders("admin").noticesRequested());
+        assertEquals(2,reminderService.evaluateReminders("admin").noticesRequested());
+        verify(commsClient, never()).sendReminderEmail(any(),any(),any(),any());
         var order=inOrder(jdbc,commsClient);
         order.verify(jdbc).update(contains("ON CONFLICT(idempotency_key)"),any(),any(),any(),any(),eq("APP"),any(),any(),eq("DISPONIBLE"),any(),any(),any(),isNull(),any(),any());
         order.verify(commsClient).sendWhatsAppReminder(any(),any(),any(),any(),anyBoolean(),any(),any(),any());
@@ -233,5 +232,17 @@ class ReminderServiceUnitTest {
         when(jdbc.update(contains("ON CONFLICT(idempotency_key)"),any(Object[].class))).thenReturn(1);
         assertEquals(1,reminderService.evaluateReminders("admin").noticesRequested());
         verify(jdbc).update(contains("ON CONFLICT(idempotency_key)"),any(),any(),any(),any(),eq("APP"),eq("POST_EXPIRY_1"),any(),any(),any(),any(),any(),any(),any(),any());
+    }
+
+    @Test void rejectsEmailForFutureReminderConfiguration() {
+        assertThrows(IllegalArgumentException.class, () -> reminderService.updateConfig(
+            new ReminderConfigRequest(true,List.of(3),1,List.of("EMAIL")),"admin"));
+        verifyNoInteractions(jdbc,commsClient,auditService);
+    }
+
+    @Test void legacyEmailOnlyConfigurationDoesNotEnableAnotherChannel() {
+        when(jdbc.queryForMap(contains("FROM reminder_configurations")))
+            .thenReturn(mockConfigRow(true,"3",5,"EMAIL"));
+        assertTrue(reminderService.getConfig().channels().isEmpty());
     }
 }

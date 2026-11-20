@@ -6,7 +6,7 @@ public record ReminderConfigRequest(
     @NotNull Boolean enabled,
     @NotNull List<@Min(1) @Max(30) Integer> anticipationDays,
     @Min(1) @Max(5) int postExpiryDays,
-    @NotEmpty List<@Pattern(regexp="WHATSAPP|EMAIL|APP") String> channels,
+    @NotEmpty List<@Pattern(regexp="WHATSAPP|APP") String> channels,
     String defaultChannel,
     @NotEmpty List<@Min(1) @Max(5) Integer> postExpiryDaysSelected
 ) {
