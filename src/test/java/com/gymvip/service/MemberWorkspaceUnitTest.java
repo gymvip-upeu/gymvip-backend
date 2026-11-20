@@ -294,15 +294,20 @@ class MemberWorkspaceUnitTest {
     void testInboxAndMarkRead() {
         UUID clientId = UUID.randomUUID();
         when(jdbc.query(contains("FOR UPDATE"), any(RowMapper.class), eq(clientId))).thenReturn(List.of(clientId));
+        lenient().when(jdbc.query(contains("member_inbox_reads"), any(RowMapper.class), eq(clientId))).thenReturn(List.of());
+        lenient().when(jdbc.query(contains("sent_reminder_dispatches"), any(RowMapper.class), any())).thenReturn(List.of());
+        lenient().when(jdbc.queryForObject(contains("EXISTS"), eq(Boolean.class), eq("item-123"), eq(clientId))).thenReturn(true);
 
         when(jdbc.query(contains("FROM member_inbox_reads"),any(RowMapper.class),eq(clientId))).thenReturn(List.of());
         when(jdbc.query(contains("FROM sent_reminder_dispatches"),any(RowMapper.class),eq(clientId))).thenReturn(List.of());
+        when(jdbc.query(contains("FROM gym_announcements"),any(RowMapper.class))).thenReturn(List.of());
         var inbox = service.listInbox(clientId);
         assertNotNull(inbox);
         assertFalse(inbox.isEmpty());
         assertTrue(inbox.stream().anyMatch(i -> i.title().contains("GYM VIP")));
 
         when(jdbc.queryForObject(contains("SELECT EXISTS"),eq(Boolean.class),eq("item-123"),eq(clientId))).thenReturn(true);
+        when(jdbc.queryForObject(contains("FROM gym_announcements"),eq(Boolean.class),eq("item-123"))).thenReturn(false);
         var result = service.markInboxRead(clientId, "item-123");
         assertEquals("item-123", result.get("itemId"));
         assertEquals(true, result.get("read"));
@@ -399,5 +404,13 @@ class MemberWorkspaceUnitTest {
         when(jdbc.query(contains("FOR UPDATE"),any(RowMapper.class),eq(clientId))).thenReturn(List.of(clientId));
         assertThrows(com.gymvip.exception.ResourceNotFoundException.class,()->service.markInboxRead(clientId,"foreign-notice"));
         verify(jdbc,never()).update(contains("INSERT INTO member_inbox_reads"),any(Object[].class));
+    }
+
+    @Test void activePublicAnnouncementCanBeReadWithoutAnotherMembersReminder() {
+        UUID clientId=UUID.randomUUID();
+        when(jdbc.query(contains("FOR UPDATE"),any(RowMapper.class),eq(clientId))).thenReturn(List.of(clientId));
+        when(jdbc.queryForObject(contains("FROM gym_announcements"),eq(Boolean.class),eq("public-notice"))).thenReturn(true);
+        assertEquals(true,service.markInboxRead(clientId,"public-notice").get("read"));
+        verify(jdbc,never()).queryForObject(contains("FROM sent_reminder_dispatches"),eq(Boolean.class),any(),any());
     }
 }

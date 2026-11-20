@@ -46,6 +46,23 @@ public class AuthController {
         return ResponseEntity.noContent().build();
     }
 
+    @PostMapping("/revoke-other-sessions")
+    public ResponseEntity<Map<String, Object>> revokeOtherSessions(
+            @RequestHeader(value = "Authorization", required = false) String authHeader,
+            @RequestHeader(value = "X-Auth-Token", required = false) String customToken
+    ) {
+        String token = null;
+        if (authHeader != null && authHeader.startsWith("Bearer ")) {
+            token = authHeader.substring(7);
+        } else if (customToken != null) {
+            token = customToken;
+        }
+        if (token != null) {
+            authService.revokeOtherSessions(token);
+        }
+        return ResponseEntity.ok(Map.of("message", "Otras sesiones cerradas exitosamente"));
+    }
+
     @GetMapping("/me")
     public ResponseEntity<?> getCurrentUser(Authentication authentication) {
         if (authentication == null) {

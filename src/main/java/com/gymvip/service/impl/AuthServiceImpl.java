@@ -95,6 +95,20 @@ public class AuthServiceImpl implements AuthService {
         }
     }
 
+    @Override
+    @Transactional
+    public void revokeOtherSessions(String token) {
+        if (token != null && !token.isBlank()) {
+            String trimmed = token.trim();
+            String currentSessionId = jwtService.extractSessionIdIfValidSignature(trimmed)
+                    .orElse(trimmed);
+            Session currentSession = sessionRepository.findById(currentSessionId).orElse(null);
+            if (currentSession != null) {
+                sessionRepository.deleteByAccountIdAndTokenNot(currentSession.getAccountId(), currentSessionId);
+            }
+        }
+    }
+
     private String resolveClientKey(String ipAddress) {
         if (ipAddress == null || ipAddress.isBlank()) {
             return "UNKNOWN";

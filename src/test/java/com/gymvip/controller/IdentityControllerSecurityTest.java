@@ -22,6 +22,8 @@ import org.springframework.test.web.servlet.MockMvc;
 
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
@@ -115,5 +117,52 @@ class IdentityControllerSecurityTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @DisplayName("GET /api/v1/identity/dni/lookup permite a ADMIN consultar DNI por query param (200 OK)")
+    @WithMockUser(username = "admin@gymvip.pe", roles = {"ADMIN"})
+    void testAdminCanLookupDniViaGet() throws Exception {
+        when(identityLookupService.lookupDni("72819201"))
+                .thenReturn(IdentityLookupResponse.encontrado("72819201", "MARIANA", "TORRES", "RAMOS"));
+
+        mvc.perform(get("/api/v1/identity/dni/lookup")
+                        .param("dni", "72819201"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("ENCONTRADO"))
+                .andExpect(jsonPath("$.dni").value("72819201"))
+                .andExpect(jsonPath("$.nombres").value("MARIANA"))
+                .andExpect(jsonPath("$.apellidos").value("TORRES RAMOS"));
+    }
+
+    @Test
+    @DisplayName("GET /api/v1/identity/dni/lookup permite a RECEPCION consultar DNI (200 OK)")
+    @WithMockUser(username = "recepcion@gymvip.pe", roles = {"RECEPCION"})
+    void testRecepcionCanLookupDniViaGet() throws Exception {
+        when(identityLookupService.lookupDni("72819201"))
+                .thenReturn(IdentityLookupResponse.encontrado("72819201", "MARIANA", "TORRES", "RAMOS"));
+
+        mvc.perform(get("/api/v1/identity/dni/lookup")
+                        .param("dni", "72819201"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("ENCONTRADO"));
+    }
+
+    @Test
+    @DisplayName("GET /api/v1/identity/dni/lookup con DNI no numérico o corto es rechazado con 400 Bad Request")
+    @WithMockUser(username = "admin@gymvip.pe", roles = {"ADMIN"})
+    void testGetInvalidDniBadRequest() throws Exception {
+        mvc.perform(get("/api/v1/identity/dni/lookup")
+                        .param("dni", "123"))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @DisplayName("Método no soportado (DELETE) devuelve 405 Method Not Allowed en vez de 500")
+    @WithMockUser(username = "admin@gymvip.pe", roles = {"ADMIN"})
+    void testMethodNotAllowedReturns405() throws Exception {
+        mvc.perform(delete("/api/v1/identity/dni/lookup"))
+                .andExpect(status().isMethodNotAllowed())
+                .andExpect(jsonPath("$.code").value("METHOD_NOT_ALLOWED"));
     }
 }

@@ -1,5 +1,6 @@
 package com.gymvip.service.impl;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.gymvip.dto.response.IdentityLookupResponse;
 import com.gymvip.enums.IdentityLookupStatus;
@@ -12,11 +13,13 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.MediaType;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
+import org.springframework.http.converter.HttpMessageConversionException;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.HttpServerErrorException;
 import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestClient;
+import org.springframework.web.client.RestClientResponseException;
 
 import java.time.Duration;
 
@@ -157,19 +160,35 @@ public class ApiPeruDevIdentityProvider implements IdentityLookupProvider {
             );
 
         } catch (ResourceAccessException ex) {
-            log.warn("Timeout o falla de red al consultar ApiPeruDev");
+            log.warn("Timeout o falla de red al consultar proveedor externo de identidad");
             return IdentityLookupResponse.error(
                     IdentityLookupStatus.SERVICIO_NO_DISPONIBLE,
                     dni,
                     "El servicio de consulta no está disponible temporalmente. Tiempo de espera agotado."
             );
 
-        } catch (Exception ex) {
-            log.error("Excepción inesperada en consulta ApiPeruDev", ex);
+        } catch (HttpMessageConversionException ex) {
+            log.error("Error al deserializar respuesta de ApiPeruDev: formato inesperado");
+            return IdentityLookupResponse.error(
+                    IdentityLookupStatus.RESPUESTA_INCOMPLETA,
+                    dni,
+                    "La respuesta del servicio de identidad no pudo ser procesada."
+            );
+
+        } catch (RestClientResponseException ex) {
+            log.error("Error HTTP al consultar ApiPeruDev: status={}", ex.getStatusCode());
             return IdentityLookupResponse.error(
                     IdentityLookupStatus.SERVICIO_NO_DISPONIBLE,
                     dni,
-                    "Ocurrió un error inesperado al procesar la consulta de DNI."
+                    "Error al comunicarse con el proveedor de identidad (HTTP " + ex.getStatusCode().value() + ")."
+            );
+
+        } catch (Exception ex) {
+            log.error("Excepción inesperada en consulta ApiPeruDev: {}", ex.getMessage());
+            return IdentityLookupResponse.error(
+                    IdentityLookupStatus.SERVICIO_NO_DISPONIBLE,
+                    dni,
+                    "El servicio de consulta no está disponible temporalmente. Puede reintentar o ingresar los datos manualmente."
             );
         }
     }
@@ -202,7 +221,7 @@ public class ApiPeruDevIdentityProvider implements IdentityLookupProvider {
 
         // Validar que el DNI retornado coincida con el solicitado
         if (data.numero() != null && !data.numero().trim().equals(requestedDni.trim())) {
-            log.warn("Inconsistencia en DNI: solicitado={}, recibido={}", requestedDni, data.numero());
+            log.warn("Inconsistencia en DNI: solicitado={}, recibido={}", maskDni(requestedDni), maskDni(data.numero()));
             return IdentityLookupResponse.error(
                     IdentityLookupStatus.RESPUESTA_INCOMPLETA,
                     requestedDni,
@@ -226,9 +245,16 @@ public class ApiPeruDevIdentityProvider implements IdentityLookupProvider {
         return IdentityLookupResponse.encontrado(requestedDni, nombres, apPaterno, apMaterno);
     }
 
-    // Modelos internos JSON
+    private String maskDni(String dni) {
+        if (dni == null || dni.length() < 4) return "****";
+        return dni.substring(0, 2) + "****" + dni.substring(dni.length() - 2);
+    }
+
+    // Modelos internos JSON con tolerancia a campos desconocidos del proveedor
+    @JsonIgnoreProperties(ignoreUnknown = true)
     public record ApiPeruDevPayload(String dni) {}
 
+    @JsonIgnoreProperties(ignoreUnknown = true)
     public record ApiPeruDevData(
             String numero,
             String nombres,
@@ -236,6 +262,7 @@ public class ApiPeruDevIdentityProvider implements IdentityLookupProvider {
             @JsonProperty("apellido_materno") String apellidoMaterno
     ) {}
 
+    @JsonIgnoreProperties(ignoreUnknown = true)
     public record ApiPeruDevResponse(
             Boolean success,
             String code,

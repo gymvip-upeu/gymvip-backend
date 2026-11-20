@@ -32,35 +32,58 @@ public class CommunicationsProxyController {
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size
     ) {
+        if (page < 0 || size < 1 || size > 100) {
+            throw new IllegalArgumentException("Paginación de comunicaciones inválida.");
+        }
+        String state = filter(status);
+        String selectedChannel = filter(channel);
+        if (state != null && !Set.of("SOLICITADO", "ACEPTADO_PROVEEDOR", "ENVIADO", "ENTREGADO",
+                "LEIDO", "FALLIDO", "DESCONOCIDO").contains(state)) {
+            throw new IllegalArgumentException("Estado de comunicación inválido.");
+        }
+        if (selectedChannel != null && !Set.of("APP", "WHATSAPP", "EMAIL").contains(selectedChannel)) {
+            throw new IllegalArgumentException("Canal de comunicación inválido.");
+        }
+        String term = search == null ? "" : search.strip();
         // Intenta consultar primero el microservicio desacoplado
-        Map<String, Object> result = commsClient.getCommunications(status, channel, search, page, size);
+        Map<String, Object> result = commsClient.getCommunications(state, selectedChannel, term, page, size);
 
         // Fallback resiliente: si el microservicio está temporalmente desconectado, consulta sent_reminder_dispatches
         if (result.containsKey("warning")) {
-            List<Map<String, Object>> fallbackRows = jdbc.queryForList("""
-                SELECT d.id, d.idempotency_key AS "requestId", d.channel,
-                       c.first_name || ' ' || c.last_name AS "clientName",
-                       c.phone AS "recipientMasked",
-                       d.rule_type AS "templateName",
-                       d.status, d.external_delivery_id AS "externalMessageId",
-                       d.error_message AS "errorMessage",
-                       d.created_at AS "createdAt"
-                FROM sent_reminder_dispatches d
-                JOIN clients c ON c.id = d.client_id
-                ORDER BY d.created_at DESC
-                LIMIT 50
-            """);
+            String from = """
+                    FROM sent_reminder_dispatches d JOIN clients c ON c.id = d.client_id
+                    WHERE (CAST(? AS text) IS NULL OR d.status = ?)
+                      AND (CAST(? AS text) IS NULL OR d.channel = ?)
+                      AND position(lower(?) in lower(c.first_name || ' ' || c.last_name)) > 0
+                    """;
+            long count = jdbc.queryForObject("SELECT count(*) " + from, Long.class,
+                    state, state, selectedChannel, selectedChannel, term);
+            var fallbackRows = jdbc.queryForList("""
+                    SELECT d.id, d.idempotency_key AS "requestId", d.channel,
+                           c.first_name || ' ' || c.last_name AS "clientName",
+                           CASE WHEN length(c.phone) > 3 THEN '***' || right(c.phone, 3) ELSE '***' END AS "recipientMasked",
+                           d.rule_type AS "templateName", d.status,
+                           CASE WHEN d.error_message IS NOT NULL THEN 'No se pudo confirmar el envío.' END AS "errorMessage",
+                           d.created_at AS "createdAt"
+                    """ + from + " ORDER BY d.created_at DESC, d.id LIMIT ? OFFSET ?",
+                    state, state, selectedChannel, selectedChannel, term, size, (long) page * size);
 
             return ResponseEntity.ok(Map.of(
                     "content", fallbackRows,
-                    "totalElements", fallbackRows.size(),
-                    "totalPages", 1,
-                    "currentPage", 0,
+                    "totalElements", count,
+                    "totalPages", (count + size - 1) / size,
+                    "currentPage", page,
+                    "size", size,
                     "warning", result.get("warning")
             ));
         }
 
         return ResponseEntity.ok(result);
+    }
+
+    private static String filter(String value) {
+        if (value == null || value.isBlank() || "TODOS".equalsIgnoreCase(value.trim())) return null;
+        return value.trim().toUpperCase(Locale.ROOT);
     }
 
     @PostMapping("/{id}/retry")

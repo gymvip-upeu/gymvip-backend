@@ -13,4 +13,16 @@ public record ReminderConfigResponse(
         List<Integer> postExpiryDaysSelected,
         String updatedBy,
         LocalDateTime updatedAt
-) {}
+) {
+    public ReminderConfigResponse(
+            UUID id,
+            boolean enabled,
+            List<Integer> anticipationDays,
+            int postExpiryDays,
+            List<String> channels,
+            String updatedBy,
+            LocalDateTime updatedAt
+    ) {
+        this(id, enabled, anticipationDays, postExpiryDays, channels, null, updatedBy, updatedAt);
+    }
+}

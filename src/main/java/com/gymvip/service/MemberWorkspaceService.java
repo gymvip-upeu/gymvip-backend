@@ -26,7 +26,14 @@ public class MemberWorkspaceService {
     public record DynamicQrResponse(String token, String memberCode, String memberName, LocalDateTime expiresAtUtc, int ttlSeconds, String disclaimer) {}
     public record ConsentRequest(boolean termsAccepted, boolean privacyAcknowledged, boolean whatsappConsent, @Size(max=50) String documentVersion) {}
     public record ConsentStatus(boolean termsAccepted, boolean privacyAcknowledged, boolean whatsappConsent, String documentVersion, String acceptedAt) {}
-    public record GymServiceItem(UUID id, String name, String description, String schedule, String location, boolean isIncluded) {}
+    public record GymServiceItem(
+        UUID id, String name, String description, String schedule, String location, boolean isIncluded,
+        String status, String imageUrl, String includedPlanTypes, boolean isArchived
+    ) {
+        public GymServiceItem(UUID id, String name, String description, String schedule, String location, boolean isIncluded) {
+            this(id, name, description, schedule, location, isIncluded, "DISPONIBLE", null, "TODOS", false);
+        }
+    }
     public record GymFaqItem(String id, String question, String answer, String category, int orderIndex) {}
     public record MemberInboxItem(String id, String accountId, String title, String message, String category, String createdAt, boolean isRead) {}
     @jakarta.persistence.PersistenceContext private jakarta.persistence.EntityManager em;
@@ -130,8 +137,12 @@ public class MemberWorkspaceService {
         audit.recordEvent(actor,"CANCEL_MEMBER_PERIOD","MembershipPeriod",period.toString(),request.reason().trim());
     }
     @Transactional(readOnly=true) public UUID ownClient(String email) {
+        return findOwnClient(email)
+            .orElseThrow(()->new org.springframework.security.access.AccessDeniedException("Acceso de miembro no habilitado."));
+    }
+    @Transactional(readOnly=true) public Optional<UUID> findOwnClient(String email) {
         return jdbc.query("SELECT c.id FROM clients c JOIN accounts a ON a.id=c.account_id WHERE a.email=? AND c.status='ACTIVO'",(r,n)->r.getObject(1,UUID.class),email)
-            .stream().findFirst().orElseThrow(()->new org.springframework.security.access.AccessDeniedException("Acceso de miembro no habilitado."));
+            .stream().findFirst();
     }
     @Transactional public void changePassword(String actor,PasswordChange request) {
         ownClient(actor);
@@ -210,8 +221,26 @@ public class MemberWorkspaceService {
 
     public List<GymServiceItem> listServices() {
         try {
-            var rows = jdbc.query("SELECT id, name, description, schedule, location, is_included FROM gym_services ORDER BY display_order ASC",
-                    (r, n) -> new GymServiceItem(r.getObject("id", UUID.class), r.getString("name"), r.getString("description"), r.getString("schedule"), r.getString("location"), r.getBoolean("is_included")));
+            var rows = jdbc.query("""
+                SELECT id, name, description, schedule, location, is_included,
+                       COALESCE(status, 'DISPONIBLE') AS status, image_url,
+                       COALESCE(included_plan_types, 'TODOS') AS included_plan_types,
+                       COALESCE(is_archived, false) AS is_archived
+                FROM gym_services
+                WHERE is_archived = false
+                ORDER BY display_order ASC, name ASC
+            """, (r, n) -> new GymServiceItem(
+                    r.getObject("id", UUID.class),
+                    r.getString("name"),
+                    r.getString("description"),
+                    r.getString("schedule"),
+                    r.getString("location"),
+                    r.getBoolean("is_included"),
+                    r.getString("status"),
+                    r.getString("image_url"),
+                    r.getString("included_plan_types"),
+                    r.getBoolean("is_archived")
+            ));
             if (!rows.isEmpty()) return rows;
         } catch (Exception ignored) {}
         return List.of(
@@ -263,42 +292,73 @@ public class MemberWorkspaceService {
     }
 
     @Transactional(readOnly = true)
+    public List<MemberInboxItem> listGeneralAnnouncements() {
+        try {
+            var items = jdbc.query("""
+                SELECT id::text, title, message, category, created_at_utc
+                FROM gym_announcements
+                WHERE is_active = true
+                ORDER BY created_at_utc DESC LIMIT 50
+            """, (r, n) -> new MemberInboxItem(
+                    r.getString("id"),
+                    "SYSTEM",
+                    r.getString("title"),
+                    r.getString("message"),
+                    r.getString("category") != null ? r.getString("category") : "COMUNICADO",
+                    r.getTimestamp("created_at_utc") != null ? r.getTimestamp("created_at_utc").toInstant().toString() : now().toString(),
+                    false
+            ));
+            if (!items.isEmpty()) return items;
+        } catch (Exception ignored) {}
+        return List.of(
+            new MemberInboxItem("ann-welcome", "SYSTEM", "¡Bienvenido a GYM VIP!", "Tu credencial digital de socio está activa. Consulta el estado de tu plan y asistencias.", "COMUNICADO", now().toString(), false),
+            new MemberInboxItem("ann-hygiene", "SYSTEM", "Uso obligatorio de toalla personal", "Por higiene y respeto mutuo, el uso de toalla es obligatorio en máquinas y peso libre.", "COMUNICADO", now().toString(), false)
+        );
+    }
+
+    @Transactional(readOnly = true)
     public List<MemberInboxItem> listInbox(UUID clientId) {
         clients.getClientById(clientId);
         List<MemberInboxItem> items = new ArrayList<>();
         Set<String> readIds = new HashSet<>();
         readIds.addAll(jdbc.query("SELECT item_id FROM member_inbox_reads WHERE client_id=?", (r, n) -> r.getString(1), clientId));
 
+        // Public announcements share the inbox while membership reminders remain per member.
         items.addAll(jdbc.query("""
-            SELECT id,title,message,rule_type,created_at FROM sent_reminder_dispatches
+            SELECT id::text,title,message,category,created_at_utc FROM gym_announcements
+            WHERE is_active=true ORDER BY created_at_utc DESC LIMIT 50
+            """,(r,n)->new MemberInboxItem(r.getString("id"),clientId.toString(),r.getString("title"),
+                r.getString("message"),r.getString("category"),r.getTimestamp("created_at_utc").toInstant().toString(),
+                readIds.contains(r.getString("id")))));
+
+        // 2. Avisos de recordatorios individuales del socio
+        items.addAll(jdbc.query("""
+            SELECT id, COALESCE(title, notice_title) AS title, COALESCE(message, notice_message) AS message, rule_type, created_at
+            FROM sent_reminder_dispatches
             WHERE client_id=? AND channel='APP' AND status='DISPONIBLE'
             ORDER BY created_at DESC LIMIT 100
-            """, (r,n) -> new MemberInboxItem(r.getString("id"),clientId.toString(),
-                r.getString("title"),r.getString("message"),
-                r.getString("rule_type").startsWith("POST_EXPIRY_") ? "VENCIMIENTO" : "RECORDATORIO",
-                r.getTimestamp("created_at").toInstant().toString(),readIds.contains(r.getString("id"))),clientId));
+        """, (r, n) -> new MemberInboxItem(
+                r.getString("id"),
+                clientId.toString(),
+                r.getString("title"),
+                r.getString("message"),
+                r.getString("rule_type") != null && r.getString("rule_type").startsWith("POST_EXPIRY_") ? "VENCIMIENTO" : "RECORDATORIO",
+                r.getTimestamp("created_at").toInstant().toString(),
+                readIds.contains(r.getString("id"))
+        ), clientId));
 
-        String welcomeId = "announcement_welcome_" + clientId;
-        items.add(new MemberInboxItem(
-            welcomeId,
-            clientId.toString(),
-            "¡Bienvenido al portal móvil GYM VIP!",
-            "Su credencial digital de socio está activa. Puede consultar el estado de su plan, pagos y asistencias registradas en recepción.",
-            "COMUNICADO",
-            now().minusDays(1).toString(),
-            readIds.contains(welcomeId)
-        ));
-
-        String hygieneId = "announcement_hygiene_" + clientId;
-        items.add(new MemberInboxItem(
-            hygieneId,
-            clientId.toString(),
-            "Recordatorio de toalla y normas de convivencia",
-            "Por respeto e higiene hacia todos los miembros, el uso de toalla personal es obligatorio en todas las zonas de musculación y máquinas.",
-            "COMUNICADO",
-            now().minusDays(3).toString(),
-            readIds.contains(hygieneId)
-        ));
+        if (items.isEmpty()) {
+            String welcomeId = "announcement_welcome_" + clientId;
+            items.add(new MemberInboxItem(
+                welcomeId,
+                clientId.toString(),
+                "¡Bienvenido al portal móvil GYM VIP!",
+                "Su credencial digital de socio está activa. Puede consultar el estado de su plan, pagos y asistencias registradas en recepción.",
+                "COMUNICADO",
+                now().minusDays(1).toString(),
+                readIds.contains(welcomeId)
+            ));
+        }
 
         return items;
     }
@@ -307,7 +367,9 @@ public class MemberWorkspaceService {
     public Map<String, Object> markInboxRead(UUID clientId, String itemId) {
         lockClient(clientId);
         boolean legacy=itemId.equals("announcement_welcome_"+clientId) || itemId.equals("announcement_hygiene_"+clientId);
-        if (!legacy && !Boolean.TRUE.equals(jdbc.queryForObject("""
+        boolean announcement=Boolean.TRUE.equals(jdbc.queryForObject(
+            "SELECT EXISTS(SELECT 1 FROM gym_announcements WHERE id::text=? AND is_active=true)",Boolean.class,itemId));
+        if (!legacy && !announcement && !Boolean.TRUE.equals(jdbc.queryForObject("""
             SELECT EXISTS(SELECT 1 FROM sent_reminder_dispatches
             WHERE id::text=? AND client_id=? AND channel='APP' AND status='DISPONIBLE')
             """,Boolean.class,itemId,clientId))) throw new ResourceNotFoundException("Aviso no encontrado.");
@@ -441,5 +503,15 @@ public class MemberWorkspaceService {
         """, clientId, request.token().trim(), platform, deviceModel);
 
         return Map.of("registered", true, "platform", platform);
+    }
+
+    @Transactional
+    public Map<String, Object> unregisterDeviceToken(String email, DeviceTokenRegistration request) {
+        if (request == null || request.token() == null || request.token().isBlank()) {
+            throw new IllegalArgumentException("El token de dispositivo es obligatorio.");
+        }
+        String token = request.token().trim();
+        jdbc.update("UPDATE member_device_tokens SET is_active = false, updated_at_utc = CURRENT_TIMESTAMP WHERE device_token = ?", token);
+        return Map.of("unregistered", true);
     }
 }
