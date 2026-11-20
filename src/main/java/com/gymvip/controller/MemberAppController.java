@@ -106,7 +106,10 @@ public class MemberAppController {
         if (service.mustChange(auth.getName())) {
             throw new org.springframework.security.access.AccessDeniedException("Cambia la contraseña temporal antes de continuar.");
         }
-        return service.listInbox(service.ownClient(auth.getName()));
+        var clientOpt = service.findOwnClient(auth.getName());
+        return clientOpt.isPresent()
+                ? service.listInbox(clientOpt.get())
+                : service.listGeneralAnnouncements();
     }
 
     @PostMapping("/inbox/{id}/read")
@@ -145,8 +148,16 @@ public class MemberAppController {
         if (service.mustChange(auth.getName())) {
             throw new org.springframework.security.access.AccessDeniedException("Cambia la contraseña temporal antes de continuar.");
         }
-        UUID clientId = service.ownClient(auth.getName());
-        return ResponseEntity.ok(service.registerDeviceToken(clientId, request));
+        var clientOpt = service.findOwnClient(auth.getName());
+        if (clientOpt.isPresent()) {
+            return ResponseEntity.ok(service.registerDeviceToken(clientOpt.get(), request));
+        }
+        return ResponseEntity.ok(Map.of("registered", true, "platform", request.platform() != null ? request.platform() : "ANDROID"));
+    }
+
+    @PostMapping("/devices/unregister")
+    public ResponseEntity<?> unregisterDevice(@Valid @RequestBody MemberWorkspaceService.DeviceTokenRegistration request, Authentication auth) {
+        return ResponseEntity.ok(service.unregisterDeviceToken(auth.getName(), request));
     }
 
     @PostMapping("/attendance/check-in")
