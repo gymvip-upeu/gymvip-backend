@@ -15,4 +15,8 @@ public interface SessionRepository extends JpaRepository<Session, String> {
     @Modifying
     @Query("DELETE FROM Session s WHERE s.accountId = :accountId")
     void deleteByAccountId(@Param("accountId") UUID accountId);
+
+    @Modifying
+    @Query("DELETE FROM Session s WHERE s.accountId = :accountId AND s.token != :currentToken")
+    void deleteByAccountIdAndTokenNot(@Param("accountId") UUID accountId, @Param("currentToken") String currentToken);
 }

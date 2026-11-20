@@ -83,7 +83,7 @@ public class SecurityConfig {
                         .hasAnyRole("CLIENTE", "ADMIN", "RECEPCION")
                         .requestMatchers("/api/v1/catalog/**").hasAnyRole("ADMIN", "RECEPCION")
                         .requestMatchers("/api/v1/clients/import/**").hasRole("ADMIN")
-                        .requestMatchers("/api/v1/auth/me").authenticated()
+                        .requestMatchers("/api/v1/auth/me", "/api/v1/auth/revoke-other-sessions").authenticated()
                         .anyRequest().hasAnyRole("ADMIN", "RECEPCION")
                 )
                 .addFilterBefore(tokenAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);

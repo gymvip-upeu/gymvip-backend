@@ -6,4 +6,5 @@ import com.gymvip.dto.response.AuthResponse;
 public interface AuthService {
     AuthResponse login(LoginRequest request, String ipAddress, String userAgent);
     void logout(String token);
+    void revokeOtherSessions(String token);
 }
