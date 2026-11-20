@@ -20,6 +20,8 @@ public class ClientEditingController {
         return service.update(id,request,actor.getName());
     }
     @GetMapping("/{id}/changes") @PreAuthorize("hasRole('ADMIN')")
-    public Page<ClientChangeResponse> history(@PathVariable UUID id,@RequestParam(defaultValue="0") int page,
-                                             @RequestParam(defaultValue="20") int size) { return service.history(id,page,size); }
+    public PageResponse<ClientChangeResponse> history(@PathVariable UUID id,@RequestParam(defaultValue="0") int page,
+                                                     @RequestParam(defaultValue="20") int size) {
+        return PageResponse.from(service.history(id,page,size));
+    }
 }

@@ -3,6 +3,7 @@ package com.gymvip.controller;
 import com.gymvip.dto.request.RegisterClientRequest;
 import com.gymvip.dto.response.ClientDetailResponse;
 import com.gymvip.dto.response.ClientResponse;
+import com.gymvip.dto.response.PageResponse;
 import com.gymvip.service.ClientService;
 import jakarta.validation.Valid;
 import org.springframework.data.domain.Page;
@@ -38,11 +39,11 @@ public class ClientController {
     }
 
     @GetMapping
-    public ResponseEntity<Page<ClientResponse>> searchClients(
+    public ResponseEntity<PageResponse<ClientResponse>> searchClients(
             @RequestParam(required = false) String query,
             @PageableDefault(size = 20) Pageable pageable
     ) {
-        return ResponseEntity.ok(clientService.searchClients(query, pageable));
+        return ResponseEntity.ok(PageResponse.from(clientService.searchClients(query, pageable)));
     }
 
     @GetMapping("/{id}")

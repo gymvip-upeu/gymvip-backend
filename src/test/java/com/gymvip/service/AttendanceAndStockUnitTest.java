@@ -26,6 +26,7 @@ import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
 @org.mockito.junit.jupiter.MockitoSettings(strictness = org.mockito.quality.Strictness.LENIENT)
+@SuppressWarnings("unchecked")
 class AttendanceAndStockUnitTest {
 
     @Mock private JdbcClient jdbc;
