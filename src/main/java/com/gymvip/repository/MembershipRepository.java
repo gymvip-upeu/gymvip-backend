@@ -47,6 +47,13 @@ public class MembershipRepository {
                 (rs, n) -> new Contract(rs.getObject(1, UUID.class), rs.getObject(2, LocalDate.class), rs.getString(3)),
                 client).stream().findFirst();
     }
+    public boolean hasPendingPaymentLink(UUID client) {
+        Boolean pending = jdbc.queryForObject("""
+                SELECT EXISTS(SELECT 1 FROM membership_payment_links
+                              WHERE client_id=? AND status IN ('PENDING','REVIEW'))
+                """, Boolean.class, client);
+        return Boolean.TRUE.equals(pending);
+    }
     public PlanSnapshot plan(UUID planId, boolean lock) {
         var plans = jdbc.query("SELECT name,benefits,duration_days,price_pen,status FROM plans WHERE id=?" +
                         (lock ? " FOR SHARE" : ""), (rs, n) -> new Object[]{rs.getString(1), rs.getString(2),

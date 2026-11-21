@@ -69,6 +69,7 @@ public class SecurityConfig {
                         .requestMatchers("/api/v1/auth/login", "/api/v1/auth/logout", "/api/v1/auth/password-reset/**").permitAll()
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                         .requestMatchers("/api/v1/health", "/api/v1/health/**", "/health", "/health/**", "/actuator/health", "/actuator/health/**").permitAll()
+                        .requestMatchers(HttpMethod.POST, "/api/v1/payments/culqi/webhook").permitAll()
                         .requestMatchers("/error").permitAll()
                         .requestMatchers("/api/v1/member-app/faqs", "/api/v1/member-app/services").authenticated()
                         .requestMatchers("/api/v1/member-app/**").hasAnyRole("CLIENTE", "ADMIN", "RECEPCION")
