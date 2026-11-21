@@ -27,6 +27,9 @@ public class ChannelStatusController {
     @Value("${comms.push.enabled:true}")
     private boolean pushEnabled;
 
+    @Value("${FIREBASE_SERVICE_ACCOUNT_BASE64:}")
+    private String firebaseServiceAccount;
+
     @Value("${whatsapp.meta.token:}")
     private String metaToken;
 
@@ -58,7 +61,7 @@ public class ChannelStatusController {
         ));
 
         // 3. Canal Push (FCM / Firebase Cloud Messaging)
-        String pushStatus = !pushEnabled ? "DISABLED" : "CONFIGURED_REAL";
+        String pushStatus = !pushEnabled ? "DISABLED" : firebaseServiceAccount.isBlank() ? "NOT_CONFIGURED" : "CONFIGURED_REAL";
         channels.put("push", Map.of(
                 "channel", "PUSH",
                 "status", pushStatus,
