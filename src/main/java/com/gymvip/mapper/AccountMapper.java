@@ -17,7 +17,10 @@ public class AccountMapper {
                 account.getStatus(),
                 account.isMfaEnabled(),
                 account.getCreatedAt(),
-                account.getUpdatedAt()
+                account.getUpdatedAt(),
+                account.getFirstName(),
+                account.getLastName(),
+                account.getPhone()
         );
     }
 }

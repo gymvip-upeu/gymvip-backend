@@ -3,6 +3,7 @@ package com.gymvip.service.impl;
 import com.gymvip.dto.request.CreateStaffAccountRequest;
 import com.gymvip.dto.request.UpdateStaffRoleRequest;
 import com.gymvip.dto.request.UpdateStaffStatusRequest;
+import com.gymvip.dto.request.UpdateStaffProfileRequest;
 import com.gymvip.dto.response.StaffAccountResponse;
 import com.gymvip.entity.Account;
 import com.gymvip.enums.Role;
@@ -49,7 +50,7 @@ public class AccountServiceImpl implements AccountService {
     @Override
     @Transactional(readOnly = true)
     public List<StaffAccountResponse> listStaffAccounts() {
-        return accountRepository.findAll().stream()
+        return accountRepository.findStaffAccounts().stream()
                 .map(accountMapper::toResponse)
                 .collect(Collectors.toList());
     }
@@ -58,6 +59,7 @@ public class AccountServiceImpl implements AccountService {
     @Transactional(readOnly = true)
     public StaffAccountResponse getById(UUID id) {
         return accountRepository.findById(id)
+                .filter(this::isStaff)
                 .map(accountMapper::toResponse)
                 .orElseThrow(() -> new AccountNotFoundException("Cuenta no encontrada con ID: " + id));
     }
@@ -71,8 +73,8 @@ public class AccountServiceImpl implements AccountService {
         }
 
         String targetRole = request.role() != null ? request.role().trim().toUpperCase() : "";
-        if (!targetRole.equals(Role.ADMIN.name()) && !targetRole.equals(Role.RECEPCION.name())) {
-            throw new IllegalArgumentException("Rol no autorizado para personal del gimnasio: " + targetRole + ". Roles válidos: ADMIN, RECEPCION");
+        if (!targetRole.equals(Role.ADMIN.name()) && !targetRole.equals(Role.RECEPCION.name()) && !targetRole.equals(Role.AUDITOR.name())) {
+            throw new IllegalArgumentException("Rol no autorizado para personal del gimnasio: " + targetRole + ". Roles válidos: ADMIN, RECEPCION, AUDITOR");
         }
 
         Account account = new Account(
@@ -83,6 +85,9 @@ public class AccountServiceImpl implements AccountService {
                 "ACTIVO",
                 false
         );
+        account.setFirstName(request.firstName() == null ? null : request.firstName().trim());
+        account.setLastName(request.lastName() == null ? null : request.lastName().trim());
+        account.setPhone(request.phone() == null ? null : request.phone().trim());
 
         Account saved = accountRepository.save(account);
 
@@ -100,12 +105,11 @@ public class AccountServiceImpl implements AccountService {
     @Override
     @Transactional
     public StaffAccountResponse updateRole(UUID id, UpdateStaffRoleRequest request, String actorEmail) {
-        Account account = accountRepository.findById(id)
-                .orElseThrow(() -> new AccountNotFoundException("Cuenta no encontrada con ID: " + id));
+        Account account = requireStaff(id);
 
         String targetRole = request.role() != null ? request.role().trim().toUpperCase() : "";
-        if (!targetRole.equals(Role.ADMIN.name()) && !targetRole.equals(Role.RECEPCION.name())) {
-            throw new IllegalArgumentException("Rol no autorizado para personal: " + targetRole + ". Roles válidos: ADMIN, RECEPCION");
+        if (!targetRole.equals(Role.ADMIN.name()) && !targetRole.equals(Role.RECEPCION.name()) && !targetRole.equals(Role.AUDITOR.name())) {
+            throw new IllegalArgumentException("Rol no autorizado para personal: " + targetRole + ". Roles válidos: ADMIN, RECEPCION, AUDITOR");
         }
 
         boolean currentlyAdmin = account.getRoles().contains("ADMIN");
@@ -137,8 +141,7 @@ public class AccountServiceImpl implements AccountService {
     @Override
     @Transactional
     public StaffAccountResponse updateStatus(UUID id, UpdateStaffStatusRequest request, String actorEmail) {
-        Account account = accountRepository.findById(id)
-                .orElseThrow(() -> new AccountNotFoundException("Cuenta no encontrada con ID: " + id));
+        Account account = requireStaff(id);
 
         String targetStatus = request.status() != null ? request.status().trim().toUpperCase() : "";
         if (!targetStatus.equals("ACTIVO") && !targetStatus.equals("INACTIVO")) {
@@ -174,9 +177,39 @@ public class AccountServiceImpl implements AccountService {
 
     @Override
     @Transactional
+    public StaffAccountResponse updateProfile(UUID id, UpdateStaffProfileRequest request, String actorEmail) {
+        Account account = requireStaff(id);
+        String email = request.email().trim().toLowerCase(java.util.Locale.ROOT);
+        boolean emailChanged = !account.getEmail().equalsIgnoreCase(email);
+        if (emailChanged && accountRepository.existsByEmailIgnoreCase(email)) {
+            throw new ConflictException("El correo ya está registrado.");
+        }
+        account.setEmail(email);
+        account.setFirstName(request.firstName() == null ? null : request.firstName().trim());
+        account.setLastName(request.lastName() == null ? null : request.lastName().trim());
+        account.setPhone(request.phone() == null ? null : request.phone().trim());
+        account.setUpdatedAt(LocalDateTime.now());
+        Account saved = accountRepository.save(account);
+        if (emailChanged) sessionRepository.deleteByAccountId(id);
+        auditService.recordEvent(actorEmail, "UPDATE_STAFF_PROFILE", "Account", id.toString(),
+                "Datos del colaborador actualizados; correo modificado: " + emailChanged);
+        return accountMapper.toResponse(saved);
+    }
+
+    private boolean isStaff(Account account) {
+        return account.getRoles().stream().anyMatch(role ->
+                role.equals("ADMIN") || role.equals("RECEPCION") || role.equals("AUDITOR"));
+    }
+
+    private Account requireStaff(UUID id) {
+        return accountRepository.findById(id).filter(this::isStaff)
+                .orElseThrow(() -> new AccountNotFoundException("Colaborador no encontrado con ID: " + id));
+    }
+
+    @Override
+    @Transactional
     public void revokeSessions(UUID id, String actorEmail) {
-        Account account = accountRepository.findById(id)
-                .orElseThrow(() -> new AccountNotFoundException("Cuenta no encontrada con ID: " + id));
+        Account account = requireStaff(id);
 
         sessionRepository.deleteByAccountId(id);
 

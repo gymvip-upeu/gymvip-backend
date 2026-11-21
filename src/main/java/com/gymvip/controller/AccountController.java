@@ -3,6 +3,7 @@ package com.gymvip.controller;
 import com.gymvip.dto.request.CreateStaffAccountRequest;
 import com.gymvip.dto.request.UpdateStaffRoleRequest;
 import com.gymvip.dto.request.UpdateStaffStatusRequest;
+import com.gymvip.dto.request.UpdateStaffProfileRequest;
 import com.gymvip.dto.response.StaffAccountResponse;
 import com.gymvip.service.AccountService;
 import jakarta.validation.Valid;
@@ -66,6 +67,16 @@ public class AccountController {
         String actor = authentication != null ? authentication.getName() : "admin_sistema";
         StaffAccountResponse updated = accountService.updateStatus(id, request, actor);
         return ResponseEntity.ok(updated);
+    }
+
+    @PatchMapping("/{id}")
+    public ResponseEntity<StaffAccountResponse> updateProfile(
+            @PathVariable UUID id,
+            @Valid @RequestBody UpdateStaffProfileRequest request,
+            Authentication authentication
+    ) {
+        String actor = authentication != null ? authentication.getName() : "admin_sistema";
+        return ResponseEntity.ok(accountService.updateProfile(id, request, actor));
     }
 
     @PostMapping("/{id}/revoke-sessions")
