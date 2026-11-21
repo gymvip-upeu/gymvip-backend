@@ -69,7 +69,7 @@ public class CatalogService {
         Map<UUID, MobileOffer> finished = new HashMap<>();
         jdbc.query("""
                 SELECT DISTINCT ON (supplement_id, finished) * FROM (
-                SELECT p.id, p.supplement_id, p.name, p.description, p.conditions, p.start_date, p.end_date,
+                SELECT p.id, p.supplement_id, p.name, p.description, p.conditions, p.start_date, p.end_date, p.priority,
                        p.end_date < ? AS finished,
                        CASE WHEN p.end_date < ? THEN p.offer_price_pen
                             ELSE s.price_pen - (p.reference_price_pen - p.offer_price_pen) END AS display_price
@@ -77,7 +77,7 @@ public class CatalogService {
                 JOIN supplements s ON s.id = p.supplement_id
                 WHERE p.supplement_id = ANY (?) AND p.enabled AND p.start_date <= ?
                 ) entries
-                ORDER BY supplement_id, finished, end_date DESC, id
+                ORDER BY supplement_id, finished, priority DESC, end_date DESC, id
                 """, (rows) -> {
             var target = rows.getBoolean("finished") ? finished : offers;
             target.putIfAbsent(rows.getObject("supplement_id", UUID.class), new MobileOffer(
@@ -165,7 +165,7 @@ public class CatalogService {
         boolean current=Set.of("VIGENTE","PROGRAMADA").contains(state);
         BigDecimal reference=current?item.pricePen():r.getBigDecimal("reference_price_pen");
         BigDecimal offer=current?item.pricePen().subtract(savings):r.getBigDecimal("offer_price_pen");
-        return new Promotion(r.getObject("id",UUID.class),item,r.getString("name"),r.getString("description"),r.getString("conditions"),reference,offer,savings,r.getObject("start_date",LocalDate.class),r.getObject("end_date",LocalDate.class),state,r.getBoolean("enabled"),r.getLong("version"),r.getObject("updated_at_utc",LocalDateTime.class));
+        return new Promotion(r.getObject("id",UUID.class),item,r.getString("name"),r.getString("description"),r.getString("conditions"),reference,offer,savings,r.getObject("start_date",LocalDate.class),r.getObject("end_date",LocalDate.class),state,r.getBoolean("enabled"),r.getLong("version"),r.getObject("updated_at_utc",LocalDateTime.class),r.getInt("priority"));
     }
     @Transactional(readOnly=true) public Promotion promotion(UUID id,boolean customer) {
         return jdbc.query("SELECT p.* FROM supplement_promotions p JOIN supplements s ON s.id=p.supplement_id WHERE p.id=?"+(customer?" AND p.enabled AND p.start_date<=? AND p.end_date>=? AND s.published":""),this::mapPromotion,customer?new Object[]{id,today(),today()}:new Object[]{id}).stream().findFirst().orElseThrow(()->new ResourceNotFoundException("Promoción no encontrada o fuera de vigencia."));
@@ -198,10 +198,10 @@ public class CatalogService {
         if(input.supplementVersion()==null||input.supplementVersion()!=item.version())throw new ConflictException("El suplemento cambió. Vuelve a seleccionarlo y revisa el precio antes de guardar.");
         BigDecimal reference=item.pricePen();
         if(input.offerPricePen().compareTo(reference)>=0)throw new IllegalArgumentException("El precio de oferta debe ser menor al precio de referencia: S/ "+reference+".");
-        if(input.enabled()&&jdbc.queryForObject("SELECT count(*) FROM supplement_promotions WHERE supplement_id=? AND enabled AND (?::uuid IS NULL OR id<>?::uuid) AND start_date<=? AND end_date>=?",Long.class,item.id(),id,id,input.endDate(),input.startDate())>0)
-            throw new ConflictException("Este suplemento ya tiene una promoción que coincide con esas fechas. Revisa o desactiva la anterior.");
-        if(id==null){id=UUID.randomUUID();jdbc.update("INSERT INTO supplement_promotions(id,supplement_id,name,description,conditions,reference_price_pen,offer_price_pen,start_date,end_date,enabled,created_at_utc,updated_at_utc) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",id,item.id(),clean(input.name()),clean(input.description()),clean(input.conditions()),reference,input.offerPricePen(),input.startDate(),input.endDate(),input.enabled(),now(),now());}
-        else jdbc.update("UPDATE supplement_promotions SET supplement_id=?,name=?,description=?,conditions=?,reference_price_pen=?,offer_price_pen=?,start_date=?,end_date=?,enabled=?,version=version+1,updated_at_utc=? WHERE id=?",item.id(),clean(input.name()),clean(input.description()),clean(input.conditions()),reference,input.offerPricePen(),input.startDate(),input.endDate(),input.enabled(),now(),id);
+        int priority = input.priority() == null ? 0 : input.priority();
+        if (priority < 0 || priority > 1000) throw new IllegalArgumentException("La prioridad debe estar entre 0 y 1000.");
+        if(id==null){id=UUID.randomUUID();jdbc.update("INSERT INTO supplement_promotions(id,supplement_id,name,description,conditions,reference_price_pen,offer_price_pen,start_date,end_date,enabled,priority,created_at_utc,updated_at_utc) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",id,item.id(),clean(input.name()),clean(input.description()),clean(input.conditions()),reference,input.offerPricePen(),input.startDate(),input.endDate(),input.enabled(),priority,now(),now());}
+        else jdbc.update("UPDATE supplement_promotions SET supplement_id=?,name=?,description=?,conditions=?,reference_price_pen=?,offer_price_pen=?,start_date=?,end_date=?,enabled=?,priority=?,version=version+1,updated_at_utc=? WHERE id=?",item.id(),clean(input.name()),clean(input.description()),clean(input.conditions()),reference,input.offerPricePen(),input.startDate(),input.endDate(),input.enabled(),priority,now(),id);
         var saved=promotion(id,false);
         jdbc.update("INSERT INTO promotion_changes(id,promotion_id,version,actor,changed_at_utc,snapshot) VALUES (?,?,?,?,?,?::jsonb)",UUID.randomUUID(),id,saved.version(),actor,now(),snapshot(saved));
         audit.recordEvent(actor,"UPDATE_SUPPLEMENT_PROMOTION","Promotion",id.toString(),"Versión "+saved.version());return saved;

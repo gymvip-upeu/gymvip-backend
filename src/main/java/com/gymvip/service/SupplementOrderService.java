@@ -66,7 +66,6 @@ public class SupplementOrderService {
         return cartId;
     }
 
-    @Transactional(readOnly = true)
     public CartSummaryDto getCart(String userEmail) {
         UUID accountId = getAccountIdByEmail(userEmail);
         UUID cartId = getOrCreateCartId(accountId);
@@ -150,12 +149,10 @@ public class SupplementOrderService {
 
         UUID cartId = getOrCreateCartId(accountId);
         var cartRows = jdbc.query("""
-            SELECT i.supplement_id, i.quantity, s.name, s.brand, s.presentation, s.flavor,
-                   s.price_pen, s.stock, s.availability, s.published
+            SELECT i.supplement_id, i.quantity
             FROM member_cart_items i
-            JOIN supplements s ON s.id = i.supplement_id
             WHERE i.cart_id = ?
-        """, (rs, n) -> rs, cartId);
+        """, (rs, n) -> new AbstractMap.SimpleEntry<>(rs.getObject("supplement_id", UUID.class), rs.getInt("quantity")), cartId);
 
         if (cartRows.isEmpty()) {
             throw new ConflictException("El carrito de compras está vacío. Agregue productos antes de confirmar el pedido.");
@@ -169,17 +166,12 @@ public class SupplementOrderService {
         BigDecimal subtotal = BigDecimal.ZERO;
         BigDecimal discountTotal = BigDecimal.ZERO;
         Instant reservationExpiry = now().plus(30, ChronoUnit.MINUTES);
+        List<Object[]> orderItems = new ArrayList<>();
 
         // Bloqueo pesimista y reserva atómica de stock
         for (var row : cartRows) {
-            UUID supId;
-            int reqQty;
-            try {
-                supId = row.getObject("supplement_id", UUID.class);
-                reqQty = row.getInt("quantity");
-            } catch (SQLException e) {
-                throw new RuntimeException(e);
-            }
+            UUID supId = row.getKey();
+            int reqQty = row.getValue();
 
             var locked = jdbc.query("""
                 SELECT id, name, brand, presentation, flavor, price_pen, stock, availability, published, version
@@ -221,7 +213,7 @@ public class SupplementOrderService {
                 FROM supplement_promotions
                 WHERE supplement_id = ? AND enabled = true
                   AND CURRENT_DATE BETWEEN start_date AND end_date
-                ORDER BY offer_price_pen ASC LIMIT 1
+                ORDER BY priority DESC, offer_price_pen ASC, id ASC LIMIT 1
             """, (rs, n) -> Map.of(
                     "id", rs.getObject("id", UUID.class),
                     "name", rs.getString("name"),
@@ -253,14 +245,9 @@ public class SupplementOrderService {
                 VALUES (?, ?, 'SALIDA', ?, ?, ?, ?, ?, ?)
             """, UUID.randomUUID(), supId, reqQty, currentStock, newStock, "RESERVA_CHECKOUT_" + orderNumber, userEmail, now());
 
-            // Guardar snapshot de ítem de pedido
-            jdbc.update("""
-                INSERT INTO supplement_order_items (id, order_id, supplement_id, product_name, product_brand, product_presentation, product_flavor,
-                                                   unit_regular_price_pen, unit_final_price_pen, applied_promotion_id, applied_promotion_name,
-                                                   quantity, line_total_pen)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, UUID.randomUUID(), orderId, supId, product.get("name"), product.get("brand"), product.get("presentation"), product.get("flavor"),
-                    regularPrice, finalPrice, promoId, promoName, reqQty, lineFinalTotal);
+            orderItems.add(new Object[]{UUID.randomUUID(), orderId, supId, product.get("name"), product.get("brand"),
+                    product.get("presentation"), product.get("flavor"), regularPrice, finalPrice, promoId, promoName,
+                    reqQty, lineFinalTotal});
         }
 
         BigDecimal total = subtotal.subtract(discountTotal).setScale(2, RoundingMode.HALF_UP);
@@ -278,6 +265,15 @@ public class SupplementOrderService {
             VALUES (?, ?, ?, ?, 'PENDIENTE_PAGO', 'PENDIENTE', 'PENDIENTE', ?, ?, ?, ?, ?, true, false, ?, ?, ?, ?)
         """, orderId, orderNumber, clientId, accountId, subtotal, discountTotal, total, paymentMethod,
                 reservationExpiry, customerNotes, idempotencyKey, now(), now());
+
+        for (Object[] item : orderItems) {
+            jdbc.update("""
+                INSERT INTO supplement_order_items (id, order_id, supplement_id, product_name, product_brand, product_presentation, product_flavor,
+                                                   unit_regular_price_pen, unit_final_price_pen, applied_promotion_id, applied_promotion_name,
+                                                   quantity, line_total_pen)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, item);
+        }
 
         // Limpiar el carrito
         jdbc.update("DELETE FROM member_cart_items WHERE cart_id = ?", cartId);
@@ -358,8 +354,13 @@ public class SupplementOrderService {
     // =========================================================================
 
     public OrderDetailDto approvePayment(UUID orderId, PaymentApprovalRequest req, String adminActor) {
+        return approvePayment(orderId, req, adminActor, false);
+    }
+
+    public OrderDetailDto approvePayment(UUID orderId, PaymentApprovalRequest req, String actor, boolean cashOnly) {
         var order = jdbc.query("""
-            SELECT id, order_number, order_status, payment_status, total_pen, stock_released, client_id
+            SELECT id, order_number, order_status, payment_status, payment_method, total_pen, stock_released, client_id,
+                   reservation_expires_at_utc
             FROM supplement_orders
             WHERE id = ?
             FOR UPDATE
@@ -367,6 +368,9 @@ public class SupplementOrderService {
                 "order_number", rs.getString("order_number"),
                 "order_status", rs.getString("order_status"),
                 "payment_status", rs.getString("payment_status"),
+                "payment_method", rs.getString("payment_method"),
+                "reservation_expires_at_utc", rs.getTimestamp("reservation_expires_at_utc") == null
+                        ? Instant.MAX : rs.getTimestamp("reservation_expires_at_utc").toInstant(),
                 "total_pen", rs.getBigDecimal("total_pen"),
                 "stock_released", rs.getBoolean("stock_released"),
                 "client_id", rs.getObject("client_id", UUID.class)
@@ -381,6 +385,10 @@ public class SupplementOrderService {
         boolean stockReleased = (boolean) data.get("stock_released");
         UUID clientId = (UUID) data.get("client_id");
 
+        if (cashOnly && !"EFECTIVO_MOSTRADOR".equals(data.get("payment_method"))) {
+            throw new AccessDeniedException("Recepción solo puede confirmar pagos en efectivo.");
+        }
+
         if ("VERIFICADO".equalsIgnoreCase(currentPaymentStatus)) {
             // Idempotente si ya fue aprobado
             return getOrderByIdInternal(orderId);
@@ -388,6 +396,9 @@ public class SupplementOrderService {
 
         if (stockReleased) {
             throw new ConflictException("No se puede aprobar un pedido cuyo stock ya fue liberado por cancelación o expiración.");
+        }
+        if (now().isAfter((Instant) data.get("reservation_expires_at_utc"))) {
+            throw new ConflictException("La reserva de stock venció; el pago debe revisarse sin confirmar este pedido.");
         }
 
         BigDecimal verifiedAmount = req.verifiedAmountPen().setScale(2, RoundingMode.HALF_UP);
@@ -401,9 +412,9 @@ public class SupplementOrderService {
                 fulfillment_status = 'EN_PREPARACION', verified_by = ?, verified_at_utc = ?,
                 verified_amount_pen = ?, updated_at_utc = ?
             WHERE id = ?
-        """, adminActor, now(), verifiedAmount, now(), orderId);
+        """, actor, now(), verifiedAmount, now(), orderId);
 
-        recordOrderAudit(orderId, "PAYMENT_APPROVED", currentOrderStatus, "CONFIRMADO_PREPARACION", adminActor,
+        recordOrderAudit(orderId, "PAYMENT_APPROVED", currentOrderStatus, "CONFIRMADO_PREPARACION", actor,
                 "Pago verificado por S/ " + verifiedAmount + ". Notas: " + (req.notes() != null ? req.notes() : ""));
 
         // Notificación Outbox al socio
@@ -808,11 +819,11 @@ public class SupplementOrderService {
 
     @Transactional(readOnly = true)
     public List<OrderDetailDto> listOrdersForAdmin(String statusFilter) {
-        String sql = """
-            SELECT id FROM supplement_orders
-        """;
+        String sql = "SELECT id FROM supplement_orders";
         if (statusFilter != null && !statusFilter.isBlank() && !"TODOS".equalsIgnoreCase(statusFilter)) {
-            sql += " WHERE order_status = '" + statusFilter.trim().toUpperCase() + "'";
+            sql += " WHERE order_status = ? ORDER BY created_at_utc DESC LIMIT 100";
+            return jdbc.query(sql, (rs, n) -> getOrderByIdInternal(rs.getObject("id", UUID.class)),
+                    statusFilter.trim().toUpperCase(Locale.ROOT));
         }
         sql += " ORDER BY created_at_utc DESC LIMIT 100";
         return jdbc.query(sql, (rs, n) -> getOrderByIdInternal(rs.getObject("id", UUID.class)));
