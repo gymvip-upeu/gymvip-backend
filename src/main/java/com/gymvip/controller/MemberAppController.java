@@ -109,7 +109,7 @@ public class MemberAppController {
         var clientOpt = service.findOwnClient(auth.getName());
         return clientOpt.isPresent()
                 ? service.listInbox(clientOpt.get())
-                : service.listGeneralAnnouncements();
+                : service.listGeneralAnnouncements(auth.getName());
     }
 
     @PostMapping("/inbox/{id}/read")
@@ -117,7 +117,10 @@ public class MemberAppController {
         if (service.mustChange(auth.getName())) {
             throw new org.springframework.security.access.AccessDeniedException("Cambia la contraseña temporal antes de continuar.");
         }
-        return service.markInboxRead(service.ownClient(auth.getName()), id);
+        var clientOpt = service.findOwnClient(auth.getName());
+        return clientOpt.isPresent()
+                ? service.markInboxRead(clientOpt.get(), id)
+                : service.markGeneralAnnouncementRead(auth.getName(), id);
     }
 
     @GetMapping("/consents")

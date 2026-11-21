@@ -301,28 +301,46 @@ public class MemberWorkspaceService {
     }
 
     @Transactional(readOnly = true)
-    public List<MemberInboxItem> listGeneralAnnouncements() {
+    public List<MemberInboxItem> listGeneralAnnouncements(String email) {
+        UUID accountId = jdbc.queryForObject("SELECT id FROM accounts WHERE email=?", UUID.class, email);
+        Set<String> readIds = new HashSet<>(jdbc.query(
+                "SELECT item_id FROM staff_inbox_reads WHERE account_id=?", (r, n) -> r.getString(1), accountId));
         try {
             var items = jdbc.query("""
                 SELECT id::text, title, message, category, created_at_utc
                 FROM gym_announcements
-                WHERE is_active = true
+                WHERE is_active = true AND target_audience = 'TODOS'
                 ORDER BY created_at_utc DESC LIMIT 50
             """, (r, n) -> new MemberInboxItem(
                     r.getString("id"),
-                    "SYSTEM",
+                    accountId.toString(),
                     r.getString("title"),
                     r.getString("message"),
                     r.getString("category") != null ? r.getString("category") : "COMUNICADO",
                     r.getTimestamp("created_at_utc") != null ? r.getTimestamp("created_at_utc").toInstant().toString() : now().toString(),
-                    false
+                    readIds.contains(r.getString("id"))
             ));
             if (!items.isEmpty()) return items;
         } catch (Exception ignored) {}
         return List.of(
-            new MemberInboxItem("ann-welcome", "SYSTEM", "¡Bienvenido a GYM VIP!", "Tu credencial digital de socio está activa. Consulta el estado de tu plan y asistencias.", "COMUNICADO", now().toString(), false),
-            new MemberInboxItem("ann-hygiene", "SYSTEM", "Uso obligatorio de toalla personal", "Por higiene y respeto mutuo, el uso de toalla es obligatorio en máquinas y peso libre.", "COMUNICADO", now().toString(), false)
+            new MemberInboxItem("ann-welcome", accountId.toString(), "¡Bienvenido a GYM VIP!", "Consulta los comunicados oficiales del club.", "COMUNICADO", now().toString(), readIds.contains("ann-welcome")),
+            new MemberInboxItem("ann-hygiene", accountId.toString(), "Uso obligatorio de toalla personal", "Por higiene y respeto mutuo, el uso de toalla es obligatorio en máquinas y peso libre.", "COMUNICADO", now().toString(), readIds.contains("ann-hygiene"))
         );
+    }
+
+    @Transactional
+    public Map<String, Object> markGeneralAnnouncementRead(String email, String itemId) {
+        UUID accountId = jdbc.queryForObject("SELECT id FROM accounts WHERE email=?", UUID.class, email);
+        boolean legacy = itemId.equals("ann-welcome") || itemId.equals("ann-hygiene");
+        Boolean exists = jdbc.queryForObject(
+                "SELECT EXISTS(SELECT 1 FROM gym_announcements WHERE id::text=? AND is_active=true AND target_audience='TODOS')",
+                Boolean.class, itemId);
+        if (!legacy && !Boolean.TRUE.equals(exists)) throw new ResourceNotFoundException("Aviso no encontrado.");
+        jdbc.update("""
+            INSERT INTO staff_inbox_reads(id, account_id, item_id, read_at_utc) VALUES (?, ?, ?, ?)
+            ON CONFLICT(account_id, item_id) DO NOTHING
+        """, UUID.randomUUID(), accountId, itemId, now());
+        return Map.of("itemId", itemId, "read", true);
     }
 
     @Transactional(readOnly = true)
