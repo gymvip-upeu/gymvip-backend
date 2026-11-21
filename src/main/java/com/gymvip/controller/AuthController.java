@@ -63,6 +63,16 @@ public class AuthController {
         return ResponseEntity.ok(Map.of("message", "Otras sesiones cerradas exitosamente"));
     }
 
+    @PostMapping("/revoke-all-sessions")
+    public ResponseEntity<Map<String, Object>> revokeAllSessions(
+            @RequestHeader(value = "Authorization", required = false) String authHeader) {
+        if (authHeader == null || !authHeader.startsWith("Bearer ")) {
+            return ResponseEntity.status(401).body(Map.of("message", "No autenticado"));
+        }
+        authService.revokeAllSessions(authHeader.substring(7));
+        return ResponseEntity.ok(Map.of("message", "Todas las sesiones y dispositivos de notificación fueron revocados"));
+    }
+
     @GetMapping("/me")
     public ResponseEntity<?> getCurrentUser(Authentication authentication) {
         if (authentication == null) {

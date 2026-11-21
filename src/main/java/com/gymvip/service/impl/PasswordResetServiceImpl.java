@@ -112,7 +112,11 @@ public class PasswordResetServiceImpl implements PasswordResetService {
         String resetLink = resetBaseUrl + "?token=" + rawToken;
 
         // Despachar email vía microservicio de comunicaciones
-        commsServiceClient.sendPasswordResetEmail(account.getEmail(), resetLink, rawToken, "Socio VIP");
+        var dispatch = commsServiceClient.sendPasswordResetEmail(account.getEmail(), resetLink, rawToken, "Socio VIP");
+        if (!dispatch.dispatched()) {
+            tokenRepository.invalidateActiveTokensForAccount(account.getId());
+            log.warn("[PASSWORD RESET] No se pudo despachar la recuperación; token invalidado");
+        }
 
         auditService.recordEvent(
                 account.getEmail(),

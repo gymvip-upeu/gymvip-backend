@@ -116,15 +116,17 @@ public class CommsServiceClient {
                 var resBody = res.getBody();
                 String delId = String.valueOf(resBody.get("deliveryId"));
                 String status = String.valueOf(resBody.get("status"));
-                return new CommsDispatchResult(true, delId, status, null);
+                boolean realDispatch = !status.toLowerCase(Locale.ROOT).contains("simul") && !delId.startsWith("sim_");
+                return new CommsDispatchResult(realDispatch, delId, status,
+                        realDispatch ? null : "El proveedor solo simuló el envío");
             }
 
             log.warn("[COMMS CLIENT] Microservicio respondió con error al enviar email de recuperación: HTTP {}", res.getStatusCode().value());
             return new CommsDispatchResult(false, null, "FALLIDO", "Error HTTP " + res.getStatusCode().value());
 
         } catch (Exception e) {
-            log.info("[COMMS CLIENT] gymvip-comunicaciones no disponible en {}. Despacho de recuperación simulado localmente para {}.", commsUrl, toEmail);
-            return new CommsDispatchResult(true, "local_sim_" + UUID.randomUUID().toString().substring(0, 8), "SIMULATED_LOCAL", null);
+            log.warn("[COMMS CLIENT] Recuperación no enviada: microservicio no disponible ({})", e.getClass().getSimpleName());
+            return new CommsDispatchResult(false, null, "FALLIDO", "Microservicio de correo no disponible");
         }
     }
 
