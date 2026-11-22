@@ -102,16 +102,23 @@ public class SupplementPaymentLinkService {
     }
 
     private LinkStatus readStatus(UUID linkId) {
+        LinkStatus result = loadStatus(linkId);
+        if ("PENDING".equals(result.status()) && !result.expiresAt().isAfter(clock.instant())) {
+            int expired = jdbc.update("UPDATE supplement_payment_links SET status='EXPIRED',updated_at_utc=CURRENT_TIMESTAMP WHERE id=? AND status='PENDING'", linkId);
+            if (expired == 1)
+                return new LinkStatus(result.id(), result.orderId(), result.amountPen(), "EXPIRED", result.url(), result.expiresAt());
+            return loadStatus(linkId);
+        }
+        return result;
+    }
+
+    private LinkStatus loadStatus(UUID linkId) {
         LinkStatus result = jdbc.query("""
             SELECT id,order_id,amount_pen,status,provider_url,expires_at_utc
             FROM supplement_payment_links WHERE id=?
         """, (rs, ignored) -> new LinkStatus(rs.getObject(1, UUID.class), rs.getObject(2, UUID.class),
                 rs.getBigDecimal(3), rs.getString(4), rs.getString(5), rs.getTimestamp(6).toInstant()), linkId)
                 .stream().findFirst().orElseThrow(() -> new ResourceNotFoundException("Enlace no encontrado."));
-        if ("PENDING".equals(result.status()) && !result.expiresAt().isAfter(clock.instant())) {
-            jdbc.update("UPDATE supplement_payment_links SET status='EXPIRED',updated_at_utc=CURRENT_TIMESTAMP WHERE id=? AND status='PENDING'", linkId);
-            return new LinkStatus(result.id(), result.orderId(), result.amountPen(), "EXPIRED", result.url(), result.expiresAt());
-        }
         return result;
     }
 
