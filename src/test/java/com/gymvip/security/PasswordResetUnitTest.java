@@ -101,7 +101,9 @@ class PasswordResetUnitTest {
     @Test
     @DisplayName("Debe procesar solicitud para cuenta existente, generar token con hash y enviar email")
     void testRequestResetExistingAccount() {
-        when(accountRepository.findByEmailIgnoreCase("socio@vipcenterfit.pe")).thenReturn(Optional.of(sampleAccount));
+        when(accountRepository.findByVerifiedMemberEmail("socio@vipcenterfit.pe")).thenReturn(java.util.List.of(sampleAccount));
+        when(commsServiceClient.sendPasswordResetEmail(anyString(), anyString(), anyString(), anyString()))
+                .thenReturn(new CommsServiceClient.CommsDispatchResult(true, "test-delivery", "ACEPTADO_PROVEEDOR", null));
 
         PasswordResetResponse response = passwordResetService.requestReset(
                 new PasswordResetRequest("socio@vipcenterfit.pe"),
@@ -113,13 +115,14 @@ class PasswordResetUnitTest {
 
         verify(tokenRepository).invalidateActiveTokensForAccount(sampleAccountId);
         verify(tokenRepository).save(any(PasswordResetToken.class));
-        verify(commsServiceClient).sendPasswordResetEmail(eq("socio@vipcenterfit.pe"), contains("https://gymvip.pe/reset-password?token="), anyString(), eq("Socio VIP"));
+        verify(commsServiceClient).sendPasswordResetEmail(eq("socio@vipcenterfit.pe"), contains("https://gymvip.pe/reset-password?token="), anyString(), eq("GYM VIP"));
         verify(auditService).recordEvent(eq("socio@vipcenterfit.pe"), eq("PASSWORD_RESET_REQUESTED"), eq("Account"), eq(sampleAccountId.toString()), anyString());
     }
 
     @Test
     @DisplayName("Debe responder de forma idéntica sin revelar que el correo no existe (anti-enumeración)")
     void testRequestResetNonExistingAccount() {
+        when(accountRepository.findByVerifiedMemberEmail("desconocido@vipcenterfit.pe")).thenReturn(java.util.List.of());
         when(accountRepository.findByEmailIgnoreCase("desconocido@vipcenterfit.pe")).thenReturn(Optional.empty());
 
         PasswordResetResponse response = passwordResetService.requestReset(
@@ -242,7 +245,9 @@ class PasswordResetUnitTest {
     @Test
     @DisplayName("Debe bloquear exceso de solicitudes de recuperación tras superar límite")
     void testRateLimitResetRequests() {
-        when(accountRepository.findByEmailIgnoreCase(anyString())).thenReturn(Optional.of(sampleAccount));
+        when(accountRepository.findByVerifiedMemberEmail(anyString())).thenReturn(java.util.List.of(sampleAccount));
+        when(commsServiceClient.sendPasswordResetEmail(anyString(), anyString(), anyString(), anyString()))
+                .thenReturn(new CommsServiceClient.CommsDispatchResult(true, "test-delivery", "ACEPTADO_PROVEEDOR", null));
 
         String testIp = "10.0.0.99";
         for (int i = 0; i < 3; i++) {
@@ -252,5 +257,28 @@ class PasswordResetUnitTest {
         assertThrows(TooManyRequestsException.class, () ->
                 passwordResetService.requestReset(new PasswordResetRequest("socio@vipcenterfit.pe"), testIp)
         );
+    }
+
+    @Test
+    void sharedVerifiedEmailDoesNotResetAnArbitraryMember() {
+        Account second = new Account(UUID.randomUUID(), "second@gymvip.local", "hash", Set.of("CLIENTE"), "ACTIVO", false);
+        when(accountRepository.findByVerifiedMemberEmail("familia@example.com"))
+                .thenReturn(java.util.List.of(sampleAccount, second));
+        var response = passwordResetService.requestReset(new PasswordResetRequest("familia@example.com"), "10.0.0.3");
+        assertEquals(PasswordResetServiceImpl.GENERIC_RESET_MSG, response.message());
+        verify(tokenRepository, never()).save(any());
+        verify(commsServiceClient, never()).sendPasswordResetEmail(any(), any(), any(), any());
+    }
+
+    @Test
+    void unverifiedMemberAccountAddressIsNeverUsedForRecovery() {
+        when(accountRepository.findByVerifiedMemberEmail("socio@vipcenterfit.pe"))
+                .thenReturn(java.util.List.of());
+        when(accountRepository.findByEmailIgnoreCase("socio@vipcenterfit.pe"))
+                .thenReturn(Optional.of(sampleAccount));
+        var response = passwordResetService.requestReset(new PasswordResetRequest("socio@vipcenterfit.pe"), "10.0.0.4");
+        assertEquals(PasswordResetServiceImpl.GENERIC_RESET_MSG, response.message());
+        verify(tokenRepository, never()).save(any());
+        verify(commsServiceClient, never()).sendPasswordResetEmail(any(), any(), any(), any());
     }
 }

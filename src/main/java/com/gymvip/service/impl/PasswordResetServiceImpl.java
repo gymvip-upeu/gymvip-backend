@@ -77,7 +77,12 @@ public class PasswordResetServiceImpl implements PasswordResetService {
 
         checkRateLimit(rateKey);
 
-        Account account = accountRepository.findByEmailIgnoreCase(email).orElse(null);
+        var memberAccounts = accountRepository.findByVerifiedMemberEmail(email);
+        Account account = memberAccounts.size() == 1 ? memberAccounts.getFirst() : null;
+        if (account == null && memberAccounts.isEmpty()) {
+            account = accountRepository.findByEmailIgnoreCase(email)
+                    .filter(candidate -> !candidate.getRoles().contains("CLIENTE")).orElse(null);
+        }
 
         // Anti-enumeración: si no existe o está inactivo, responder con mensaje neutro sin error
         if (account == null || !"ACTIVO".equalsIgnoreCase(account.getStatus())) {
@@ -112,7 +117,7 @@ public class PasswordResetServiceImpl implements PasswordResetService {
         String resetLink = resetBaseUrl + "?token=" + rawToken;
 
         // Despachar email vía microservicio de comunicaciones
-        var dispatch = commsServiceClient.sendPasswordResetEmail(account.getEmail(), resetLink, rawToken, "Socio VIP");
+        var dispatch = commsServiceClient.sendPasswordResetEmail(email, resetLink, rawToken, "GYM VIP");
         if (!dispatch.dispatched()) {
             tokenRepository.invalidateActiveTokensForAccount(account.getId());
             log.warn("[PASSWORD RESET] No se pudo despachar la recuperación; token invalidado");

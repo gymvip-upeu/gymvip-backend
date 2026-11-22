@@ -15,6 +15,9 @@ public interface AccountRepository extends JpaRepository<Account, UUID> {
 
     Optional<Account> findByEmailIgnoreCase(String email);
 
+    @Query("SELECT a FROM Account a WHERE a.id IN (SELECT c.accountId FROM Client c WHERE c.emailVerified = true AND lower(c.email) = lower(:email))")
+    List<Account> findByVerifiedMemberEmail(@Param("email") String email);
+
     @Query("SELECT a FROM Account a WHERE lower(a.email) = lower(:identifier) " +
            "OR a.id IN (SELECT c.accountId FROM Client c WHERE (c.emailVerified = true AND lower(c.email) = lower(:identifier)) OR upper(c.memberCode) = upper(:identifier)) " +
            "OR a.id IN (SELECT d.client.accountId FROM Document d WHERE d.documentType = 'DNI' AND d.documentNumber = :identifier)")
