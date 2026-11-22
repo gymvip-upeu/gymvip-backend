@@ -33,6 +33,8 @@ public class MembershipPaymentLinkService {
     private final Clock clock;
     private final TransactionTemplate transactions;
 
+    public boolean available() { return culqi.configured(); }
+
     public MembershipPaymentLinkService(JdbcTemplate jdbc, MembershipServiceImpl memberships,
                                         CulqiClient culqi, ObjectMapper mapper, Clock clock, TransactionTemplate transactions) {
         this.jdbc = jdbc; this.memberships = memberships; this.culqi = culqi; this.mapper = mapper; this.clock = clock;
@@ -68,7 +70,7 @@ public class MembershipPaymentLinkService {
 
         UUID id = UUID.randomUUID();
         Instant expires = clock.instant().plusSeconds(24 * 3600L);
-        JsonNode link = culqi.createLink(id, quote.pricePen(), expires);
+        JsonNode link = culqi.createLink(id, quote.pricePen(), expires, "Membresía GYM VIP");
         String providerId = link == null ? "" : link.path("id").asText();
         String url = link == null ? "" : link.path("url").asText();
         URI uri = URI.create(url);

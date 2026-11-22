@@ -7,7 +7,7 @@ import java.util.UUID;
 
 public interface CulqiClient {
     boolean configured();
-    JsonNode createLink(UUID operationId, BigDecimal amountPen, Instant expiresAt);
+    JsonNode createLink(UUID operationId, BigDecimal amountPen, Instant expiresAt, String concept);
     JsonNode event(String eventId);
     JsonNode charge(String chargeId);
 }

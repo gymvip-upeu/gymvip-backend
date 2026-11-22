@@ -33,7 +33,7 @@ public class HttpCulqiClient implements CulqiClient {
         if (!configured()) throw new IllegalStateException("Culqi no está configurado en el backend.");
     }
 
-    @Override public JsonNode createLink(UUID operationId, BigDecimal amountPen, Instant expiresAt) {
+    @Override public JsonNode createLink(UUID operationId, BigDecimal amountPen, Instant expiresAt, String concept) {
         requireConfigured();
         int cents = amountPen.movePointRight(2).intValueExact();
         if (cents < 600 || cents > 999900) throw new IllegalArgumentException("El importe está fuera del rango admitido por CulqiLink.");
@@ -41,7 +41,7 @@ public class HttpCulqiClient implements CulqiClient {
                 .header("x-culqi-product", "link").contentType(MediaType.APPLICATION_JSON)
                 .body(Map.of(
                         "amount", cents, "currency_code", "PEN",
-                        "concept", "Membresía GYM VIP " + operationId,
+                        "concept", concept + " " + operationId,
                         "limit_uses", 1, "is_open_amount", false,
                         "payment_methods", List.of("tarjeta", "yape", "billetera"),
                         "expiration_date", expiresAt.getEpochSecond()

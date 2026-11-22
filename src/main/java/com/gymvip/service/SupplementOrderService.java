@@ -140,8 +140,8 @@ public class SupplementOrderService {
 
         // Manejo de idempotencia
         if (req != null && req.idempotencyKey() != null && !req.idempotencyKey().isBlank()) {
-            var existing = jdbc.query("SELECT id FROM supplement_orders WHERE idempotency_key = ?",
-                    (rs, n) -> rs.getObject("id", UUID.class), req.idempotencyKey().trim());
+            var existing = jdbc.query("SELECT id FROM supplement_orders WHERE idempotency_key = ? AND account_id = ?",
+                    (rs, n) -> rs.getObject("id", UUID.class), req.idempotencyKey().trim(), accountId);
             if (!existing.isEmpty()) {
                 return getOrderByIdInternal(existing.get(0));
             }
@@ -293,7 +293,7 @@ public class SupplementOrderService {
         UUID accountId = getAccountIdByEmail(userEmail);
 
         var order = jdbc.query("""
-            SELECT id, order_number, order_status, payment_status, total_pen, payment_reference, stock_released, reservation_expires_at_utc
+            SELECT id, order_number, order_status, payment_status, payment_method, total_pen, payment_reference, stock_released, reservation_expires_at_utc
             FROM supplement_orders
             WHERE id = ? AND account_id = ?
             FOR UPDATE
@@ -301,6 +301,7 @@ public class SupplementOrderService {
                 "order_number", rs.getString("order_number"),
                 "order_status", rs.getString("order_status"),
                 "payment_status", rs.getString("payment_status"),
+                "payment_method", rs.getString("payment_method"),
                 "total_pen", rs.getBigDecimal("total_pen"),
                 "stock_released", rs.getBoolean("stock_released"),
                 "reservation_expires", rs.getTimestamp("reservation_expires_at_utc") != null ? rs.getTimestamp("reservation_expires_at_utc").toInstant() : now()
@@ -311,6 +312,8 @@ public class SupplementOrderService {
         }
 
         var orderData = order.get(0);
+        if ("TARJETA_PASARELA".equals(orderData.get("payment_method")))
+            throw new ConflictException("El pedido Culqi se confirma por el proveedor; no admite evidencia manual.");
         String currentOrderStatus = (String) orderData.get("order_status");
         boolean stockReleased = (boolean) orderData.get("stock_released");
         Instant expires = (Instant) orderData.get("reservation_expires");
@@ -388,6 +391,9 @@ public class SupplementOrderService {
         if (cashOnly && !"EFECTIVO_MOSTRADOR".equals(data.get("payment_method"))) {
             throw new AccessDeniedException("Recepción solo puede confirmar pagos en efectivo.");
         }
+        if ("TARJETA_PASARELA".equals(data.get("payment_method"))) {
+            throw new AccessDeniedException("El pago digital solo se confirma mediante conciliación con Culqi.");
+        }
 
         if ("VERIFICADO".equalsIgnoreCase(currentPaymentStatus)) {
             // Idempotente si ya fue aprobado
@@ -424,9 +430,48 @@ public class SupplementOrderService {
         return getOrderByIdInternal(orderId);
     }
 
+    /** Invocado únicamente después de verificar evento y cargo directamente con Culqi. */
+    public OrderDetailDto confirmCulqiPayment(UUID orderId, BigDecimal amountPen, String chargeId) {
+        var rows = jdbc.query("""
+            SELECT order_number,order_status,payment_status,payment_method,total_pen,stock_released,
+                   reservation_expires_at_utc,client_id
+            FROM supplement_orders WHERE id=? FOR UPDATE
+        """, (rs, ignored) -> Map.of(
+                "order_number", rs.getString("order_number"),
+                "order_status", rs.getString("order_status"),
+                "payment_status", rs.getString("payment_status"),
+                "payment_method", rs.getString("payment_method"),
+                "total_pen", rs.getBigDecimal("total_pen"),
+                "stock_released", rs.getBoolean("stock_released"),
+                "reservation_expires_at_utc", rs.getTimestamp("reservation_expires_at_utc").toInstant(),
+                "client_id", rs.getObject("client_id", UUID.class)
+        ), orderId);
+        if (rows.isEmpty()) throw new ConflictException("El pedido pagado ya no existe.");
+        var data = rows.getFirst();
+        if (!"TARJETA_PASARELA".equals(data.get("payment_method")) ||
+                !"PENDIENTE".equals(data.get("payment_status")) ||
+                (boolean) data.get("stock_released") ||
+                !"PENDIENTE_PAGO".equals(data.get("order_status")) ||
+                !((Instant) data.get("reservation_expires_at_utc")).isAfter(now()) ||
+                ((BigDecimal) data.get("total_pen")).compareTo(amountPen) != 0)
+            throw new ConflictException("El pedido requiere revisión: reserva, importe o estado ya no coinciden.");
+        jdbc.update("""
+            UPDATE supplement_orders
+            SET order_status='CONFIRMADO_PREPARACION',payment_status='VERIFICADO',
+                fulfillment_status='EN_PREPARACION',payment_reference=?,verified_by='CULQI',
+                verified_at_utc=?,verified_amount_pen=?,updated_at_utc=?
+            WHERE id=?
+        """, chargeId, now(), amountPen, now(), orderId);
+        recordOrderAudit(orderId, "CULQI_PAYMENT_VERIFIED", "PENDIENTE_PAGO", "CONFIRMADO_PREPARACION", "CULQI",
+                "Cargo verificado por el proveedor: " + chargeId);
+        queueOutboxPush((UUID) data.get("client_id"), "Pago confirmado: Pedido " + data.get("order_number"),
+                "Tu pago digital fue confirmado. Estamos preparando tu pedido.");
+        return getOrderByIdInternal(orderId);
+    }
+
     public OrderDetailDto rejectPayment(UUID orderId, PaymentRejectionRequest req, String adminActor) {
         var order = jdbc.query("""
-            SELECT id, order_number, order_status, payment_status, stock_reserved, stock_released, client_id
+            SELECT id, order_number, order_status, payment_status, payment_method, stock_reserved, stock_released, client_id
             FROM supplement_orders
             WHERE id = ?
             FOR UPDATE
@@ -434,6 +479,7 @@ public class SupplementOrderService {
                 "order_number", rs.getString("order_number"),
                 "order_status", rs.getString("order_status"),
                 "payment_status", rs.getString("payment_status"),
+                "payment_method", rs.getString("payment_method"),
                 "stock_reserved", rs.getBoolean("stock_reserved"),
                 "stock_released", rs.getBoolean("stock_released"),
                 "client_id", rs.getObject("client_id", UUID.class)
@@ -442,6 +488,8 @@ public class SupplementOrderService {
         if (order.isEmpty()) throw new ResourceNotFoundException("Pedido no encontrado.");
 
         var data = order.get(0);
+        if ("TARJETA_PASARELA".equals(data.get("payment_method")))
+            throw new ConflictException("Un pedido Culqi no se rechaza manualmente; revise la conciliación del enlace.");
         String currentOrderStatus = (String) data.get("order_status");
         boolean stockReserved = (boolean) data.get("stock_reserved");
         boolean stockReleased = (boolean) data.get("stock_released");
@@ -693,7 +741,7 @@ public class SupplementOrderService {
         UUID accountId = getAccountIdByEmail(userEmail);
 
         var order = jdbc.query("""
-            SELECT id, order_number, order_status, payment_status, stock_reserved, stock_released
+            SELECT id, order_number, order_status, payment_status, payment_method, stock_reserved, stock_released
             FROM supplement_orders
             WHERE id = ? AND account_id = ?
             FOR UPDATE
@@ -701,6 +749,7 @@ public class SupplementOrderService {
                 "order_number", rs.getString("order_number"),
                 "order_status", rs.getString("order_status"),
                 "payment_status", rs.getString("payment_status"),
+                "payment_method", rs.getString("payment_method"),
                 "stock_reserved", rs.getBoolean("stock_reserved"),
                 "stock_released", rs.getBoolean("stock_released")
         ), orderId, accountId);
@@ -708,6 +757,14 @@ public class SupplementOrderService {
         if (order.isEmpty()) throw new ResourceNotFoundException("Pedido no encontrado.");
 
         var data = order.get(0);
+        if ("TARJETA_PASARELA".equals(data.get("payment_method"))) {
+            Integer activeLinks = jdbc.queryForObject("""
+                SELECT count(*) FROM supplement_payment_links
+                WHERE order_id=? AND status='PENDING' AND expires_at_utc>?
+            """, Integer.class, orderId, now());
+            if (activeLinks != null && activeLinks > 0)
+                throw new ConflictException("Espere a que venza el enlace Culqi antes de cancelar el pedido.");
+        }
         String currentStatus = (String) data.get("order_status");
         String paymentStatus = (String) data.get("payment_status");
         boolean stockReserved = (boolean) data.get("stock_reserved");

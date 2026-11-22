@@ -14,6 +14,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.security.core.Authentication;
+import org.springframework.security.access.AccessDeniedException;
 
 import java.math.BigDecimal;
 import java.sql.ResultSet;
@@ -429,5 +430,33 @@ class SupplementOrderUnitTest {
         assertEquals(1, released);
         verify(jdbc).update(contains("UPDATE supplements SET stock = ?, availability = 'DISPONIBLE'"), eq(5), any(Instant.class), eq(testSupplementId));
         verify(jdbc).update(contains("order_status = 'EXPIRADO', stock_released = true"), any(Instant.class), eq(testOrderId));
+    }
+
+    @Test
+    void digitalOrderCannotBeApprovedAsCashOrManualPayment() {
+        when(jdbc.query(contains("payment_method, total_pen"), any(RowMapper.class), eq(testOrderId)))
+                .thenReturn(List.of(Map.of(
+                        "order_number", "ORD-20261120-1234", "order_status", "PENDIENTE_PAGO",
+                        "payment_status", "PENDIENTE", "payment_method", "TARJETA_PASARELA",
+                        "total_pen", new BigDecimal("50.00"), "stock_released", false,
+                        "reservation_expires_at_utc", clock.instant().plusSeconds(900), "client_id", testClientId)));
+        assertThrows(AccessDeniedException.class, () -> orderService.approvePayment(testOrderId,
+                new PaymentApprovalRequest(new BigDecimal("50.00"), "manual"), "admin@gymvip.pe"));
+        verify(jdbc, never()).update(contains("SET order_status = 'CONFIRMADO_PREPARACION'"), (Object[]) any());
+    }
+
+    @Test
+    void digitalOrderCannotAcceptManualEvidence() {
+        when(jdbc.query(contains("accounts WHERE email"), any(RowMapper.class), eq("socio@gymvip.pe")))
+                .thenReturn(List.of(testAccountId));
+        when(jdbc.query(contains("payment_method, total_pen, payment_reference"), any(RowMapper.class),
+                eq(testOrderId), eq(testAccountId))).thenReturn(List.of(Map.of(
+                "order_number", "ORD-20261120-1234", "order_status", "PENDIENTE_PAGO",
+                "payment_status", "PENDIENTE", "payment_method", "TARJETA_PASARELA",
+                "total_pen", new BigDecimal("50.00"), "stock_released", false,
+                "reservation_expires", clock.instant().plusSeconds(900))));
+        assertThrows(ConflictException.class, () -> orderService.submitPaymentEvidence("socio@gymvip.pe", testOrderId,
+                new PaymentEvidenceSubmitRequest("manual-123", null, null)));
+        verify(jdbc, never()).update(contains("SET payment_reference"), (Object[]) any());
     }
 }
