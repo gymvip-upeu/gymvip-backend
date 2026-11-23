@@ -256,14 +256,19 @@ public class AttendanceProcessingService {
         if (includeAprobados) {
             String methodFilter = (method != null && !"TODOS".equalsIgnoreCase(method)) ? method : "%";
             var aprobados = jdbc.sql("""
-                    SELECT a.id, a.client_id, c.first_name, c.last_name, c.member_code, c.document_number,
+                    SELECT a.id, a.client_id, c.first_name, c.last_name, c.member_code, doc.document_number,
                            a.attendance_date, a.checked_at_utc, a.check_in_method, a.recorded_by,
                            a.terminal_id, t.name AS terminal_name, 'ATTENDANCE_RECORDED' AS status, 'Ingreso autorizado' AS details
                     FROM member_attendance a
                     JOIN clients c ON c.id = a.client_id
+                    LEFT JOIN LATERAL (
+                        SELECT d.document_number FROM documents d
+                        WHERE d.client_id = c.id
+                        ORDER BY d.is_primary DESC, d.created_at DESC LIMIT 1
+                    ) doc ON TRUE
                     LEFT JOIN attendance_terminals t ON t.id = a.terminal_id
                     WHERE a.attendance_date BETWEEN :from AND :to
-                      AND (lower(c.first_name) LIKE :q OR lower(c.last_name) LIKE :q OR lower(c.member_code) LIKE :q OR lower(c.document_number) LIKE :q)
+                      AND (lower(c.first_name) LIKE :q OR lower(c.last_name) LIKE :q OR lower(c.member_code) LIKE :q OR lower(coalesce(doc.document_number, '')) LIKE :q)
                       AND (CAST(:method AS varchar) = '%' OR a.check_in_method = :method)
                     ORDER BY a.checked_at_utc DESC
                     LIMIT :lim OFFSET :off
@@ -296,7 +301,7 @@ public class AttendanceProcessingService {
         if (includeRechazados && items.size() < safeSize) {
             int remaining = safeSize - items.size();
             var rechazados = jdbc.sql("""
-                    SELECT r.id, r.client_id, c.first_name, c.last_name, c.member_code, c.document_number,
+                    SELECT r.id, r.client_id, c.first_name, c.last_name, c.member_code, doc.document_number,
                            r.attendance_date, r.attempted_at_utc AS checked_at_utc,
                            'RECHAZO' AS check_in_method, r.recorded_by, r.terminal_id,
                            t.name AS terminal_name,
@@ -308,9 +313,14 @@ public class AttendanceProcessingService {
                            concat(r.rejection_reason, ': ', coalesce(r.details, '')) AS details
                     FROM attendance_rejection_logs r
                     LEFT JOIN clients c ON c.id = r.client_id
+                    LEFT JOIN LATERAL (
+                        SELECT d.document_number FROM documents d
+                        WHERE d.client_id = c.id
+                        ORDER BY d.is_primary DESC, d.created_at DESC LIMIT 1
+                    ) doc ON TRUE
                     LEFT JOIN attendance_terminals t ON t.id = r.terminal_id
                     WHERE r.attendance_date BETWEEN :from AND :to
-                      AND (CAST(:q AS varchar) = '%' OR lower(coalesce(c.first_name, '')) LIKE :q OR lower(coalesce(c.last_name, '')) LIKE :q OR lower(coalesce(c.member_code, '')) LIKE :q)
+                      AND (CAST(:q AS varchar) = '%' OR lower(coalesce(c.first_name, '')) LIKE :q OR lower(coalesce(c.last_name, '')) LIKE :q OR lower(coalesce(c.member_code, '')) LIKE :q OR lower(coalesce(doc.document_number, '')) LIKE :q)
                     ORDER BY r.attempted_at_utc DESC
                     LIMIT :lim
                     """)
