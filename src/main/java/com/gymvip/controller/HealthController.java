@@ -50,6 +50,7 @@ public class HealthController {
         body.put("check", "readiness");
         body.put("service", "gymvip-backend");
         body.put("timestamp", Instant.now().toString());
+        body.put("revision", System.getenv().getOrDefault("RENDER_GIT_COMMIT", "unknown"));
 
         try {
             jdbcTemplate.setQueryTimeout(3);
