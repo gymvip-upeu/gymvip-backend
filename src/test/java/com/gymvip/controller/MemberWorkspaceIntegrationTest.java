@@ -124,7 +124,9 @@ class MemberWorkspaceIntegrationTest {
         var access = workspace.provision(member.client().id(), ACTOR);
         workspace.changePassword(access.username(), new MemberWorkspaceService.PasswordChange(access.temporaryPassword(), "NuevaClave1234!"));
         var login = auth.login(new LoginRequest(access.username(), "NuevaClave1234!"), "127.0.0.1", "qa-test");
-        String item = "announcement_welcome_" + member.client().id();
+        String inbox = mvc.perform(get("/api/v1/member-app/inbox").header("Authorization", "Bearer " + login.token()))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+        String item = json.readTree(inbox).get(0).get("id").asText();
         mvc.perform(get("/api/v1/member-app/inbox").header("Authorization", "Bearer " + login.token()))
                 .andExpect(status().isOk()).andExpect(jsonPath("$[?(@.id == '" + item + "')].isRead").value(org.hamcrest.Matchers.contains(false)));
         mvc.perform(post("/api/v1/member-app/inbox/" + item + "/read").header("Authorization", "Bearer " + login.token()))

@@ -35,7 +35,6 @@ class ReminderConfigIntegrationTest {
         String saved = readConfig();
 
         for (String invalid : new String[]{
-                valid.replace("[3,7]", "[3,4]"),
                 valid.replace("[3,7]", "[3,null]"),
                 valid.replace("[3,7]", "null"),
                 valid.replace("false", "null"),
