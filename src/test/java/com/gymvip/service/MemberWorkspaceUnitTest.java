@@ -389,19 +389,19 @@ class MemberWorkspaceUnitTest {
     @DisplayName("registerDeviceToken: registra y actualiza token FCM con plataforma")
     void testRegisterDeviceToken() {
         UUID clientId = UUID.randomUUID();
-        when(jdbc.update(contains("INSERT INTO member_device_tokens"), eq(clientId), eq("fcm_token_sample_12345"), eq("ANDROID"), eq("Pixel 8 Pro")))
-                .thenReturn(1);
+        when(jdbc.queryForObject(contains("FROM sessions"),eq(Boolean.class),eq(clientId),eq("session-test"))).thenReturn(true);
 
         var req = new MemberWorkspaceService.DeviceTokenRegistration("fcm_token_sample_12345", "android", "Pixel 8 Pro");
-        var result = service.registerDeviceToken(clientId, req);
+        var result = service.registerDeviceToken(clientId, req,"session-test");
 
         assertNotNull(result);
         assertEquals(true, result.get("registered"));
         assertEquals("ANDROID", result.get("platform"));
+        verify(jdbc).update(contains("INSERT INTO member_device_tokens"),eq(clientId),eq("fcm_token_sample_12345"),eq("ANDROID"),eq("Pixel 8 Pro"),eq("session-test"));
 
         // Validación de token vacío
         assertThrows(IllegalArgumentException.class, () ->
-                service.registerDeviceToken(clientId, new MemberWorkspaceService.DeviceTokenRegistration("  ", "android", null)));
+                service.registerDeviceToken(clientId, new MemberWorkspaceService.DeviceTokenRegistration("  ", "android", null),"session-test"));
     }
 
     @Test void cannotMarkAnotherMembersNoticeOrMissingNoticeAsRead() {

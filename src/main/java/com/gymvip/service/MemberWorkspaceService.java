@@ -540,13 +540,14 @@ public class MemberWorkspaceService {
     }
 
     public record DeviceTokenRegistration(
-            @jakarta.validation.constraints.NotBlank(message = "El token de dispositivo es obligatorio") String token,
+            @jakarta.validation.constraints.NotBlank(message = "El token de dispositivo es obligatorio")
+            @jakarta.validation.constraints.Size(max=500) String token,
             String platform,
             String deviceModel
     ) {}
 
     @Transactional
-    public Map<String, Object> registerDeviceToken(UUID clientId, DeviceTokenRegistration request) {
+    public Map<String, Object> registerDeviceToken(UUID clientId, DeviceTokenRegistration request, String sessionToken) {
         if (request == null || request.token() == null || request.token().isBlank()) {
             throw new IllegalArgumentException("El token de dispositivo es obligatorio.");
         }
@@ -554,24 +555,35 @@ public class MemberWorkspaceService {
                 ? request.platform().trim().toUpperCase() : "ANDROID";
         String deviceModel = (request.deviceModel() != null) ? request.deviceModel().trim() : null;
 
+        if (sessionToken == null || !Boolean.TRUE.equals(jdbc.queryForObject("""
+            SELECT EXISTS(SELECT 1 FROM sessions s JOIN clients c ON c.account_id=s.account_id
+            WHERE c.id=? AND s.token=? AND s.expires_at>CURRENT_TIMESTAMP AND c.status='ACTIVO')
+            """, Boolean.class, clientId, sessionToken))) {
+            throw new org.springframework.security.access.AccessDeniedException("Sesión del dispositivo no válida.");
+        }
+        String token=request.token().trim();
+        jdbc.queryForList("SELECT pg_advisory_xact_lock(hashtextextended(?,0))",token);
+        jdbc.update("UPDATE member_device_tokens SET is_active=false, updated_at_utc=CURRENT_TIMESTAMP WHERE device_token=? AND client_id<>?",token,clientId);
+
         jdbc.update("""
-            INSERT INTO member_device_tokens (client_id, device_token, platform, device_model, is_active, updated_at_utc)
-            VALUES (?, ?, ?, ?, true, CURRENT_TIMESTAMP)
+            INSERT INTO member_device_tokens (client_id, device_token, platform, device_model, session_token, is_active, updated_at_utc)
+            VALUES (?, ?, ?, ?, ?, true, CURRENT_TIMESTAMP)
             ON CONFLICT (client_id, device_token)
             DO UPDATE SET is_active = true, updated_at_utc = CURRENT_TIMESTAMP,
-                          platform = EXCLUDED.platform, device_model = EXCLUDED.device_model
-        """, clientId, request.token().trim(), platform, deviceModel);
+                          platform = EXCLUDED.platform, device_model = EXCLUDED.device_model, session_token=EXCLUDED.session_token
+        """, clientId, token, platform, deviceModel, sessionToken);
 
         return Map.of("registered", true, "platform", platform);
     }
 
     @Transactional
-    public Map<String, Object> unregisterDeviceToken(String email, DeviceTokenRegistration request) {
+    public Map<String, Object> unregisterDeviceToken(String email, DeviceTokenRegistration request, String sessionToken) {
         if (request == null || request.token() == null || request.token().isBlank()) {
             throw new IllegalArgumentException("El token de dispositivo es obligatorio.");
         }
         String token = request.token().trim();
-        jdbc.update("UPDATE member_device_tokens SET is_active = false, updated_at_utc = CURRENT_TIMESTAMP WHERE device_token = ?", token);
+        UUID clientId=ownClient(email);
+        jdbc.update("UPDATE member_device_tokens SET is_active = false, updated_at_utc = CURRENT_TIMESTAMP WHERE device_token = ? AND client_id=? AND session_token=?", token,clientId,sessionToken);
         return Map.of("unregistered", true);
     }
 }

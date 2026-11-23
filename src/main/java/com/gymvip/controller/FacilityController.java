@@ -163,10 +163,10 @@ public class FacilityController {
             // Registro en Notification Outbox para envío push
             String idempotencyKey = "notice_facility_" + id + "_" + System.currentTimeMillis();
             jdbc.update("""
-                INSERT INTO notification_outbox (id, idempotency_key, channel, recipient, title, payload, status)
-                VALUES (?, ?, 'PUSH', 'ALL_ACTIVE_MEMBERS', ?, ?, 'PENDING')
+                INSERT INTO notification_outbox (id, idempotency_key, channel, recipient, title, payload, status, inbox_item_id)
+                VALUES (?, ?, 'PUSH', 'ALL_ACTIVE_MEMBERS', ?, ?, 'PENDING', ?)
                 ON CONFLICT (idempotency_key) DO NOTHING
-            """, UUID.randomUUID(), idempotencyKey, noticeTitle, noticeMessage);
+            """, UUID.randomUUID(), idempotencyKey, noticeTitle, noticeMessage,noticeId.toString());
         }
 
         return ResponseEntity.ok(Map.of("id", id, "status", newStatus, "updated", true));

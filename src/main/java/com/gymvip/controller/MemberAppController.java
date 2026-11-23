@@ -164,14 +164,14 @@ public class MemberAppController {
         }
         var clientOpt = service.findOwnClient(auth.getName());
         if (clientOpt.isPresent()) {
-            return ResponseEntity.ok(service.registerDeviceToken(clientOpt.get(), request));
+            return ResponseEntity.ok(service.registerDeviceToken(clientOpt.get(), request, (String) auth.getDetails()));
         }
-        return ResponseEntity.ok(Map.of("registered", true, "platform", request.platform() != null ? request.platform() : "ANDROID"));
+        throw new org.springframework.security.access.AccessDeniedException("Solo los socios registran dispositivos de Avisos.");
     }
 
     @PostMapping("/devices/unregister")
     public ResponseEntity<?> unregisterDevice(@Valid @RequestBody MemberWorkspaceService.DeviceTokenRegistration request, Authentication auth) {
-        return ResponseEntity.ok(service.unregisterDeviceToken(auth.getName(), request));
+        return ResponseEntity.ok(service.unregisterDeviceToken(auth.getName(), request, (String) auth.getDetails()));
     }
 
     @PostMapping("/attendance/check-in")

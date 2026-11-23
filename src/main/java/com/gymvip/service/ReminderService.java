@@ -142,6 +142,12 @@ public class ReminderService {
                     allowed ? null : "Canal sin consentimiento o destinatario válido",OffsetDateTime.now(clock),OffsetDateTime.now(clock));
                 if (inserted==0 || !allowed) { skipped++; continue; }
                 requested++;
+                if (channel.equals("APP")) {
+                    jdbc.update("""
+                        INSERT INTO notification_outbox(id,idempotency_key,channel,recipient,title,payload,status,inbox_item_id)
+                        VALUES (?,?,'PUSH',?,?,?,'PENDING',?) ON CONFLICT(idempotency_key) DO NOTHING
+                        """,UUID.randomUUID(),"reminder_push_"+id,clientId.toString(),title,message,id.toString());
+                }
                 if (!channel.equals("APP")) external.add(Map.of("id",id,"key",key,"channel",channel,"target",target));
             }
             for (var attempt : external) {
