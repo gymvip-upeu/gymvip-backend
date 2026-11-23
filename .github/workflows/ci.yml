@@ -3,11 +3,13 @@ name: CI Backend GymVIP
 on:
   push:
     branches:
+      - ACOSTA-MEJORAS-Y-ACTUALIZACIONES
       - S2-REVISION-QA
       - 'feature/**'
       - main
   pull_request:
     branches:
+      - ACOSTA-MEJORAS-Y-ACTUALIZACIONES
       - S2-REVISION-QA
       - main
 
@@ -50,7 +52,7 @@ jobs:
           TEST_DB_SCHEMA: public
         run: |
           chmod +x ./mvnw
-          ./mvnw test -B '-Dtest=CoveragePolicyTest,MembershipDatesTest,IsolationGuardTest,MemberWorkspaceUnitTest,CatalogSecurityTest'
+          ./mvnw test -B
 
       - name: Empaquetar Artefacto JAR
         run: ./mvnw package -DskipTests -B
