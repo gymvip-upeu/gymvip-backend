@@ -49,7 +49,7 @@ jobs:
           TEST_DB_JDBC_URL: jdbc:postgresql://localhost:5432/gymvip_test
           TEST_DB_USERNAME: gymvip_user
           TEST_DB_PASSWORD: test_password
-          TEST_DB_SCHEMA: public
+          TEST_DB_SCHEMA: gymvip_test_jorge
         run: |
           chmod +x ./mvnw
           ./mvnw test -B
