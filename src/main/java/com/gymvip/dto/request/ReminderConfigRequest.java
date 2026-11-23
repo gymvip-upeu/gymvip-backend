@@ -6,11 +6,11 @@ import java.util.stream.IntStream;
 
 public record ReminderConfigRequest(
     @NotNull(message = "El estado de activación es obligatorio") Boolean enabled,
-    @NotNull(message = "Debe especificar los días de anticipación") List<@Min(1) @Max(30) Integer> anticipationDays,
+    @NotNull(message = "Debe especificar los días de anticipación") List<@NotNull @Min(1) @Max(30) Integer> anticipationDays,
     @Min(value = 1, message = "Los días posteriores deben ser al menos 1") @Max(value = 5, message = "Los días posteriores no deben exceder 5") int postExpiryDays,
     List<@Pattern(regexp="WHATSAPP|EMAIL|APP") String> channels,
     String defaultChannel,
-    List<@Min(1) @Max(5) Integer> postExpiryDaysSelected
+    List<@NotNull @Min(1) @Max(5) Integer> postExpiryDaysSelected
 ) {
     public ReminderConfigRequest(Boolean enabled, List<Integer> days, int post, List<String> channels) {
         this(enabled, days, post, channels, null, null);

@@ -103,10 +103,11 @@ class JwtSecurityTest {
         String sessionId = UUID.randomUUID().toString().replace("-", "");
         String token = jwtService.generateToken(account, sessionId, LocalDateTime.now().plusHours(2));
 
-        // Manipular el último carácter de la firma
-        char lastChar = token.charAt(token.length() - 1);
-        char alteredChar = (lastChar == 'A') ? 'B' : 'A';
-        String tamperedToken = token.substring(0, token.length() - 1) + alteredChar;
+        // Alterar el primer carácter de la firma cambia bits significativos de Base64URL.
+        int signatureStart = token.lastIndexOf('.') + 1;
+        char firstChar = token.charAt(signatureStart);
+        char alteredChar = (firstChar == 'A') ? 'B' : 'A';
+        String tamperedToken = token.substring(0, signatureStart) + alteredChar + token.substring(signatureStart + 1);
 
         Optional<Claims> claimsOpt = jwtService.validateAndExtractClaims(tamperedToken);
         assertTrue(claimsOpt.isEmpty(), "Un token con firma alterada no debe producir claims válidos");

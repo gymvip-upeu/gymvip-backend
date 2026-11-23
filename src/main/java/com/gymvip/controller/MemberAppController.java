@@ -135,11 +135,13 @@ public class MemberAppController {
     }
 
     @GetMapping("/consents")
+    @PreAuthorize("hasRole('CLIENTE')")
     public Object getConsents(Authentication auth) {
         return service.getConsents(service.ownClient(auth.getName()));
     }
 
     @PostMapping("/consents")
+    @PreAuthorize("hasRole('CLIENTE')")
     public Object saveConsents(@Valid @RequestBody MemberWorkspaceService.ConsentRequest request, Authentication auth) {
         return service.saveConsents(service.ownClient(auth.getName()), request);
     }

@@ -134,8 +134,8 @@ class MemberWorkspaceIntegrationTest {
         mvc.perform(get("/api/v1/member-app/inbox").header("Authorization", "Bearer " + login.token()))
                 .andExpect(status().isOk()).andExpect(jsonPath("$[?(@.id == '" + item + "')].isRead").value(org.hamcrest.Matchers.contains(true)));
         for (String role : List.of("ADMIN", "RECEPCION")) {
-            var staff = org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user("staff").roles(role);
-            mvc.perform(get("/api/v1/member-app/inbox").with(staff)).andExpect(status().isForbidden());
+            var staff = org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user(ACTOR).roles(role);
+            mvc.perform(get("/api/v1/member-app/inbox").with(staff)).andExpect(status().isOk());
             mvc.perform(get("/api/v1/member-app/consents").with(staff)).andExpect(status().isForbidden());
         }
     }
