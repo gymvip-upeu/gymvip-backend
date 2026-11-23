@@ -55,6 +55,7 @@ class ReminderConfigIntegrationTest {
 
     private String readConfig() throws Exception {
         return mvc.perform(get(CONFIG)).andExpect(status().isOk())
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
                 .andReturn().getResponse().getContentAsString();
     }
 }

@@ -207,23 +207,28 @@ class MemberWorkspaceUnitTest {
         when(jdbc.queryForList(contains("SELECT id FROM member_favorites"), eq(clientId), eq("PROD-001"))).thenReturn(List.of());
         when(jdbc.update(contains("INSERT INTO member_favorites"), any(), eq(clientId), eq("PROD-001"), eq("Proteina Whey"), eq("Suplementos"), eq("Tomar post-entreno"), any(), any())).thenReturn(1);
 
+        when(jdbc.query(contains("FROM member_favorites f"), any(RowMapper.class), eq(clientId), any(UUID.class)))
+            .thenReturn(List.of(Map.of("productId","PROD-001","productName","Proteina Whey")));
         var req = new MemberWorkspaceService.FavoriteRequest("PROD-001", "Proteina Whey", "Suplementos", "Tomar post-entreno");
         var result = service.addFavorite(clientId, req);
 
         assertNotNull(result);
-        assertEquals(true, result.get("saved"));
+        assertEquals("Proteina Whey", result.get("productName"));
         assertEquals("PROD-001", result.get("productId"));
     }
 
     @Test
-    @DisplayName("addFavorite debe lanzar ConflictException si el producto ya esta en favoritos (HU-41)")
-    void testAddFavoriteThrowsConflictWhenDuplicate() {
+    @DisplayName("addFavorite debe devolver el favorito existente sin duplicarlo (HU-41)")
+    void testAddFavoriteReturnsExistingWhenDuplicate() {
         UUID clientId = UUID.randomUUID();
         when(jdbc.query(contains("FOR UPDATE"), any(RowMapper.class), eq(clientId))).thenReturn(List.of(clientId));
         when(jdbc.queryForList(contains("SELECT id FROM member_favorites"), eq(clientId), eq("PROD-001"))).thenReturn(List.of(Map.of("id", UUID.randomUUID())));
 
+        when(jdbc.query(contains("FROM member_favorites f"), any(RowMapper.class), eq(clientId), any(UUID.class)))
+            .thenReturn(List.of(Map.of("productId","PROD-001","productName","Proteina Whey")));
         var req = new MemberWorkspaceService.FavoriteRequest("PROD-001", "Proteina Whey", "Suplementos", "Tomar post-entreno");
-        assertThrows(ConflictException.class, () -> service.addFavorite(clientId, req));
+        assertEquals("PROD-001", service.addFavorite(clientId, req).get("productId"));
+        verify(jdbc, never()).update(contains("INSERT INTO member_favorites"), any(Object[].class));
     }
 
     @Test

@@ -12,7 +12,7 @@ class ReminderScheduleStatusControllerTest {
     @ValueSource(booleans = {true, false})
     void reportsSchedulerIndependentlyOfSavedReminderRules(boolean scheduled) throws Exception {
         MockMvcBuilders.standaloneSetup(new ReminderScheduleStatusController(scheduled)).build()
-                .perform(get("/api/v1/reminders/schedule"))
+                .perform(get("/api/v1/reminders/schedule").accept(org.springframework.http.MediaType.APPLICATION_JSON))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.enabled").value(scheduled))
                 .andExpect(jsonPath("$.dailyTime").value("10:00"))

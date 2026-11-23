@@ -34,13 +34,13 @@ public class AdminOrderController {
     }
 
     @PostMapping("/{id}/approve-payment")
-    @PreAuthorize("hasRole('ADMIN')")
     public OrderDetailDto approvePayment(
             @PathVariable UUID id,
             @Valid @RequestBody PaymentApprovalRequest request,
             Authentication auth
     ) {
-        return orderService.approvePayment(id, request, auth.getName());
+        boolean cashOnly = auth.getAuthorities().stream().noneMatch(a -> "ROLE_ADMIN".equals(a.getAuthority()));
+        return orderService.approvePayment(id, request, auth.getName(), cashOnly);
     }
 
     @PostMapping("/{id}/reject-payment")

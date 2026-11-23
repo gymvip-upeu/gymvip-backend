@@ -38,10 +38,21 @@ public final class CatalogDtos {
     public record PromotionInput(@NotNull UUID supplementId,@NotBlank @Size(max=160) String name,
         @NotBlank @Size(max=2000) String description,@NotBlank @Size(max=2000) String conditions,
         @NotNull @Positive @Digits(integer=10,fraction=2) BigDecimal offerPricePen,
-        @NotNull LocalDate startDate,@NotNull LocalDate endDate,boolean enabled,boolean reviewed,Long version,@NotNull Long supplementVersion) {}
+        @NotNull LocalDate startDate,@NotNull LocalDate endDate,boolean enabled,boolean reviewed,Long version,@NotNull Long supplementVersion,Integer priority) {
+        public PromotionInput(UUID supplementId,String name,String description,String conditions,BigDecimal offerPricePen,
+                              LocalDate startDate,LocalDate endDate,boolean enabled,boolean reviewed,Long version,Long supplementVersion) {
+            this(supplementId,name,description,conditions,offerPricePen,startDate,endDate,enabled,reviewed,version,supplementVersion,0);
+        }
+    }
     public record Promotion(UUID id,Supplement supplement,String name,String description,String conditions,
         BigDecimal referencePricePen,BigDecimal offerPricePen,BigDecimal savingsPen,
-        LocalDate startDate,LocalDate endDate,String state,boolean enabled,long version,LocalDateTime updatedAtUtc) {}
+        LocalDate startDate,LocalDate endDate,String state,boolean enabled,long version,LocalDateTime updatedAtUtc,int priority) {
+        public Promotion(UUID id,Supplement supplement,String name,String description,String conditions,
+                         BigDecimal referencePricePen,BigDecimal offerPricePen,BigDecimal savingsPen,
+                         LocalDate startDate,LocalDate endDate,String state,boolean enabled,long version,LocalDateTime updatedAtUtc) {
+            this(id,supplement,name,description,conditions,referencePricePen,offerPricePen,savingsPen,startDate,endDate,state,enabled,version,updatedAtUtc,0);
+        }
+    }
     public record Page<T>(List<T> content,long totalElements,int page,int totalPages) {}
     public record Change(long version,String actor,LocalDateTime changedAtUtc,String snapshot) {}
     public record BinaryImage(byte[] bytes,String mediaType,String sha256) {}

@@ -20,7 +20,7 @@ import java.util.*;
 public class MembershipServiceImpl implements MembershipService {
     private static final Set<String> SUPPORTED = Set.of("EFECTIVO", "YAPE", "PLIN", "TRANSFERENCIA", "POS");
     public static final String POLICY = "Días consecutivos según el plan contratado, sin gracia. Inicio incluido y fin excluido en America/Lima. " +
-            "Pago completo presencial. Renovación vigente desde el fin contratado; vencida desde el día del pago. " +
+            "Pago completo en caja o mediante enlace Culqi verificado. Renovación vigente desde el fin contratado; vencida desde el día del pago. " +
             "El cambio de plan se aplica al periodo añadido. Constancia interna, no comprobante tributario.";
     private final MembershipRepository repository;
     private final AuditService audit;
@@ -73,6 +73,17 @@ public class MembershipServiceImpl implements MembershipService {
 
     @Override @Transactional
     public MembershipSaleResponse sell(MembershipSaleRequest request, String key, String actorEmail) {
+        return sellInternal(request, key, actorEmail, false);
+    }
+
+    @Transactional
+    public MembershipSaleResponse sellVerifiedOnline(MembershipSaleRequest request, String key, String actorEmail) {
+        if (!"CULQI".equals(request.paymentMethod()) || request.reference() == null || request.reference().isBlank())
+            throw new IllegalArgumentException("Se requiere una transacción Culqi verificada.");
+        return sellInternal(request, key, actorEmail, true);
+    }
+
+    private MembershipSaleResponse sellInternal(MembershipSaleRequest request, String key, String actorEmail, boolean verifiedOnline) {
         if (key == null || !key.matches("[A-Za-z0-9_-]{8,100}"))
             throw new IllegalArgumentException("Idempotency-Key debe contener entre 8 y 100 letras, números, guiones o guiones bajos.");
         String method = request.paymentMethod().trim().toUpperCase(Locale.ROOT);
@@ -87,7 +98,11 @@ public class MembershipServiceImpl implements MembershipService {
             if (!saved.get().hash().equals(requestHash)) throw new ConflictException("La clave ya se utilizó con otra solicitud.");
             return read(saved.get().response());
         }
-        if (!methods.contains(method)) throw new IllegalArgumentException("Medio de pago no habilitado.");
+        if (!verifiedOnline && repository.hasPendingPaymentLink(request.clientId()))
+            throw new ConflictException("Existe un enlace de pago pendiente o en revisión para este cliente. Concilie el cobro antes de registrar otro.");
+        if (!verifiedOnline && "CULQI".equals(method))
+            throw new IllegalArgumentException("Culqi solo se registra tras verificar el cargo con el proveedor.");
+        if (!(verifiedOnline && "CULQI".equals(method)) && !methods.contains(method)) throw new IllegalArgumentException("Medio de pago no habilitado.");
         if (!"EFECTIVO".equals(method) && reference == null)
             throw new IllegalArgumentException("La referencia es obligatoria para pagos no efectivos.");
         var quote = buildQuote(new MembershipQuoteRequest(request.clientId(), request.planId(), request.operation(),request.startDate()), true);

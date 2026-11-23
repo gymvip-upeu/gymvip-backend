@@ -13,7 +13,7 @@ class ChannelStatusControllerTest {
         var client=mock(CommsServiceClient.class);
         when(client.getWhatsAppChannelStatus()).thenReturn(Map.of("status","UNVERIFIED"));
         var mvc=MockMvcBuilders.standaloneSetup(new ChannelStatusController(client,true)).build();
-        mvc.perform(get("/api/v1/channels/status")).andExpect(status().isOk())
+        mvc.perform(get("/api/v1/channels/status").accept(org.springframework.http.MediaType.APPLICATION_JSON)).andExpect(status().isOk())
             .andExpect(jsonPath("$.channels.whatsapp.status").value("UNVERIFIED"))
             .andExpect(jsonPath("$.channels.app.inbox.status").value("AVAILABLE"))
             .andExpect(jsonPath("$.channels.app.inbox.requiresFirebase").value(false))
@@ -24,7 +24,7 @@ class ChannelStatusControllerTest {
         var client=mock(CommsServiceClient.class);
         when(client.getWhatsAppChannelStatus()).thenReturn(Map.of("status","DISABLED"));
         MockMvcBuilders.standaloneSetup(new ChannelStatusController(client,false)).build()
-            .perform(get("/api/v1/channels/status"))
+            .perform(get("/api/v1/channels/status").accept(org.springframework.http.MediaType.APPLICATION_JSON))
             .andExpect(jsonPath("$.channels.app.inbox.status").value("AVAILABLE"))
             .andExpect(jsonPath("$.channels.app.push.status").value("DISABLED"));
     }

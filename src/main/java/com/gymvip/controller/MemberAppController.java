@@ -43,6 +43,12 @@ public class MemberAppController {
         return service.workspace(service.ownClient(auth.getName()));
     }
 
+    @PatchMapping("/profile")
+    @PreAuthorize("hasRole('CLIENTE')")
+    public Object updateProfile(@Valid @RequestBody MemberWorkspaceService.ProfileUpdate request, Authentication auth) {
+        return service.updateOwnProfile(auth.getName(), request);
+    }
+
     @GetMapping("/attendance")
     public Object attendance(Authentication auth) {
         if (service.mustChange(auth.getName())) {
@@ -65,6 +71,11 @@ public class MemberAppController {
             throw new org.springframework.security.access.AccessDeniedException("Cambia la contraseña temporal antes de continuar.");
         }
         return service.listFavorites(service.ownClient(auth.getName()));
+    }
+
+    @GetMapping("/favorites/{id}")
+    public Object getFavorite(@PathVariable UUID id, Authentication auth) {
+        return service.getFavorite(service.ownClient(auth.getName()), id);
     }
 
     @PostMapping("/favorites")
@@ -109,7 +120,7 @@ public class MemberAppController {
         var clientOpt = service.findOwnClient(auth.getName());
         return clientOpt.isPresent()
                 ? service.listInbox(clientOpt.get())
-                : service.listGeneralAnnouncements();
+                : service.listGeneralAnnouncements(auth.getName());
     }
 
     @PostMapping("/inbox/{id}/read")
@@ -117,7 +128,10 @@ public class MemberAppController {
         if (service.mustChange(auth.getName())) {
             throw new org.springframework.security.access.AccessDeniedException("Cambia la contraseña temporal antes de continuar.");
         }
-        return service.markInboxRead(service.ownClient(auth.getName()), id);
+        var clientOpt = service.findOwnClient(auth.getName());
+        return clientOpt.isPresent()
+                ? service.markInboxRead(clientOpt.get(), id)
+                : service.markGeneralAnnouncementRead(auth.getName(), id);
     }
 
     @GetMapping("/consents")

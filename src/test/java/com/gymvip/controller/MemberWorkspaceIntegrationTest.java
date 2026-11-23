@@ -120,11 +120,11 @@ class MemberWorkspaceIntegrationTest {
                 .andExpect(status().isForbidden());
     }
     @Test @org.springframework.security.test.context.support.WithAnonymousUser
-    void inboxReadPersistsForOwnClientAndStaffCannotAccess() throws Exception {
+    void inboxReadPersistsForClientAndIsIsolatedFromStaffReads() throws Exception {
         var access = workspace.provision(member.client().id(), ACTOR);
         workspace.changePassword(access.username(), new MemberWorkspaceService.PasswordChange(access.temporaryPassword(), "NuevaClave1234!"));
         var login = auth.login(new LoginRequest(access.username(), "NuevaClave1234!"), "127.0.0.1", "qa-test");
-        String item = "announcement_welcome_" + member.client().id();
+        String item = "d0000001-0000-0000-0000-000000000001";
         mvc.perform(get("/api/v1/member-app/inbox").header("Authorization", "Bearer " + login.token()))
                 .andExpect(status().isOk()).andExpect(jsonPath("$[?(@.id == '" + item + "')].isRead").value(org.hamcrest.Matchers.contains(false)));
         mvc.perform(post("/api/v1/member-app/inbox/" + item + "/read").header("Authorization", "Bearer " + login.token()))
@@ -132,8 +132,9 @@ class MemberWorkspaceIntegrationTest {
         mvc.perform(get("/api/v1/member-app/inbox").header("Authorization", "Bearer " + login.token()))
                 .andExpect(status().isOk()).andExpect(jsonPath("$[?(@.id == '" + item + "')].isRead").value(org.hamcrest.Matchers.contains(true)));
         for (String role : List.of("ADMIN", "RECEPCION")) {
-            var staff = org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user("staff").roles(role);
-            mvc.perform(get("/api/v1/member-app/inbox").with(staff)).andExpect(status().isForbidden());
+            var staff = org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user(role.equals("ADMIN") ? ACTOR : "recepcion@vipcenterfit.pe").roles(role);
+            mvc.perform(get("/api/v1/member-app/inbox").with(staff)).andExpect(status().isOk())
+                    .andExpect(jsonPath("$[?(@.id == '" + item + "')].isRead").value(org.hamcrest.Matchers.contains(false)));
             mvc.perform(get("/api/v1/member-app/consents").with(staff)).andExpect(status().isForbidden());
         }
     }

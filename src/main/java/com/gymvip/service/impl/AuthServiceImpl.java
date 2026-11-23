@@ -109,6 +109,20 @@ public class AuthServiceImpl implements AuthService {
         }
     }
 
+    @Override
+    @Transactional
+    public void revokeAllSessions(String token) {
+        if (token == null || token.isBlank()) {
+            throw new InvalidCredentialsException(GENERIC_AUTH_ERROR);
+        }
+        String sessionId = jwtService.extractSessionIdIfValidSignature(token.trim())
+                .orElseThrow(() -> new InvalidCredentialsException(GENERIC_AUTH_ERROR));
+        Session current = sessionRepository.findById(sessionId)
+                .orElseThrow(() -> new InvalidCredentialsException(GENERIC_AUTH_ERROR));
+        sessionRepository.deactivateMemberDevices(current.getAccountId());
+        sessionRepository.deleteByAccountId(current.getAccountId());
+    }
+
     private String resolveClientKey(String ipAddress) {
         if (ipAddress == null || ipAddress.isBlank()) {
             return "UNKNOWN";

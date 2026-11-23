@@ -4,6 +4,7 @@ import com.gymvip.dto.order.SupplementOrderDtos.*;
 import com.gymvip.service.SupplementOrderService;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
@@ -12,6 +13,7 @@ import java.util.UUID;
 
 @RestController
 @RequestMapping("/api/v1/member-app")
+@PreAuthorize("hasRole('CLIENTE')")
 public class SupplementOrderController {
 
     private final SupplementOrderService orderService;

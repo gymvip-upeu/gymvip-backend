@@ -7,4 +7,5 @@ public interface AuthService {
     AuthResponse login(LoginRequest request, String ipAddress, String userAgent);
     void logout(String token);
     void revokeOtherSessions(String token);
+    void revokeAllSessions(String token);
 }

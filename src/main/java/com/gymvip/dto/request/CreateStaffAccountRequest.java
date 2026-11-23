@@ -18,18 +18,27 @@ public record CreateStaffAccountRequest(
         String password,
 
         @NotBlank(message = "El rol es obligatorio (ADMIN, RECEPCION)")
-        String role
+        String role,
+        @Size(max = 120) String firstName,
+        @Size(max = 120) String lastName,
+        @Size(max = 30) String phone
 ) {
+    public CreateStaffAccountRequest(String email, String password, String role) {
+        this(email, password, role, null, null, null);
+    }
     @JsonCreator
     public static CreateStaffAccountRequest fromJson(
             @JsonProperty("email") String email,
             @JsonProperty("password") String password,
             @JsonProperty("role") String role,
-            @JsonProperty("roles") List<String> roles
+            @JsonProperty("roles") List<String> roles,
+            @JsonProperty("firstName") String firstName,
+            @JsonProperty("lastName") String lastName,
+            @JsonProperty("phone") String phone
     ) {
         String resolvedRole = (role != null && !role.isBlank())
                 ? role.trim()
                 : (roles != null && !roles.isEmpty() && roles.get(0) != null ? roles.get(0).trim() : null);
-        return new CreateStaffAccountRequest(email, password, resolvedRole);
+        return new CreateStaffAccountRequest(email, password, resolvedRole, firstName, lastName, phone);
     }
 }

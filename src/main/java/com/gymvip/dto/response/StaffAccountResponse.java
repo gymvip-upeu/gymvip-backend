@@ -11,5 +11,13 @@ public record StaffAccountResponse(
         String status,
         boolean mfaEnabled,
         LocalDateTime createdAt,
-        LocalDateTime updatedAt
-) {}
+        LocalDateTime updatedAt,
+        String firstName,
+        String lastName,
+        String phone
+) {
+    public StaffAccountResponse(UUID id, String email, Set<String> roles, String status,
+                                boolean mfaEnabled, LocalDateTime createdAt, LocalDateTime updatedAt) {
+        this(id, email, roles, status, mfaEnabled, createdAt, updatedAt, null, null, null);
+    }
+}

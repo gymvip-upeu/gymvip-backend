@@ -101,16 +101,22 @@ class CatalogIntegrationTest {
         clock.now=Instant.parse("2026-11-11T05:00:00Z");assertEquals("FINALIZADA",catalog.promotion(promotion.id(),false).state());assertThrows(ResourceNotFoundException.class,()->catalog.promotion(promotion.id(),true));
         assertEquals("CANCELADA",catalog.deactivatePromotion(promotion.id(),new PromotionCancellation(promotion.version()),ACTOR).state());assertEquals(2,catalog.promotionHistory(promotion.id(),0).size());
     }
-    @Test void invalidDatesPricesAndOverlappingOffersAreRejected() throws Exception {
-        var p=create();active(p);assertThrows(ConflictException.class,()->active(p));
+    @Test void invalidDatesAndPricesAreRejectedWhilePriorityAllowsOverlappingOffers() throws Exception {
+        var p=create();var first=active(p);assertNotEquals(first.id(),active(p).id());
         assertThrows(IllegalArgumentException.class,()->catalog.savePromotion(null,offer(p,new BigDecimal("150.00"),LocalDate.of(2026,12,1),LocalDate.of(2026,12,10),null),ACTOR));
         assertThrows(IllegalArgumentException.class,()->catalog.savePromotion(null,offer(p,BigDecimal.TEN,LocalDate.of(2026,12,10),LocalDate.of(2026,12,1),null),ACTOR));
     }
-    @Test void simultaneousOverlappingPromotionsHaveOnlyOneWinner() throws Exception {
+    @Test void simultaneousPromotionsHaveDistinctIdsAndDeterministicSelection() throws Exception {
         var p=create();var request=offer(p,new BigDecimal("135.00"),LocalDate.of(2026,12,1),LocalDate.of(2026,12,10),null);
-        try(var pool=Executors.newFixedThreadPool(2)){
-            var gate=new CountDownLatch(1);Callable<String> task=()->{gate.await();try{catalog.savePromotion(null,request,ACTOR);return "saved";}catch(ConflictException ex){return "conflict";}};
-            var first=pool.submit(task);var second=pool.submit(task);gate.countDown();assertEquals(Set.of("saved","conflict"),Set.of(first.get(30,TimeUnit.SECONDS),second.get(30,TimeUnit.SECONDS)));
+        try(var pool=Executors.newFixedThreadPool(2)) {
+            var gate=new CountDownLatch(1);
+            Callable<UUID> task=()->{gate.await();return catalog.savePromotion(null,request,ACTOR).id();};
+            var first=pool.submit(task);var second=pool.submit(task);gate.countDown();
+            var one=first.get(30,TimeUnit.SECONDS);var two=second.get(30,TimeUnit.SECONDS);
+            assertNotEquals(one,two);
+            clock.now=Instant.parse("2026-12-02T17:00:00Z");
+            var visible=java.util.stream.IntStream.range(0,100).mapToObj(page->catalog.mobileProducts(page,20,true)).flatMap(List::stream).filter(item->item.id().equals(p.id())).findFirst().orElseThrow();
+            assertEquals(java.util.stream.Stream.of(one,two).map(UUID::toString).sorted().findFirst().orElseThrow(),visible.offer().id().toString());
         }
     }
     @Test void staleProductAndPromotionVersionsAreRejected() throws Exception {
@@ -125,8 +131,10 @@ class CatalogIntegrationTest {
         mvc.perform(multipart("/api/v1/catalog/supplements").file(new MockMultipartFile("data","data.json","application/json",json.writeValueAsBytes(input("No permitido",BigDecimal.TEN,null,List.of(),null)))).file(photo("f.png"))).andExpect(status().isForbidden());
         mvc.perform(patch("/api/v1/catalog/supplements/"+p.id()+"/state").contentType(MediaType.APPLICATION_JSON).content(json.writeValueAsString(new StateInput(p.version(),"AGOTADO",true)))).andExpect(status().isForbidden());
     }
-    @Test void administrativeCatalogRejectsAnonymousAndClientRoles() throws Exception {
+    @Test void catalogAllowsPublicClientReadButStillRejectsClientWrites() throws Exception {
         mvc.perform(get("/api/v1/catalog/supplements").with(org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.anonymous())).andExpect(status().isUnauthorized());
-        mvc.perform(get("/api/v1/catalog/supplements").with(org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user("cliente").roles("CLIENTE"))).andExpect(status().isForbidden());
+        mvc.perform(get("/api/v1/catalog/supplements").with(org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user("cliente").roles("CLIENTE"))).andExpect(status().isOk());
+        mvc.perform(patch("/api/v1/catalog/supplements/"+UUID.randomUUID()+"/state").with(org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user("cliente").roles("CLIENTE")).contentType(MediaType.APPLICATION_JSON).content("{}"))
+            .andExpect(status().isForbidden());
     }
 }

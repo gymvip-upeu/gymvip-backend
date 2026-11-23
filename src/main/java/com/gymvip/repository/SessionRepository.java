@@ -19,4 +19,8 @@ public interface SessionRepository extends JpaRepository<Session, String> {
     @Modifying
     @Query("DELETE FROM Session s WHERE s.accountId = :accountId AND s.token != :currentToken")
     void deleteByAccountIdAndTokenNot(@Param("accountId") UUID accountId, @Param("currentToken") String currentToken);
+
+    @Modifying
+    @Query(value = "UPDATE member_device_tokens SET is_active = false, updated_at_utc = CURRENT_TIMESTAMP WHERE client_id IN (SELECT id FROM clients WHERE account_id = :accountId)", nativeQuery = true)
+    void deactivateMemberDevices(@Param("accountId") UUID accountId);
 }

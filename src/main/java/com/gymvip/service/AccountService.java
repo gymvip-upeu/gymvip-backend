@@ -3,6 +3,7 @@ package com.gymvip.service;
 import com.gymvip.dto.request.CreateStaffAccountRequest;
 import com.gymvip.dto.request.UpdateStaffRoleRequest;
 import com.gymvip.dto.request.UpdateStaffStatusRequest;
+import com.gymvip.dto.request.UpdateStaffProfileRequest;
 import com.gymvip.dto.response.StaffAccountResponse;
 
 import java.util.List;
@@ -14,5 +15,6 @@ public interface AccountService {
     StaffAccountResponse createStaffAccount(CreateStaffAccountRequest request, String actorEmail);
     StaffAccountResponse updateRole(UUID id, UpdateStaffRoleRequest request, String actorEmail);
     StaffAccountResponse updateStatus(UUID id, UpdateStaffStatusRequest request, String actorEmail);
+    StaffAccountResponse updateProfile(UUID id, UpdateStaffProfileRequest request, String actorEmail);
     void revokeSessions(UUID id, String actorEmail);
 }

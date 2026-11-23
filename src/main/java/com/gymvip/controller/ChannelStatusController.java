@@ -13,10 +13,18 @@ import java.util.Map;
 public class ChannelStatusController {
     private final CommsServiceClient communications;
     private final boolean pushEnabled;
+    private final boolean firebaseConfigured;
 
+    @org.springframework.beans.factory.annotation.Autowired
     public ChannelStatusController(CommsServiceClient communications,
-            @Value("${comms.push.enabled:true}") boolean pushEnabled) {
+            @Value("${comms.push.enabled:true}") boolean pushEnabled,
+            org.springframework.beans.factory.ObjectProvider<com.google.firebase.messaging.FirebaseMessaging> firebase) {
         this.communications=communications; this.pushEnabled=pushEnabled;
+        this.firebaseConfigured=firebase.getIfAvailable()!=null;
+    }
+
+    public ChannelStatusController(CommsServiceClient communications, boolean pushEnabled) {
+        this.communications=communications; this.pushEnabled=pushEnabled; this.firebaseConfigured=false;
     }
 
     @GetMapping("/status")
@@ -25,8 +33,8 @@ public class ChannelStatusController {
             "whatsapp",communications.getWhatsAppChannelStatus(),
             "app",Map.of("channel","APP","status","AVAILABLE",
                 "inbox",Map.of("status","AVAILABLE","requiresFirebase",false),
-                // No working server FCM dispatcher is installed; an enabled flag cannot certify it.
-                "push",Map.of("enabled",pushEnabled,"status",pushEnabled ? "UNCONFIGURED" : "DISABLED",
-                    "connectionVerified",false,"message",pushEnabled ? "Pendiente de configuración y validación" : "Desactivado"))));
+                // A configured SDK is not a delivery receipt.
+                "push",Map.of("enabled",pushEnabled,"status",!pushEnabled ? "DISABLED" : firebaseConfigured ? "CONFIGURED_REAL" : "UNCONFIGURED",
+                    "connectionVerified",false,"message",!pushEnabled ? "Desactivado" : firebaseConfigured ? "Configurado para envío real; entrega sin verificar" : "Pendiente de configuración y validación"))));
     }
 }

@@ -4,9 +4,9 @@ import java.util.List;
 import java.util.stream.IntStream;
 public record ReminderConfigRequest(
     @NotNull Boolean enabled,
-    @NotNull List<@Min(1) @Max(30) Integer> anticipationDays,
+    @NotNull List<@NotNull @Min(1) @Max(30) Integer> anticipationDays,
     @Min(1) @Max(5) int postExpiryDays,
-    @NotEmpty List<@Pattern(regexp="WHATSAPP|APP") String> channels,
+    @NotEmpty List<@NotNull @Pattern(regexp="WHATSAPP|APP") String> channels,
     String defaultChannel,
     @NotEmpty List<@Min(1) @Max(5) Integer> postExpiryDaysSelected
 ) {
@@ -23,5 +23,9 @@ public record ReminderConfigRequest(
         if (postExpiryDaysSelected == null)
             postExpiryDaysSelected = IntStream.rangeClosed(1, Math.min(postExpiryDays, 5)).boxed().toList();
         else postExpiryDaysSelected = postExpiryDaysSelected.stream().distinct().sorted().toList();
+    }
+    @AssertTrue(message="Selecciona anticipación de 3, 5, 7 o 15 días")
+    public boolean isSupportedAnticipation() {
+        return anticipationDays == null || anticipationDays.stream().allMatch(day -> day != null && java.util.Set.of(3,5,7,15).contains(day));
     }
 }

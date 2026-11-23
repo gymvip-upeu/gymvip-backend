@@ -21,6 +21,9 @@ public class MemberWorkspaceService {
     public record StatusChange(@NotBlank @Pattern(regexp="ACTIVO|INACTIVO") String status, @NotNull Long version) {}
     public record Cancellation(@NotBlank @Size(max=500) String reason) {}
     public record PasswordChange(@NotBlank String currentPassword, @NotBlank @Size(min=12,max=72) String newPassword) {}
+    public record ProfileUpdate(@NotBlank @Size(max=100) String firstName,
+                                @NotBlank @Size(max=100) String lastName,
+                                @Size(max=30) String phone) {}
     public record FavoriteRequest(@NotBlank String productId, @NotBlank String productTitle, @NotBlank String productCategory, @Size(max=250) String notes) {}
     public record FavoriteNoteUpdate(@Size(max=250) String notes) {}
     public record DynamicQrResponse(String token, String memberCode, String memberName, LocalDateTime expiresAtUtc, int ttlSeconds, String disclaimer) {}
@@ -144,6 +147,18 @@ public class MemberWorkspaceService {
         return jdbc.query("SELECT c.id FROM clients c JOIN accounts a ON a.id=c.account_id WHERE a.email=? AND c.status='ACTIVO'",(r,n)->r.getObject(1,UUID.class),email)
             .stream().findFirst();
     }
+
+    @Transactional
+    public ClientDetailResponse updateOwnProfile(String actor, ProfileUpdate request) {
+        UUID clientId = ownClient(actor);
+        lockClient(clientId);
+        jdbc.update("UPDATE clients SET first_name=?, last_name=?, phone_verified=CASE WHEN phone IS DISTINCT FROM ? THEN false ELSE phone_verified END, phone=?, version=version+1, updated_at=? WHERE id=?",
+                request.firstName().trim(), request.lastName().trim(),
+                request.phone() == null ? null : request.phone().trim(),
+                request.phone() == null ? null : request.phone().trim(), now(), clientId);
+        audit.recordEvent(actor, "UPDATE_OWN_PROFILE", "Client", clientId.toString(), "Datos de contacto actualizados.");
+        return clients.getClientById(clientId);
+    }
     @Transactional public void changePassword(String actor,PasswordChange request) {
         ownClient(actor);
         var account=jdbc.queryForMap("SELECT id,password_hash FROM accounts WHERE email=? FOR UPDATE",actor);
@@ -158,7 +173,34 @@ public class MemberWorkspaceService {
 
     @Transactional(readOnly=true)
     public List<Map<String,Object>> listFavorites(UUID clientId) {
-        return rows("SELECT id, product_id, product_title, product_category, notes, created_at_utc, updated_at_utc FROM member_favorites WHERE client_id = ? ORDER BY created_at_utc DESC", clientId);
+        return jdbc.query("""
+            SELECT f.*, COALESCE(s.price_pen, 0) AS price_pen
+            FROM member_favorites f LEFT JOIN supplements s ON s.id::text = f.product_id
+            WHERE f.client_id = ? ORDER BY f.created_at_utc DESC
+            """, (r,n) -> favoriteRow(r), clientId);
+    }
+
+    private Map<String,Object> favoriteRow(java.sql.ResultSet r) throws java.sql.SQLException {
+        var result = new LinkedHashMap<String,Object>();
+        result.put("id", r.getObject("id", UUID.class).toString());
+        result.put("productId", r.getString("product_id"));
+        result.put("productName", r.getString("product_title"));
+        result.put("productCategory", r.getString("product_category"));
+        result.put("personalNote", r.getString("notes"));
+        result.put("pricePen", r.getBigDecimal("price_pen"));
+        result.put("createdAt", r.getTimestamp("created_at_utc").toInstant().toString());
+        result.put("updatedAt", r.getTimestamp("updated_at_utc").toInstant().toString());
+        return result;
+    }
+
+    @Transactional(readOnly=true)
+    public Map<String,Object> getFavorite(UUID clientId, UUID favoriteId) {
+        return jdbc.query("""
+            SELECT f.*, COALESCE(s.price_pen, 0) AS price_pen
+            FROM member_favorites f LEFT JOIN supplements s ON s.id::text = f.product_id
+            WHERE f.client_id = ? AND f.id = ?
+            """, (r,n) -> favoriteRow(r), clientId, favoriteId).stream().findFirst()
+            .orElseThrow(() -> new ResourceNotFoundException("Favorito no encontrado."));
     }
 
     @Transactional
@@ -166,11 +208,11 @@ public class MemberWorkspaceService {
         lockClient(clientId);
         var existing = jdbc.queryForList("SELECT id FROM member_favorites WHERE client_id=? AND product_id=?", clientId, request.productId());
         if (!existing.isEmpty()) {
-            throw new ConflictException("El producto ya se encuentra en tus favoritos.");
+            return getFavorite(clientId, (UUID) existing.getFirst().get("id"));
         }
         UUID id = UUID.randomUUID();
         jdbc.update("INSERT INTO member_favorites(id, client_id, product_id, product_title, product_category, notes, created_at_utc, updated_at_utc) VALUES (?, ?, ?, ?, ?, ?, ?, ?)", id, clientId, request.productId(), request.productTitle(), request.productCategory(), request.notes(), now(), now());
-        return Map.of("id", id, "productId", request.productId(), "saved", true);
+        return getFavorite(clientId, id);
     }
 
     @Transactional
@@ -180,7 +222,7 @@ public class MemberWorkspaceService {
         if (updated == 0) {
             throw new ResourceNotFoundException("Favorito no encontrado.");
         }
-        return Map.of("id", favoriteId, "updated", true);
+        return getFavorite(clientId, favoriteId);
     }
 
     @Transactional
@@ -292,28 +334,46 @@ public class MemberWorkspaceService {
     }
 
     @Transactional(readOnly = true)
-    public List<MemberInboxItem> listGeneralAnnouncements() {
+    public List<MemberInboxItem> listGeneralAnnouncements(String email) {
+        UUID accountId = jdbc.queryForObject("SELECT id FROM accounts WHERE email=?", UUID.class, email);
+        Set<String> readIds = new HashSet<>(jdbc.query(
+                "SELECT item_id FROM staff_inbox_reads WHERE account_id=?", (r, n) -> r.getString(1), accountId));
         try {
             var items = jdbc.query("""
                 SELECT id::text, title, message, category, created_at_utc
                 FROM gym_announcements
-                WHERE is_active = true
+                WHERE is_active = true AND target_audience = 'TODOS'
                 ORDER BY created_at_utc DESC LIMIT 50
             """, (r, n) -> new MemberInboxItem(
                     r.getString("id"),
-                    "SYSTEM",
+                    accountId.toString(),
                     r.getString("title"),
                     r.getString("message"),
                     r.getString("category") != null ? r.getString("category") : "COMUNICADO",
                     r.getTimestamp("created_at_utc") != null ? r.getTimestamp("created_at_utc").toInstant().toString() : now().toString(),
-                    false
+                    readIds.contains(r.getString("id"))
             ));
             if (!items.isEmpty()) return items;
         } catch (Exception ignored) {}
         return List.of(
-            new MemberInboxItem("ann-welcome", "SYSTEM", "¡Bienvenido a GYM VIP!", "Tu credencial digital de socio está activa. Consulta el estado de tu plan y asistencias.", "COMUNICADO", now().toString(), false),
-            new MemberInboxItem("ann-hygiene", "SYSTEM", "Uso obligatorio de toalla personal", "Por higiene y respeto mutuo, el uso de toalla es obligatorio en máquinas y peso libre.", "COMUNICADO", now().toString(), false)
+            new MemberInboxItem("ann-welcome", accountId.toString(), "¡Bienvenido a GYM VIP!", "Consulta los comunicados oficiales del club.", "COMUNICADO", now().toString(), readIds.contains("ann-welcome")),
+            new MemberInboxItem("ann-hygiene", accountId.toString(), "Uso obligatorio de toalla personal", "Por higiene y respeto mutuo, el uso de toalla es obligatorio en máquinas y peso libre.", "COMUNICADO", now().toString(), readIds.contains("ann-hygiene"))
         );
+    }
+
+    @Transactional
+    public Map<String, Object> markGeneralAnnouncementRead(String email, String itemId) {
+        UUID accountId = jdbc.queryForObject("SELECT id FROM accounts WHERE email=?", UUID.class, email);
+        boolean legacy = itemId.equals("ann-welcome") || itemId.equals("ann-hygiene");
+        Boolean exists = jdbc.queryForObject(
+                "SELECT EXISTS(SELECT 1 FROM gym_announcements WHERE id::text=? AND is_active=true AND target_audience='TODOS')",
+                Boolean.class, itemId);
+        if (!legacy && !Boolean.TRUE.equals(exists)) throw new ResourceNotFoundException("Aviso no encontrado.");
+        jdbc.update("""
+            INSERT INTO staff_inbox_reads(id, account_id, item_id, read_at_utc) VALUES (?, ?, ?, ?)
+            ON CONFLICT(account_id, item_id) DO NOTHING
+        """, UUID.randomUUID(), accountId, itemId, now());
+        return Map.of("itemId", itemId, "read", true);
     }
 
     @Transactional(readOnly = true)
