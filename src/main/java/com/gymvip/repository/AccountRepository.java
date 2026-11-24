@@ -25,7 +25,7 @@ public interface AccountRepository extends JpaRepository<Account, UUID> {
 
     boolean existsByEmailIgnoreCase(String email);
 
-    @Query("SELECT DISTINCT a FROM Account a JOIN a.roles r WHERE r IN ('ADMIN', 'RECEPCION', 'AUDITOR')")
+    @Query("SELECT DISTINCT a FROM Account a JOIN a.roles r WHERE r IN ('ADMIN', 'GERENTE', 'RECEPCION', 'AUDITOR')")
     List<Account> findStaffAccounts();
 
     @Query("SELECT COUNT(a) FROM Account a JOIN a.roles r WHERE r = 'ADMIN' AND UPPER(a.status) = 'ACTIVO'")

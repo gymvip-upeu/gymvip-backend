@@ -69,7 +69,20 @@ public class DataInitializer implements CommandLineRunner {
                     false
             );
             accountRepository.save(admin);
-            log.info("Semilla de personal creada: admin@vipcenterfit.pe (Rol: ADMIN)");
+            log.info("Semilla de personal creada: admin@vipcenterfit.pe (Rol: ADMIN / Soporte TI)");
+        }
+
+        if (!accountRepository.existsByEmailIgnoreCase("gerente@vipcenterfit.pe")) {
+            Account gerente = new Account(
+                    UUID.randomUUID(),
+                    "gerente@vipcenterfit.pe",
+                    passwordEncoder.encode("Gerente123!"),
+                    Set.of(Role.GERENTE.name()),
+                    "ACTIVO",
+                    false
+            );
+            accountRepository.save(gerente);
+            log.info("Semilla de personal creada: gerente@vipcenterfit.pe (Rol: GERENTE / Dirección y Finanzas)");
         }
 
         if (!accountRepository.existsByEmailIgnoreCase("recepcion@vipcenterfit.pe")) {

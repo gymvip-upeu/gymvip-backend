@@ -10,7 +10,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 @RestController
 @RequestMapping("/api/v1/dashboard")
-@PreAuthorize("hasAnyRole('ADMIN', 'RECEPCION', 'AUDITOR')")
+@PreAuthorize("hasAnyRole('ADMIN', 'GERENTE', 'RECEPCION', 'AUDITOR')")
 public class DashboardController {
 
     private final DashboardService service;
@@ -22,7 +22,7 @@ public class DashboardController {
     @GetMapping("/metrics")
     public DashboardMetricsResponse getMetrics(Authentication authentication) {
         boolean includeFinancials = authentication != null && authentication.getAuthorities().stream()
-                .anyMatch(a -> "ROLE_ADMIN".equals(a.getAuthority()) || "ROLE_AUDITOR".equals(a.getAuthority()));
+                .anyMatch(a -> "ROLE_ADMIN".equals(a.getAuthority()) || "ROLE_GERENTE".equals(a.getAuthority()) || "ROLE_AUDITOR".equals(a.getAuthority()));
         return service.getMetrics(includeFinancials);
     }
 }

@@ -72,7 +72,7 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.POST, "/api/v1/payments/culqi/webhook").permitAll()
                         .requestMatchers("/error").permitAll()
                         .requestMatchers("/api/v1/member-app/faqs", "/api/v1/member-app/services").authenticated()
-                        .requestMatchers("/api/v1/member-app/**").hasAnyRole("CLIENTE", "ADMIN", "RECEPCION")
+                        .requestMatchers("/api/v1/member-app/**").hasAnyRole("CLIENTE", "ADMIN", "GERENTE", "RECEPCION")
                         .requestMatchers(HttpMethod.GET,
                                 "/api/v1/catalog/products",
                                 "/api/v1/catalog/options",
@@ -81,14 +81,14 @@ public class SecurityConfig {
                                 "/api/v1/catalog/supplements/*/images/**",
                                 "/api/v1/catalog/promotions",
                                 "/api/v1/catalog/promotions/*")
-                        .hasAnyRole("CLIENTE", "ADMIN", "RECEPCION")
-                        .requestMatchers("/api/v1/catalog/**").hasAnyRole("ADMIN", "RECEPCION")
+                        .hasAnyRole("CLIENTE", "ADMIN", "GERENTE", "RECEPCION")
+                        .requestMatchers("/api/v1/catalog/**").hasAnyRole("ADMIN", "GERENTE", "RECEPCION")
                         .requestMatchers("/api/v1/clients/import/**").hasRole("ADMIN")
-                        .requestMatchers("/api/v1/dashboard", "/api/v1/dashboard/**").hasAnyRole("ADMIN", "RECEPCION", "AUDITOR")
-                        .requestMatchers("/api/v1/reports", "/api/v1/reports/**").hasAnyRole("ADMIN", "AUDITOR")
-                        .requestMatchers("/api/v1/incidents", "/api/v1/incidents/**").hasAnyRole("ADMIN", "AUDITOR")
+                        .requestMatchers("/api/v1/dashboard", "/api/v1/dashboard/**").hasAnyRole("ADMIN", "GERENTE", "RECEPCION", "AUDITOR")
+                        .requestMatchers("/api/v1/reports", "/api/v1/reports/**").hasAnyRole("ADMIN", "GERENTE", "AUDITOR")
+                        .requestMatchers("/api/v1/incidents", "/api/v1/incidents/**").hasAnyRole("ADMIN", "GERENTE", "AUDITOR")
                         .requestMatchers("/api/v1/auth/me", "/api/v1/auth/revoke-other-sessions").authenticated()
-                        .anyRequest().hasAnyRole("ADMIN", "RECEPCION")
+                        .anyRequest().hasAnyRole("ADMIN", "GERENTE", "RECEPCION")
                 )
                 .addFilterBefore(tokenAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
 

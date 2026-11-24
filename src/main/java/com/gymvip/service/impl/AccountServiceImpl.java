@@ -73,8 +73,8 @@ public class AccountServiceImpl implements AccountService {
         }
 
         String targetRole = request.role() != null ? request.role().trim().toUpperCase() : "";
-        if (!targetRole.equals(Role.ADMIN.name()) && !targetRole.equals(Role.RECEPCION.name()) && !targetRole.equals(Role.AUDITOR.name())) {
-            throw new IllegalArgumentException("Rol no autorizado para personal del gimnasio: " + targetRole + ". Roles válidos: ADMIN, RECEPCION, AUDITOR");
+        if (!targetRole.equals(Role.ADMIN.name()) && !targetRole.equals(Role.GERENTE.name()) && !targetRole.equals(Role.RECEPCION.name()) && !targetRole.equals(Role.AUDITOR.name())) {
+            throw new IllegalArgumentException("Rol no autorizado para personal del gimnasio: " + targetRole + ". Roles válidos: ADMIN, GERENTE, RECEPCION, AUDITOR");
         }
 
         Account account = new Account(
@@ -108,8 +108,8 @@ public class AccountServiceImpl implements AccountService {
         Account account = requireStaff(id);
 
         String targetRole = request.role() != null ? request.role().trim().toUpperCase() : "";
-        if (!targetRole.equals(Role.ADMIN.name()) && !targetRole.equals(Role.RECEPCION.name()) && !targetRole.equals(Role.AUDITOR.name())) {
-            throw new IllegalArgumentException("Rol no autorizado para personal: " + targetRole + ". Roles válidos: ADMIN, RECEPCION, AUDITOR");
+        if (!targetRole.equals(Role.ADMIN.name()) && !targetRole.equals(Role.GERENTE.name()) && !targetRole.equals(Role.RECEPCION.name()) && !targetRole.equals(Role.AUDITOR.name())) {
+            throw new IllegalArgumentException("Rol no autorizado para personal: " + targetRole + ". Roles válidos: ADMIN, GERENTE, RECEPCION, AUDITOR");
         }
 
         boolean currentlyAdmin = account.getRoles().contains("ADMIN");
@@ -198,7 +198,7 @@ public class AccountServiceImpl implements AccountService {
 
     private boolean isStaff(Account account) {
         return account.getRoles().stream().anyMatch(role ->
-                role.equals("ADMIN") || role.equals("RECEPCION") || role.equals("AUDITOR"));
+                role.equals("ADMIN") || role.equals("GERENTE") || role.equals("RECEPCION") || role.equals("AUDITOR"));
     }
 
     private Account requireStaff(UUID id) {

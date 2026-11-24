@@ -39,12 +39,13 @@ public class AdminOrderController {
             @Valid @RequestBody PaymentApprovalRequest request,
             Authentication auth
     ) {
-        boolean cashOnly = auth.getAuthorities().stream().noneMatch(a -> "ROLE_ADMIN".equals(a.getAuthority()));
+        boolean cashOnly = auth.getAuthorities().stream()
+                .noneMatch(a -> "ROLE_ADMIN".equals(a.getAuthority()) || "ROLE_GERENTE".equals(a.getAuthority()));
         return orderService.approvePayment(id, request, auth.getName(), cashOnly);
     }
 
     @PostMapping("/{id}/reject-payment")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasAnyRole('ADMIN', 'GERENTE')")
     public OrderDetailDto rejectPayment(
             @PathVariable UUID id,
             @Valid @RequestBody PaymentRejectionRequest request,
