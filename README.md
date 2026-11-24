@@ -1,233 +1,278 @@
-# GYM VIP — Backend API
+# GYM VIP — Backend API REST (`gymvip-backend`)
 
-> **Sistema:** GYM VIP (VIP Center Fit) — Gestión Integral de Gimnasio Luxury Fitness<br>
-> **Repositorio:** [gymvip-backend](https://github.com/gymvip-upeu/gymvip-backend.git)<br>
-> **Rama documentada:** `feature/ajustes-diseno-documentacion-seguridad`<br>
-> **Estado del incremento:** Base consolidada de Sprint 1, compatibilidad Flyway V1-V5, pruebas unitarias 9/9 y arquitectura por capas.
+[![Build Status](https://img.shields.io/badge/build-passing-brightgreen.svg)]()
+[![Java Version](https://img.shields.io/badge/Java-21%20LTS-orange.svg)]()
+[![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.4.3-green.svg)]()
+[![Database](https://img.shields.io/badge/PostgreSQL-17%20%7C%2018-blue.svg)]()
+[![Flyway](https://img.shields.io/badge/Flyway-V1--V28-red.svg)]()
+[![Branch](https://img.shields.io/badge/branch-ACOSTA--MEJORAS--Y--ACTUALIZACIONES-yellow.svg)]()
+[![License](https://img.shields.io/badge/license-Academic%20Proprietary-lightgrey.svg)]()
 
----
-
-## 1. Presentación y Estado Actual
-
-GYM VIP es una plataforma integral diseñada para la administración y control operativo de un centro de entrenamiento de alta gama (*luxury fitness*). Este repositorio contiene la **API REST del backend**, desarrollada con Spring Boot y PostgreSQL, responsable de la lógica de negocio, reglas de cobro, contratos de membresía, auditoría y control de acceso.
-
-La rama actual **`feature/s1-jorge-hu02-hu09-hu11-hu12`** representa el estado funcional más avanzado del Sprint 1 en el repositorio. Integra de forma acumulativa y lineal las contribuciones de los tres desarrolladores del equipo:
-1. **Base técnica y núcleo inicial (André Acosta):** Configuración de arquitectura en capas, seguridad stateless, motor PostgreSQL, catálogo de planes (HU-06), gestión de personal (HU-04) y alta de clientes (HU-01).
-2. **Membresías y cobros atómicos (Alexander):** Contratación de membresías (HU-07), cobro presencial con constancia e idempotencia (HU-08) y renovaciones con continuidad de fechas (HU-10).
-3. **Auditoría, vigencias y control de acceso (Jorge):** Edición concurrente de clientes con auditoría campo por campo (HU-02), cálculo de bloques de cobertura pagados (HU-09), reporte de vencimientos (HU-11) y verificación manual de ingreso (HU-12).
-
-> [!NOTE]
-> Las ramas `main` y `develop` conservan el árbol inicial vacío según la estrategia de integración diferida del proyecto. El trabajo funcional completo de este sprint se encuentra en esta rama.
+> **Ubicación en el Workspace:** `gymvip-backend/`  
+> **Organización Oficial:** [gymvip-upeu/gymvip-backend](https://github.com/gymvip-upeu/gymvip-backend)  
+> **Documentación Centralizada:** `../documentos/`  
+> **Fecha de Actualización:** 23 de Noviembre de 2026 | Revisión Canónica v2.5
 
 ---
 
-## 2. Funcionalidades por Historia de Usuario y Responsable
-
-A continuación se resume el alcance implementado en el código de esta rama:
-
-| HU | Responsable | Funcionalidad Disponible | Ubicación Principal en el Código |
-| :--- | :--- | :--- | :--- |
-| **Base Común** | André | Seguridad stateless con tokens Bearer/X-Auth-Token, roles `ADMIN` y `RECEPCION`, manejo centralizado de excepciones con `GlobalExceptionHandler`, migraciones Flyway y conexión PostgreSQL. | `com.gymvip.security`, `com.gymvip.exception`, `db/migration/V1__init_schema.sql` |
-| **HU-01** | André | Alta y consulta de socios. Validación de mayoría de edad (≥ 18 años), DNI de 8 dígitos, unicidad documental compuesta `(country, type, number)` y generación determinista de código de socio (ej. `MAR-8Q2L7K`). | `ClientController`, `ClientService`, `MemberCodeGenerator`, `V2__add_member_code_to_clients.sql` |
-| **HU-04** | André | Administración de colaboradores y credenciales. Creación con hashing BCrypt, cambio de roles `ADMIN`/`RECEPCION`, desactivación lógica, protección del último administrador activo y revocación de sesiones. Exclusivo `ADMIN`. | `AccountController`, `AccountService`, `AccountRepository` |
-| **HU-06** | André | Catálogo tarifario de planes en Soles (PEN). Regla estricta de 30 días para planes mensuales y 1 día para pases diarios. Versionado tarifario inmutable (`plan_versions`) que congela condiciones de contratos previos. Concurrencia optimista. | `PlanController`, `PlanService`, `PlanVersion`, `PlanRepository` |
-| **HU-07** | Alexander | Asignación y contratación de membresías. Cotización (`/quote`) basada en el precio de la versión activa del plan, resumen comercial congelado y calendario de vigencia. | `MembershipController`, `MembershipService`, `MembershipPeriod`, `V3__...`, `V4__...` |
-| **HU-08** | Alexander | Cobro presencial atómico en efectivo, tarjeta o billetera digital (PEN). Generación de constancia interna (`VIP-...`), registro de operador y fecha UTC. Soporte de idempotencia mediante cabecera `Idempotency-Key`. | `MembershipController`, `MembershipServiceImpl`, `MembershipSaleRepository` |
-| **HU-10** | Alexander | Renovación anticipada (añade 30 días continuos al vencimiento previo) o vencida (inicia en fecha de cobro). Historial de periodos y pagos del socio. Admite cambio de plan para el nuevo periodo. | `MembershipController`, `MembershipServiceImpl`, `MembershipDates` |
-| **HU-02** | Jorge | Edición de datos de clientes (nombres, apellidos, documento, teléfono y correo) para `ADMIN` y `RECEPCION`. Control optimista de concurrencia (`version`). Historial de cambios campo por campo (`client_changes`) consultable exclusivamente por `ADMIN`. | `ClientEditingController`, `ClientEditingService`, `Client.java`, `V5__client_version_and_change_history.sql` |
-| **HU-09** | Jorge | Cálculo de vigencia en servidor bajo zona horaria `America/Lima` e intervalo de inicio incluido / fin excluido. Consolidación de periodos pagados contiguos en bloques de cobertura. Estados: `VIGENTE`, `POR_VENCER`, `VENCIDO`, `CANCELADA`, `PENDIENTE`, `SIN_MEMBRESIA`. Sin prórrogas automáticas. | `CoverageController`, `CoverageService`, `CoveragePolicy`, `CoverageRepository` |
-| **HU-11** | Jorge | Listado paginado y filtrable de cobertura por socio, plan, estado y rango de fechas. Orden de atención por urgencia (vencimiento más próximo primero). Filtro por defecto de alertas (`POR_VENCER` y `VENCIDO`). | `CoverageController`, `CoverageService` |
-| **HU-12** | Jorge | Verificación manual de ingreso en recepción (`/api/v1/coverage/clients/{id}`). Validación autoritativa en servidor que rechaza clientes inactivos, sin pago o vencidos. | `CoverageController`, `CoverageService` |
-
-### Delimitación de Alcance (Fuera de este Incremento)
-- No incluye aplicación móvil (KMP/Compose Multiplatform).
-- No incluye lectores QR, cámara web, torniquetes ni registro automatizado de asistencia física.
-- No incluye pasarelas de pago electrónico online (Stripe, Culqi, etc.) ni transacciones automáticas con terminales POS físicos.
-- No incluye módulos de ventas de cafetería, inventario, reservas de clases ni reportes estadísticos de Sprint 2.
+## 1. Nombre del Componente
+**GYM VIP Backend REST API Service** (`gymvip-backend`).
 
 ---
 
-## 3. Arquitectura y Tecnologías
-
-### 3.1 Stack Tecnológico
-- **Lenguaje:** Java 21 LTS (según `<java.version>21</java.version>` en `pom.xml`).
-- **Framework:** Spring Boot 3.4.3 (`spring-boot-starter-web`, `spring-boot-starter-data-jpa`, `spring-boot-starter-security`, `spring-boot-starter-validation`).
-- **Base de Datos:** PostgreSQL 17.x con driver `org.postgresql:postgresql`.
-- **Migraciones:** Flyway 10.20.1 (`flyway-core`, `flyway-database-postgresql`).
-- **Pool de Conexiones:** HikariCP (`maximum-pool-size: 5`, `minimum-idle: 1`).
-- **Seguridad:** Spring Security 6 con autenticación stateless mediante tokens en cabecera HTTP (`Authorization: Bearer <token>` o `X-Auth-Token`) y hashing BCrypt.
-- **Herramienta de Construcción:** Apache Maven 3.9.10 mediante Maven Wrapper (`mvnw.cmd` / `./mvnw`).
-
-### 3.2 Estilo Arquitectónico
-El proyecto sigue una **arquitectura por capas que aplica principios de Clean Architecture**, separando responsabilidades sin introducir acoplamiento innecesario:
-```
-src/main/java/com/gymvip/
-├── config/         # Configuración de beans, CORS, Clock y seguridad de base de datos
-├── controller/     # Controladores REST y autorización @PreAuthorize
-├── dto/            # Objetos de transferencia de datos (request y response)
-├── entity/         # Entidades JPA mapeadas a tablas de PostgreSQL
-├── enums/          # Enumeraciones de dominio (roles, estados, tipos de documento)
-├── exception/      # Excepciones de negocio y GlobalExceptionHandler
-├── mapper/         # Transformación desacoplada entre entidades y DTOs
-├── repository/     # Interfaces Spring Data JPA y consultas nativas de cobertura
-├── security/       # Filtros de autenticación, proveedor de tokens y contexto de usuario
-├── service/        # Lógica de negocio transaccional (@Transactional)
-└── util/           # Utilidades puras (cálculo de fechas, políticas de cobertura, códigos)
-```
-
-### 3.3 Migraciones Flyway
-El esquema de base de datos se versiona estrictamente mediante scripts Flyway en `src/main/resources/db/migration/`:
-- `V1__init_schema.sql`: Cuentas de personal, roles, sesiones, clientes, documentos, planes, versiones tarifarias y tabla genérica de auditoría.
-- `V2__add_member_code_to_clients.sql`: Columna `member_code` única para identificación amigable de clientes.
-- `V3__membership_periods_and_sales.sql`: Tablas de contratos de membresía (`membership_periods`) y ventas/cobros (`sales`).
-- `V4__membership_commercial_terms.sql`: Congelamiento de términos comerciales y condiciones pactadas al contratar.
-- `V5__client_version_and_change_history.sql`: Control de concurrencia optimista (`version`) en tabla `clients` y tabla de auditoría detallada `client_changes`.
-
-Hibernate está configurado con `ddl-auto: validate`, impidiendo alteraciones estructurales automáticas fuera de Flyway.
-
-### 3.4 Endpoints Principales y Restricciones de Acceso
-
-| Método | Endpoint | Roles Permitidos | Propósito |
-| :--- | :--- | :--- | :--- |
-| `POST` | `/api/v1/auth/login` | Público | Autenticación con credenciales y emisión de token |
-| `POST` | `/api/v1/clients` | `ADMIN`, `RECEPCION` | Alta de nuevo socio |
-| `GET` | `/api/v1/clients` | `ADMIN`, `RECEPCION` | Listado paginado de clientes con filtro de búsqueda |
-| `GET` | `/api/v1/clients/{id}` | `ADMIN`, `RECEPCION` | Consulta detallada de ficha de socio con versión |
-| `PUT` | `/api/v1/clients/{id}` | `ADMIN`, `RECEPCION` | Edición de datos del socio con control optimista |
-| `GET` | `/api/v1/clients/{id}/changes` | **Solo `ADMIN`** | Historial de modificaciones de la ficha del socio (auditoría) |
-| `GET` | `/api/v1/accounts` | **Solo `ADMIN`** | Listado de colaboradores del gimnasio |
-| `POST` | `/api/v1/accounts` | **Solo `ADMIN`** | Registro de nuevo colaborador |
-| `PATCH`| `/api/v1/accounts/{id}/role` | **Solo `ADMIN`** | Modificación de rol (`ADMIN` / `RECEPCION`) |
-| `PATCH`| `/api/v1/accounts/{id}/status`| **Solo `ADMIN`** | Activar o inactivar colaborador |
-| `GET` | `/api/v1/plans` | `ADMIN`, `RECEPCION` | Catálogo de planes activos para venta |
-| `POST` | `/api/v1/plans` | **Solo `ADMIN`** | Creación de nuevo plan |
-| `PUT` | `/api/v1/plans/{id}` | **Solo `ADMIN`** | Edición de tarifa de plan (genera nueva versión inmutable) |
-| `POST` | `/api/v1/memberships/quote` | `ADMIN`, `RECEPCION` | Cotización formal de contratación o renovación |
-| `POST` | `/api/v1/memberships/sales` | `ADMIN`, `RECEPCION` | Cobro y registro atómico de membresía con clave de idempotencia |
-| `GET` | `/api/v1/coverage/clients/{id}`| `ADMIN`, `RECEPCION` | Verificación de vigencia y acceso manual de un socio |
-| `GET` | `/api/v1/coverage` | `ADMIN`, `RECEPCION` | Reporte paginado de vencimientos y alertas |
+## 2. Propósito
+Constituye el núcleo transaccional, autoritativo y de persistencia del ecosistema **GYM VIP / VIP CENTER FIT**. Es el único componente autorizado para certificar estados de cobertura, liquidar cobros presenciales y digitales, gestionar inventario físico bajo concurrencia pesimista y proveer métricas analíticas agregadas para la toma de decisiones gerenciales y operativas.
 
 ---
 
-## 4. Requisitos y Configuración Segura
+## 3. Responsabilidades
+- **Autenticación y Sesiones:** Emisión, validación y revocación inmediata de JSON Web Tokens (RFC 7519 HS256) con persistencia de sesiones activas y cierre concurrente remoto.
+- **Control de Acceso y RBAC:** Evaluación autoritativa de roles (`ADMIN`, `RECEPCION`, `AUDITOR`, `CLIENTE`) y verificación manual o biométrica de ingreso.
+- **Gestión de Membresías y Cobros:** Cotización, congelamiento de tarifas históricas (`plan_versions`), emisión de constancias internas (`VIP-...`) y encadenamiento continuo de vigencias sin prórrogas ficticias.
+- **Control de Asistencia QR Invertido:** Generación de desafíos QR temporales (TTL 20s) y procesamiento criptográfico de marcaciones de torniquete/mostrador.
+- **Tienda de Suplementos y Kardex:** Manejo de carrito persistido por usuario, reserva temporal de stock por 30 minutos, bloqueo `SELECT FOR UPDATE` anti-sobreventa, verificación manual de comprobantes y emisión de tickets de retiro QR (`rtk_...`).
+- **Dashboard Analítico:** Agregación de alto rendimiento con `JdbcTemplate` para KPIs de 5 niveles con aislamiento financiero según rol.
+- **Integraciones y Eventos:** Despacho hacia microservicio de comunicaciones y orquestación de pagos digitales CulqiLink.
 
-### 4.1 Requisitos Previos
-- **Java:** JDK 21 o superior instalado y configurado en `JAVA_HOME`.
-- **Base de Datos:** Instancia de PostgreSQL 17.x en ejecución.
+---
 
-### 4.2 Variables de Entorno (`.env`)
-El backend carga automáticamente variables desde el archivo `.env` en la raíz del proyecto mediante:
-```yaml
-spring:
-  config:
-    import: "optional:file:./.env[.properties]"
+## 4. Arquitectura
+Implementa una **Arquitectura en Capas (Layered Architecture)** con separación estricta de responsabilidades e inyección de dependencias por constructor:
+- **Capa de Controladores (`controller`):** Exposición de contratos REST `/api/v1`, serialización DTO inmutable y control RBAC declarativo.
+- **Capa de Negocio y Servicios (`service`):** Orquestación transaccional (`@Transactional`), aplicación de reglas de negocio, cálculo de vigencias en zona horaria `America/Lima` (UTC-5).
+- **Capa de Persistencia (`repository`):** Spring Data JPA / Hibernate 6 optimizado y consultas nativas SQL de agregación con `JdbcTemplate`.
+- **Capa de Dominio y Entidades (`entity`):** Modelado relacional mapeado a esquemas de PostgreSQL con restricciones de integridad referencial y de dominio (`CHECK`, `UNIQUE`).
+- **Capa de Seguridad (`security`):** Cadena de filtros de Spring Security 6 stateless con `JwtAuthenticationFilter`, `DelegatedAuthenticationEntryPoint` y `SecurityConfig`.
+
+---
+
+## 5. Tecnologías y Versiones Reales
+| Tecnología | Versión Oficial | Propósito |
+|---|---|---|
+| **Java Development Kit (JDK)** | OpenJDK 21 LTS | Lenguaje base con virtual threads y sealed classes |
+| **Spring Boot Framework** | 3.4.3 | Framework web, inyección, seguridad y transacciones |
+| **Spring Security** | 6.4.3 | Seguridad perimetral stateless y RBAC |
+| **PostgreSQL Database** | 17.2 / 18.x compatible | Motor relacional transaccional |
+| **Flyway Core & PostgreSQL** | 10.20.1+ administrado | Versionado y migración continua de esquema (V1 a V28) |
+| **Hibernate ORM / JPA** | 6.6.8.Final | Mapeo objeto-relacional y validaciones JPA |
+| **JSON Web Token (jjwt)** | 0.12.6 | Firmado criptográfico HMAC-SHA256 |
+| **Apache POI** | 5.2.5 | Procesamiento y validación de hojas Excel (.xlsx) |
+| **JUnit 5 / Mockito** | 5.11.4 / 5.14.2 | Pruebas unitarias, mocks y tests de aislamiento |
+
+---
+
+## 6. Estructura de Carpetas
+```text
+gymvip-backend/
+├── mvnw / mvnw.cmd              # Maven Wrapper reproducible
+├── pom.xml                      # Dependencias, plugins y versiones administradas
+├── CONTRIBUTING.md              # Guía de contribución y regla de commits
+├── README.md                    # Esta documentación canónica
+├── src/
+│   ├── main/
+│   │   ├── java/com/gymvip/
+│   │   │   ├── config/          # CORS, Jackson, JdbcTemplate, TimeZone America/Lima
+│   │   │   ├── controller/      # 30+ Controladores RESTful (/api/v1/...)
+│   │   │   ├── dto/             # Request y Response DTOs inmutables
+│   │   │   ├── entity/          # Entidades JPA (Client, Membership, Payment, etc.)
+│   │   │   ├── exception/       # GlobalExceptionHandler y excepciones de negocio
+│   │   │   ├── repository/      # Interfaces Spring Data JPA y consultas custom
+│   │   │   ├── security/        # JwtFilter, JwtTokenProvider, SecurityConfig, UserDetails
+│   │   │   └── service/         # Interfaces e implementaciones de lógica de negocio
+│   │   └── resources/
+│   │       ├── application.properties      # Configuración productiva y placeholders
+│   │       ├── application-test.properties # Entorno de pruebas automatizadas
+│   │       └── db/migration/               # Scripts Flyway inmutables V1__ a V28__
+│   └── test/
+│       └── java/com/gymvip/     # Suites de pruebas unitarias y de integración
 ```
 
-Plantilla de configuración recomendada (`.env.example`):
+---
+
+## 7. Funcionalidades
+1. **Gestión de Socios (HU-01, HU-02):** Alta individual, edición concurrente optimista (409), historial de cambios auditados (`client_changes`) y consulta ApiPeruDev.
+2. **Importación Masiva (HU-06):** Procesamiento de archivos `.xlsx`, validación fila por fila, exclusión de registros y resolución de discrepancias.
+3. **Catálogo Tarifario (HU-07):** Versionado inmutable de planes (`plan_versions`), duraciones mensuales exactas de 30 días y pases diarios.
+4. **Membresías y Cobros (HU-08, HU-10):** Afiliación, renovación continua, registro de cobranza en efectivo/tarjeta/digital con idempotencia y constancia.
+5. **Control de Asistencia (HU-12, HU-13):** Verificación manual en recepción y validación por QR invertido temporal (TTL 20s).
+6. **Tienda y Pedidos (HU-42, HU-50):** Inventario con bloqueo pesimista, reservas de stock por 30m, validación de referencias bancarias y ticket de retiro QR.
+7. **Dashboard Analítico (Fase 13):** Agregaciones SQL nativas para 5 niveles con filtro RBAC (métricas financieras ocultas para recepción).
+8. **Auditoría y Supresión LPDP:** Derecho al olvido conforme a la Ley N° 29733 de Protección de Datos Personales de Perú.
+
+---
+
+## 8. Usuarios y Roles Correspondientes
+| Rol en BD | Descripción y Acceso | Restricciones de Seguridad |
+|---|---|---|
+| `ADMIN` | Administrador general de sede | Acceso irrestricto, configuración, staff, finanzas y reportes |
+| `RECEPCION` | Colaborador operativo de mostrador | Cobros, asistencias, altas, entregas; **sin acceso financiero ni staff** |
+| `AUDITOR` | Inspector contable y de calidad | Solo lectura de métricas, cobranzas y libros de auditoría |
+| `CLIENTE` | Socio del gimnasio (App móvil) | Perfil propio, membresía, QR de acceso, catálogo y carrito |
+
+---
+
+## 9. Requisitos Previos
+- **Java SE Development Kit:** JDK 21 LTS instalado y verificado (`java -version`).
+- **PostgreSQL Database:** PostgreSQL 17.x o 18.x en ejecución en puerto 5432.
+- **Maven:** Versión 3.9+ o uso directo del wrapper `./mvnw` / `.\mvnw.cmd`.
+- **Git:** Cliente Git configurado con credenciales de la organización.
+
+---
+
+## 10. Instalación desde Cero
+```powershell
+# 1. Clonar el repositorio oficial
+git clone https://github.com/gymvip-upeu/gymvip-backend.git
+Set-Location gymvip-backend
+
+# 2. Situarse en la rama de trabajo autorizada
+git checkout ACOSTA-MEJORAS-Y-ACTUALIZACIONES
+
+# 3. Crear archivo de variables locales (.env) a partir del ejemplo
+Copy-Item .env.example .env
+
+# 4. Compilar y descargar dependencias Maven
+.\mvnw.cmd clean compile
+```
+
+---
+
+## 11. Variables de Entorno
+Configurar en `.env` o en las variables del sistema (nunca incluir secretos en Git):
 ```properties
-# Perfil activo: dev para desarrollo local, prod para producción
-SPRING_PROFILES_ACTIVE=dev
-PORT=8081
-
-# Conexión principal PostgreSQL (usar variables reales de entorno fuera del repo)
-DB_JDBC_URL=jdbc:postgresql://localhost:5432/gymvip
+# Conexión a Base de Datos PostgreSQL
+DB_URL=jdbc:postgresql://localhost:5432/gymvip_db
 DB_USERNAME=gymvip_user
-DB_PASSWORD=TU_CONTRASENA_AQUI
+DB_PASSWORD=placeholder_seguro_db_pass
+DB_SCHEMA=public
 
-# Esquema y pool para desarrollo
-DB_POOL_MAX_SIZE=5
-DB_POOL_MIN_IDLE=1
+# Seguridad y Criptografía
+JWT_SECRET=placeholder_jwt_secret_minimo_256_bits_hexadecimal_o_base64
+JWT_EXPIRATION_HOURS=24
 
-# Configuración de pruebas (aislada obligatoria)
-TEST_DB_SCHEMA=gymvip_test_jorge
-# TEST_DB_JDBC_URL=jdbc:postgresql://... (opcional si difiere de DB_JDBC_URL)
+# Puerto de Ejecución Local
+SERVER_PORT=8081
 
-# Orígenes CORS permitidos
-CORS_ALLOWED_ORIGINS=http://localhost:5173,http://127.0.0.1:5173,http://localhost:3000
+# Pasarela de Pagos Culqi (Modo Pruebas / Sandbox)
+CULQI_PUBLIC_KEY=pk_test_placeholder
+CULQI_PRIVATE_KEY=sk_test_placeholder
+CULQI_WEBHOOK_SECRET=wh_test_placeholder
 
-# Días de anticipación para estado POR_VENCER (1 a 30, valor por defecto: 7)
-MEMBERSHIP_UPCOMING_DAYS=7
+# Microservicio de Comunicaciones
+COMMS_SERVICE_URL=http://localhost:8082
 
-# Cuentas iniciales generadas por DataInitializer en dev
-APP_ADMIN_INITIAL_PASSWORD=Admin123!
-APP_RECEPCION_INITIAL_PASSWORD=Recepcion123!
+# API de Consulta RENIEC / DNI
+API_PERU_TOKEN=placeholder_token_apiperu
 ```
-
-> [!CAUTION]
-> Nunca incluya contraseñas reales ni cadenas de conexión con credenciales en commits de Git. Mantenga el archivo `.env` ignorado por Git en todo momento.
 
 ---
 
-## 5. Cómo Ejecutar y Probar
-
-### 5.1 Compilar y Ejecutar Pruebas Automatizadas
-Para ejecutar las pruebas que no requieren base de datos externa (política de cobertura, fechas e isolación de esquemas):
-```powershell
-.\mvnw.cmd test "-Dtest=CoveragePolicyTest,MembershipDatesTest,IsolationGuardTest"
+## 12. Configuración Local
+Asegurar que la base de datos `gymvip_db` exista en PostgreSQL antes del primer arranque:
+```sql
+CREATE DATABASE gymvip_db WITH ENCODING 'UTF8';
 ```
+Flyway ejecutará automáticamente las migraciones desde `V1__init_schema.sql` hasta `V28__...` durante el inicio del contexto de Spring Boot.
 
-Para ejecutar la suite completa de integración (requiere PostgreSQL configurado con esquema exclusivo de pruebas):
+---
+
+## 13. Comandos de Ejecución
 ```powershell
-$env:TEST_DB_SCHEMA="gymvip_test_jorge"
-.\mvnw.cmd test
-```
-
-> [!IMPORTANT]
-> `IsolationGuardTest` y la configuración de pruebas abortan automáticamente la ejecución si `TEST_DB_SCHEMA` apunta a `public`, está vacío o apunta al esquema de otro desarrollador, protegiendo los datos compartidos.
-
-### 5.2 Iniciar el Backend Localmente
-```powershell
+# Ejecución en modo desarrollo con recarga
 .\mvnw.cmd spring-boot:run
+
+# Ejecución especificando perfil de pruebas
+.\mvnw.cmd spring-boot:run -Dspring-boot.run.profiles=test
 ```
-El servidor quedará disponible en `http://localhost:8081`.
-
-### 5.3 Usuarios de Prueba en Entorno de Desarrollo (`dev`)
-Al iniciar con base de datos limpia, `DataInitializer` registra automáticamente:
-- **Administrador:** `admin@vipcenterfit.pe` / Contraseña: valor de `APP_ADMIN_INITIAL_PASSWORD` (Rol: `ADMIN`)
-- **Recepcionista:** `recepcion@vipcenterfit.pe` / Contraseña: valor de `APP_RECEPCION_INITIAL_PASSWORD` (Rol: `RECEPCION`)
+El servidor quedará escuchando en `http://localhost:8081`.
 
 ---
 
-## 6. Estado de Verificación y Pendientes
+## 14. Comandos de Compilación
+```powershell
+# Empaquetado de producción omitiendo pruebas (para despliegue)
+.\mvnw.cmd clean package -DskipTests
 
-### 6.1 Implementado en Código en esta Rama
-- ✅ **Base técnica y seguridad:** Spring Boot 3.4.3, Flyway V1–V5, Spring Security stateless.
-- ✅ **HU-01, HU-04, HU-06 (André):** Registro de clientes, gestión de personal, catálogo de planes y versiones.
-- ✅ **HU-07, HU-08, HU-10 (Alexander):** Contratación de membresías, cobros presenciales con constancia, idempotencia y renovaciones continuas.
-- ✅ **HU-02, HU-09, HU-11, HU-12 (Jorge):** Edición de socios con auditoría campo por campo en `client_changes`, cálculo autoritativo de vigencias con zona Lima, listado de vencimientos y verificación manual en recepción.
-
-### 6.2 Pruebas Ejecutadas en este Entorno
-- **Compilación de código fuente:** **APROBADO** (86 clases fuente y 11 clases de pruebas compiladas con Java 21 / javac release 21 sin errores).
-- **Pruebas unitarias de dominio ejecutadas:** **APROBADO** (9 pruebas ejecutadas en `IsolationGuardTest`, `CoveragePolicyTest` y `MembershipDatesTest`; 0 fallos, 0 errores, 0 omitidas).
-
-### 6.3 Pruebas Reportadas en Documentos Técnicos Previos
-- **Suite completa de Jorge (26/10/2026):** 58 pruebas automatizadas aprobadas contra PostgreSQL local portable (esquema `gymvip_test_jorge`), cubriendo auditoría, concurrencia optimista, consolidación de periodos pagados y control de acceso.
-- **Suite de Alexander (26/10/2026):** 42 pruebas backend aprobadas en PostgreSQL local (esquema `gymvip_test_alexander`), validando transaccionalidad de cobros, renovaciones e idempotencia.
-- **Suite de André (19/10/2026):** 23 pruebas en base de datos PostgreSQL 17.11 en Render (esquema `gymvip_test`).
-
-### 6.4 Pendientes de Aceptación Formal
-- **Ratificación de Reglas de Negocio:** Validación y aprobación por parte del Product Owner (Wagner) respecto a:
-  - Convención horaria `America/Lima` con límites exactos de inicio incluido / fin excluido.
-  - Ventana propuesta de 7 días (`MEMBERSHIP_UPCOMING_DAYS=7`) para el estado `POR_VENCER`.
-  - Definición de medios de pago autorizados y políticas de cambio de plan en renovaciones.
-- **Validación en Entorno Oficial Render:** Ejecución de la suite completa de 58 pruebas sobre la base de datos PostgreSQL 17.11 de Render cuando se suministren credenciales y un esquema exclusivo asignado para Jorge.
-- **Revisión de Código e Integración:** Revisión cruzada de código (*code review*) entre compañeros y posterior integración formal a las ramas `develop` y `main` (sin merges prematuros en esta etapa).
-- **Pruebas de Carga:** El listado de cobertura calcula bloques pagados en memoria antes de aplicar la paginación; se encuentra pendiente certificar su comportamiento ante volúmenes masivos de datos.
+# El artefacto ejecutable se generará en:
+# target/gymvip-backend-0.0.1-SNAPSHOT.jar
+```
 
 ---
 
-## 7. Documentación Técnica Canónica (Los 7 Markdown Oficiales)
+## 15. Pruebas
+```powershell
+# Ejecutar todas las pruebas unitarias y de dominio (103+ tests)
+.\mvnw.cmd test
 
-> [!NOTE]
-> **Aviso sobre navegación local:** Los enlaces a `../documentos/` están diseñados para el espacio de trabajo local integrado `GYMVIP/`. Si un colaborador clona este repositorio de forma aislada, estos enlaces relativos no resolverán localmente.
+# Ejecutar una suite específica (ej. Dashboard o Cobros)
+.\mvnw.cmd test -Dtest=DashboardUnitTest
+.\mvnw.cmd test -Dtest=CoveragePolicyTest,MembershipDatesTest
+```
 
-Toda la documentación viva del proyecto se encuentra centralizada exclusivamente en la carpeta raíz [`../documentos/`](../documentos/):
-1. [Reglas de Negocio, Alcance y DoD](../documentos/REGLAS.md)
-2. [Catálogo Oficial de Endpoints de API](../documentos/APIDOCUMENTATION.md)
-3. [Sistema de Diseño Visual y Figma](../documentos/DESIGN.md)
-4. [Ficha Técnica y Matriz de Infraestructura](../documentos/FICHA_TECNICA.md)
-5. [Arquitectura por Capas, ERD y Modelos de Ingeniería](../documentos/ARQUITECTURA_Y_MODELOS.md)
-6. [Matriz de Evidencias de QA y Seguridad](../documentos/EVIDENCIAS_QA_SEGURIDAD.md)
-7. [Estado del Proyecto y Trazabilidad de HU](../documentos/ESTADO_PROYECTO.md)
-- [Fuente de Diagramas C4 en PlantUML](../documentos/c4.uml)
-- [Archivos Históricos del Equipo](../documentos/historico/)
+---
+
+## 16. Integraciones
+- **Culqi Pagos Online:** Generación de órdenes de pago (`POST /api/v1/payments/culqilink/orders`), verificación y webhook de cargos.
+- **gymvip-ms-comunicaciones:** Despacho REST asíncrono de recordatorios WhatsApp y correos transaccionales.
+- **Firebase FCM:** Almacenamiento seguro de tokens de dispositivo móvil para notificaciones push de cobro y recordatorio.
+- **ApiPeruDev:** Consulta de identidad por DNI peruano con caché transaccional de 1 hora.
+
+---
+
+## 17. Seguridad
+- **Políticas Stateless:** Sin almacenamiento de estado de sesión en servidor; cada petición se autentica mediante cabecera `Authorization: Bearer <token>`.
+- **RBAC Estricto:** Métodos protegidos con `@PreAuthorize("hasRole('ADMIN')")`. El endpoint de Dashboard filtra los balances financieros (`financialSummary = null`) para el rol `RECEPCION`.
+- **Protección de Inyección:** Uso exclusivo de parámetros nombrados en `JdbcTemplate` y consultas tipadas JPA.
+- **Protección LPDP:** Enmascaramiento de datos personales en logs y endpoint formal de eliminación de cuenta.
+
+---
+
+## 18. Despliegue
+- **Plataforma Productiva de Referencia:** Render Web Service (o Railway / AWS ECS).
+- **Comando de Inicio en Contenedor:**
+  ```bash
+  java -Dserver.port=$PORT -Dspring.profiles.active=prod -jar target/gymvip-backend-0.0.1-SNAPSHOT.jar
+  ```
+- **Healthcheck:** `GET /actuator/health` o `GET /api/v1/coverage/public/health`.
+
+---
+
+## 19. Solución de Problemas Frecuentes
+- **Error `Connection to localhost:5432 refused`:** PostgreSQL no está iniciado o las credenciales en `.env` son incorrectas.
+- **Error `FlywayValidateException: Validate failed`:** Se modificó un script SQL ya aplicado en la base de datos. NUNCA editar migraciones previas; crear una nueva versión `V29__...`.
+- **Error 403 Forbidden en operaciones administrativas:** El token JWT enviado no tiene el claim de rol `ADMIN` o ha expirado.
+
+---
+
+## 20. Limitaciones Conocidas
+- La pasarela automática Culqi opera actualmente en entorno Sandbox con confirmación manual de contingencia en mostrador.
+- Las consultas de agregación analítica están optimizadas para la zona `America/Lima` (UTC-5); entornos con desfase de reloj del host requerirán NTP sincronizado.
+
+---
+
+## 21. Enlaces hacia los Otros Repositorios
+- **Frontend Web:** [gymvip-frontend](https://github.com/gymvip-upeu/gymvip-frontend)
+- **App Móvil:** [gymvip-mobile](https://github.com/gymvip-upeu/gymvip-mobile)
+- **Comunicaciones:** [gymvip-ms-comunicaciones](https://github.com/gymvip-upeu/gymvip-ms-comunicaciones)
+- **Portal Público:** [gymvip-Landing-Page](https://github.com/gymvip-upeu/gymvip-Landing-Page)
+
+---
+
+## 22. Enlaces hacia Diagramas
+- **C4 L1, L2, L3:** `../documentos/diagramas/01-C4/` y `../documentos/c4.uml`
+- **Modelo Relacional ERD:** `../documentos/diagramas/02-Base-de-Datos/`
+- **Flujos Funcionales:** `../documentos/diagramas/09-Flujos-Funcionales/`
+- **Seguridad y RBAC:** `../documentos/diagramas/12-Seguridad-Usuarios-Roles/`
+
+---
+
+## 23. Enlaces hacia ESTADO_PROYECTO.md
+- Documento Central Canónico: [`../documentos/ESTADO_PROYECTO.md`](../documentos/ESTADO_PROYECTO.md)
+- Registro de Tareas Maestras: [`../documentos/seguimiento/PLAN_MAESTRO_GYMVIP.md`](../documentos/seguimiento/PLAN_MAESTRO_GYMVIP.md)
+
+---
+
+## 24. Fecha y Revisión de Referencia
+- **Fecha:** 23 de Noviembre de 2026.
+- **Revisión de Ingeniería:** Consolidación Maestra Sprint 1 & 2 / Release Candidate v2.5.
+- **Autoría:** Equipo de Ingeniería GYM VIP / VIP CENTER FIT.
