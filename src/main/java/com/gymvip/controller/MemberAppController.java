@@ -11,7 +11,7 @@ import java.util.*;
 
 @RestController
 @RequestMapping("/api/v1/member-app")
-@PreAuthorize("hasAnyRole('CLIENTE','ADMIN','RECEPCION')")
+@PreAuthorize("hasAnyRole('CLIENTE','ADMIN','RECEPCION','AUDITOR')")
 public class MemberAppController {
     private final MemberWorkspaceService service;
     private final com.gymvip.service.AttendanceProcessingService attendanceProcessingService;

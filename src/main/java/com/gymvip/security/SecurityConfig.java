@@ -72,7 +72,7 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.POST, "/api/v1/payments/culqi/webhook").permitAll()
                         .requestMatchers("/error").permitAll()
                         .requestMatchers("/api/v1/member-app/faqs", "/api/v1/member-app/services").authenticated()
-                        .requestMatchers("/api/v1/member-app/**").hasAnyRole("CLIENTE", "ADMIN", "RECEPCION")
+                        .requestMatchers("/api/v1/member-app/**").hasAnyRole("CLIENTE", "ADMIN", "RECEPCION", "AUDITOR")
                         .requestMatchers(HttpMethod.GET,
                                 "/api/v1/catalog/products",
                                 "/api/v1/catalog/options",

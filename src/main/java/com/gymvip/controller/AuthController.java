@@ -3,6 +3,7 @@ package com.gymvip.controller;
 import com.gymvip.dto.request.LoginRequest;
 import com.gymvip.dto.response.AuthResponse;
 import com.gymvip.service.AuthService;
+import com.gymvip.repository.AccountRepository;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
@@ -10,15 +11,18 @@ import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.Map;
+import java.util.LinkedHashMap;
 
 @RestController
 @RequestMapping("/api/v1/auth")
 public class AuthController {
 
     private final AuthService authService;
+    private final AccountRepository accountRepository;
 
-    public AuthController(AuthService authService) {
+    public AuthController(AuthService authService, AccountRepository accountRepository) {
         this.authService = authService;
+        this.accountRepository = accountRepository;
     }
 
     @PostMapping("/login")
@@ -78,10 +82,22 @@ public class AuthController {
         if (authentication == null) {
             return ResponseEntity.status(401).body(Map.of("message", "No autenticado"));
         }
-        return ResponseEntity.ok(Map.of(
-                "email", authentication.getName(),
-                "roles", authentication.getAuthorities()
-        ));
+        var account = accountRepository.findByEmailIgnoreCase(authentication.getName()).orElse(null);
+        if (account == null) {
+            return ResponseEntity.status(404).body(Map.of("message", "No se encontró el perfil de la cuenta."));
+        }
+        Map<String, Object> profile = new LinkedHashMap<>();
+        profile.put("id", account.getId());
+        profile.put("email", account.getEmail());
+        profile.put("firstName", account.getFirstName());
+        profile.put("lastName", account.getLastName());
+        profile.put("phone", account.getPhone());
+        profile.put("roles", account.getRoles());
+        profile.put("status", account.getStatus());
+        profile.put("mfaEnabled", account.isMfaEnabled());
+        profile.put("createdAt", account.getCreatedAt());
+        profile.put("updatedAt", account.getUpdatedAt());
+        return ResponseEntity.ok(profile);
     }
 
     private String resolveClientIp(HttpServletRequest request) {
