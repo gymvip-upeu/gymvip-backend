@@ -84,6 +84,7 @@ public class SecurityConfig {
                         .hasAnyRole("CLIENTE", "ADMIN", "RECEPCION")
                         .requestMatchers("/api/v1/catalog/**").hasAnyRole("ADMIN", "RECEPCION")
                         .requestMatchers("/api/v1/clients/import/**").hasRole("ADMIN")
+                        .requestMatchers("/api/v1/dashboard", "/api/v1/dashboard/**").hasAnyRole("ADMIN", "RECEPCION", "AUDITOR")
                         .requestMatchers("/api/v1/reports", "/api/v1/reports/**").hasAnyRole("ADMIN", "AUDITOR")
                         .requestMatchers("/api/v1/incidents", "/api/v1/incidents/**").hasAnyRole("ADMIN", "AUDITOR")
                         .requestMatchers("/api/v1/auth/me", "/api/v1/auth/revoke-other-sessions").authenticated()
