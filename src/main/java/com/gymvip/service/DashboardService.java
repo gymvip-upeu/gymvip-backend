@@ -22,12 +22,38 @@ public class DashboardService {
     public static final ZoneId ZONE_UTC = ZoneId.of("UTC");
 
     private final JdbcTemplate jdbc;
+    private volatile CachedMetrics cachedFullMetrics;
+    private volatile CachedMetrics cachedBasicMetrics;
+    private static final long CACHE_TTL_MS = 15_000L; // 15 segundos de caché en memoria
+
+    private static class CachedMetrics {
+        final DashboardMetricsResponse response;
+        final long timestamp;
+        CachedMetrics(DashboardMetricsResponse response) {
+            this.response = response;
+            this.timestamp = System.currentTimeMillis();
+        }
+        boolean isValid() {
+            return (System.currentTimeMillis() - timestamp) < CACHE_TTL_MS;
+        }
+    }
+
+    public void evictCache() {
+        cachedFullMetrics = null;
+        cachedBasicMetrics = null;
+    }
 
     public DashboardService(JdbcTemplate jdbc) {
         this.jdbc = jdbc;
     }
 
     public DashboardMetricsResponse getMetrics(boolean includeFinancials) {
+        if (includeFinancials && cachedFullMetrics != null && cachedFullMetrics.isValid()) {
+            return cachedFullMetrics.response;
+        } else if (!includeFinancials && cachedBasicMetrics != null && cachedBasicMetrics.isValid()) {
+            return cachedBasicMetrics.response;
+        }
+
         LocalDate todayLima = LocalDate.now(ZONE_LIMA);
         LocalDateTime todayStartUtc = todayLima.atStartOfDay(ZONE_LIMA).withZoneSameInstant(ZONE_UTC).toLocalDateTime();
         LocalDateTime tomorrowStartUtc = todayLima.plusDays(1).atStartOfDay(ZONE_LIMA).withZoneSameInstant(ZONE_UTC).toLocalDateTime();
@@ -158,7 +184,7 @@ public class DashboardService {
             );
         }
 
-        return new DashboardMetricsResponse(
+        DashboardMetricsResponse response = new DashboardMetricsResponse(
                 totalClients,
                 activePlans,
                 totalAlerts,
@@ -171,6 +197,14 @@ public class DashboardService {
                 ordersByStatus,
                 financialSummary
         );
+
+        if (includeFinancials) {
+            cachedFullMetrics = new CachedMetrics(response);
+        } else {
+            cachedBasicMetrics = new CachedMetrics(response);
+        }
+
+        return response;
     }
 
     private long queryCount(String sql, Object... args) {

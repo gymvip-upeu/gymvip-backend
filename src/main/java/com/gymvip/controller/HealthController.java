@@ -69,4 +69,53 @@ public class HealthController {
         body.put("status", "DOWN");
         return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(body);
     }
+
+    @GetMapping({"/api/v1/system/status", "/system/status"})
+    public ResponseEntity<Map<String, Object>> systemStatus() {
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("service", "gymvip-backend");
+        body.put("version", "1.0.0");
+        body.put("timestamp", Instant.now().toString());
+
+        // Medición de latencia de base de datos
+        long start = System.currentTimeMillis();
+        boolean dbOk = false;
+        try {
+            jdbcTemplate.setQueryTimeout(3);
+            Integer result = jdbcTemplate.queryForObject("SELECT 1", Integer.class);
+            dbOk = (result != null && result == 1);
+        } catch (Exception ignored) {}
+        long latencyMs = System.currentTimeMillis() - start;
+
+        body.put("status", dbOk ? "HEALTHY" : "DEGRADED");
+
+        Map<String, Object> dbInfo = new LinkedHashMap<>();
+        dbInfo.put("status", dbOk ? "UP" : "DOWN");
+        dbInfo.put("latencyMs", latencyMs);
+        dbInfo.put("engine", "PostgreSQL 17 (Flyway V1-V23)");
+        body.put("database", dbInfo);
+
+        // Métricas de memoria JVM
+        Runtime runtime = Runtime.getRuntime();
+        long totalMb = runtime.totalMemory() / (1024 * 1024);
+        long freeMb = runtime.freeMemory() / (1024 * 1024);
+        long maxMb = runtime.maxMemory() / (1024 * 1024);
+
+        Map<String, Object> jvmInfo = new LinkedHashMap<>();
+        jvmInfo.put("totalMemoryMb", totalMb);
+        jvmInfo.put("freeMemoryMb", freeMb);
+        jvmInfo.put("usedMemoryMb", totalMb - freeMb);
+        jvmInfo.put("maxMemoryMb", maxMb);
+        jvmInfo.put("availableProcessors", runtime.availableProcessors());
+        body.put("jvm", jvmInfo);
+
+        Map<String, Object> features = new LinkedHashMap<>();
+        features.put("dataImportMultiSheet", "ACTIVE");
+        features.put("dashboardAnalytics", "ACTIVE");
+        features.put("rateLimiting", "ACTIVE");
+        features.put("caching", "ENABLED");
+        body.put("features", features);
+
+        return ResponseEntity.ok(body);
+    }
 }

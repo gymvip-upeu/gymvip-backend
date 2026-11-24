@@ -2,9 +2,11 @@ package com.gymvip.controller;
 
 import com.gymvip.dto.request.LoginRequest;
 import com.gymvip.dto.response.AuthResponse;
+import com.gymvip.security.LoginRateLimiterService;
 import com.gymvip.service.AuthService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
@@ -16,17 +18,33 @@ import java.util.Map;
 public class AuthController {
 
     private final AuthService authService;
+    private final LoginRateLimiterService rateLimiterService;
 
-    public AuthController(AuthService authService) {
+    public AuthController(AuthService authService, LoginRateLimiterService rateLimiterService) {
         this.authService = authService;
+        this.rateLimiterService = rateLimiterService;
     }
 
     @PostMapping("/login")
-    public ResponseEntity<AuthResponse> login(@Valid @RequestBody LoginRequest request, HttpServletRequest httpRequest) {
+    public ResponseEntity<?> login(@Valid @RequestBody LoginRequest request, HttpServletRequest httpRequest) {
         String ip = resolveClientIp(httpRequest);
-        String userAgent = httpRequest.getHeader("User-Agent");
-        AuthResponse response = authService.login(request, ip, userAgent);
-        return ResponseEntity.ok(response);
+        if (rateLimiterService.isBlocked(ip)) {
+            return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS).body(Map.of(
+                    "status", 429,
+                    "error", "TOO_MANY_REQUESTS",
+                    "message", "Demasiados intentos fallidos. Por seguridad, intente nuevamente en 1 minuto."
+            ));
+        }
+
+        try {
+            String userAgent = httpRequest.getHeader("User-Agent");
+            AuthResponse response = authService.login(request, ip, userAgent);
+            rateLimiterService.recordSuccessfulAttempt(ip);
+            return ResponseEntity.ok(response);
+        } catch (Exception ex) {
+            rateLimiterService.recordFailedAttempt(ip);
+            throw ex;
+        }
     }
 
     @PostMapping("/logout")
