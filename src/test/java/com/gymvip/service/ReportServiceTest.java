@@ -1,7 +1,7 @@
 package com.gymvip.service;
 
 import org.apache.poi.ss.usermodel.WorkbookFactory;
-import org.apache.pdfbox.pdmodel.PDDocument;
+import org.apache.pdfbox.Loader;
 import org.apache.pdfbox.text.PDFTextStripper;
 import org.junit.jupiter.api.Test;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -38,7 +38,7 @@ class ReportServiceTest {
             assertEquals("Suplementos con stock bajo", sheet.getRow(2).getCell(0).getStringCellValue());
             assertNull(sheet.getRow(3));
         }
-        try (var document = PDDocument.load(service.pdf(snapshot))) {
+        try (var document = Loader.loadPDF(service.pdf(snapshot))) {
             String text = new PDFTextStripper().getText(document);
             assertTrue(text.contains("Asistencias: 12"));
             assertTrue(text.contains("Suplementos con stock bajo: 2"));
