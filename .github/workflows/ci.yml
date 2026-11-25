@@ -20,7 +20,7 @@ jobs:
 
     services:
       postgres:
-        image: postgres:17-alpine
+        image: postgres:18-alpine
         env:
           POSTGRES_DB: gymvip_test
           POSTGRES_USER: gymvip_user
@@ -52,7 +52,7 @@ jobs:
           TEST_DB_SCHEMA: gymvip_test_jorge
         run: |
           chmod +x ./mvnw
-          ./mvnw test -B
+          ./mvnw enforcer:enforce test -B
 
       - name: Empaquetar Artefacto JAR
         run: ./mvnw package -DskipTests -B
