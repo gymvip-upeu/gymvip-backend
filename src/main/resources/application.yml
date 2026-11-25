@@ -10,7 +10,18 @@ jwt:
   secret: ${JWT_SECRET:}
   expiration-hours: ${JWT_EXPIRATION_HOURS:24}
 
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      show-details: when-authorized
+
 app:
+  seed:
+    dev-defaults-enabled: ${APP_SEED_DEV_DEFAULTS_ENABLED:true}
   comms:
     url: ${APP_COMMS_URL:${COMMS_SERVICE_URL:http://localhost:8085}}
     token: ${COMMS_SERVICE_TOKEN:${APP_COMMS_TOKEN:}}
@@ -69,6 +80,8 @@ spring:
   config:
     activate:
       on-profile: prod
+  lifecycle:
+    timeout-per-shutdown-phase: 20s
   datasource:
     url: ${DB_JDBC_URL}
     driver-class-name: org.postgresql.Driver
@@ -92,3 +105,7 @@ spring:
     enabled: true
     baseline-on-migrate: false
     locations: classpath:db/migration
+
+app:
+  seed:
+    dev-defaults-enabled: ${APP_SEED_DEV_DEFAULTS_ENABLED:false}

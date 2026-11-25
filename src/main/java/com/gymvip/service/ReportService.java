@@ -7,6 +7,7 @@ import org.apache.pdfbox.pdmodel.PDDocument;
 import org.apache.pdfbox.pdmodel.PDPage;
 import org.apache.pdfbox.pdmodel.PDPageContentStream;
 import org.apache.pdfbox.pdmodel.font.PDType1Font;
+import org.apache.pdfbox.pdmodel.font.Standard14Fonts;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 
@@ -136,10 +137,10 @@ public class ReportService {
             document.addPage(page);
             try (var stream = new PDPageContentStream(document, page)) {
                 stream.beginText();
-                stream.setFont(PDType1Font.HELVETICA_BOLD, 16);
+                stream.setFont(new PDType1Font(Standard14Fonts.FontName.HELVETICA_BOLD), 16);
                 stream.newLineAtOffset(48, 750);
                 stream.showText("GYM VIP - Reporte operativo");
-                stream.setFont(PDType1Font.HELVETICA, 11);
+                stream.setFont(new PDType1Font(Standard14Fonts.FontName.HELVETICA), 11);
                 stream.newLineAtOffset(0, -28);
                 stream.showText(snapshot.from() + " a " + snapshot.to() + " (America/Lima)");
                 for (var entry : snapshot.metrics().entrySet()) {

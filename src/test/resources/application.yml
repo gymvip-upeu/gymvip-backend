@@ -26,6 +26,7 @@ spring:
       connection-timeout: 20000
       pool-name: GymVipTestPool
   jpa:
+    open-in-view: false
     hibernate:
       ddl-auto: validate
     show-sql: false
