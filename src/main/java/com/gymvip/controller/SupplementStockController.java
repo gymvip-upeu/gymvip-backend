@@ -34,7 +34,7 @@ public class SupplementStockController {
     }
 
     @PostMapping("/{id}/stock/movement")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasAnyRole('ADMIN', 'GERENTE')")
     @ResponseStatus(HttpStatus.CREATED)
     public StockMovementDto recordMovement(
             @PathVariable UUID id,

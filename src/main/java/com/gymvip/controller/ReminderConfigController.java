@@ -32,7 +32,7 @@ public class ReminderConfigController {
     }
 
     @PutMapping("/config")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasAnyRole('ADMIN', 'GERENTE')")
     public ResponseEntity<ReminderConfigResponse> updateConfig(
             @Valid @RequestBody ReminderConfigRequest request,
             Authentication auth
@@ -41,7 +41,7 @@ public class ReminderConfigController {
     }
 
     @PostMapping("/evaluate")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasAnyRole('ADMIN', 'GERENTE')")
     public ResponseEntity<ReminderService.EvaluationSummary> evaluateNow(Authentication auth) {
         return ResponseEntity.ok(reminderService.evaluateReminders(auth.getName()));
     }

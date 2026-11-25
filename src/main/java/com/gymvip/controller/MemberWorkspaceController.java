@@ -27,11 +27,11 @@ public class MemberWorkspaceController {
     @PostMapping("/{id}/app-access") public ResponseEntity<MemberWorkspaceService.Credentials> access(@PathVariable UUID id,Authentication auth) {
         return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(service.provision(id,auth.getName()));
     }
-    @PatchMapping("/{id}/status") @PreAuthorize("hasRole('ADMIN')")
+    @PatchMapping("/{id}/status") @PreAuthorize("hasAnyRole('ADMIN', 'GERENTE')")
     public Object status(@PathVariable UUID id,@Valid @RequestBody MemberWorkspaceService.StatusChange request,Authentication auth) {return service.status(id,request,auth.getName());}
     @GetMapping("/{id}/attendance") public Object attendance(@PathVariable UUID id) {return service.attendanceHistory(id);}
     @PostMapping("/{id}/attendance") public Object attend(@PathVariable UUID id,Authentication auth) {return service.checkIn(id,auth.getName());}
-    @PostMapping("/{id}/periods/{period}/cancel") @PreAuthorize("hasRole('ADMIN')")
+    @PostMapping("/{id}/periods/{period}/cancel") @PreAuthorize("hasAnyRole('ADMIN', 'GERENTE')")
     public Object cancel(@PathVariable UUID id,@PathVariable UUID period,@Valid @RequestBody MemberWorkspaceService.Cancellation request,Authentication auth) {
         service.cancel(id,period,request,auth.getName());return Map.of("cancelled",true,"periodId",period);
     }

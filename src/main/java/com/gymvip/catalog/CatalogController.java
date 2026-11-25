@@ -52,17 +52,17 @@ public class CatalogController {
             return input;
         }catch(JsonProcessingException ex){throw new IllegalArgumentException("Los datos del suplemento no tienen un formato válido.");}
     }
-    @PostMapping(value="/supplements",consumes=MediaType.MULTIPART_FORM_DATA_VALUE) @PreAuthorize("hasRole('ADMIN')")
+    @PostMapping(value="/supplements",consumes=MediaType.MULTIPART_FORM_DATA_VALUE) @PreAuthorize("hasAnyRole('ADMIN', 'GERENTE')")
     public ResponseEntity<Supplement> create(@RequestPart("data") String data,@RequestPart(value="images",required=false) List<MultipartFile> files,Authentication auth) {
         return ResponseEntity.status(HttpStatus.CREATED).body(service.saveSupplement(null,parse(data),files,auth.getName()));
     }
-    @PutMapping(value="/supplements/{id}",consumes=MediaType.MULTIPART_FORM_DATA_VALUE) @PreAuthorize("hasRole('ADMIN')")
+    @PutMapping(value="/supplements/{id}",consumes=MediaType.MULTIPART_FORM_DATA_VALUE) @PreAuthorize("hasAnyRole('ADMIN', 'GERENTE')")
     public Supplement update(@PathVariable UUID id,@RequestPart("data") String data,@RequestPart(value="images",required=false) List<MultipartFile> files,Authentication auth) {
         return service.saveSupplement(id,parse(data),files,auth.getName());
     }
-    @PatchMapping("/supplements/{id}/state") @PreAuthorize("hasRole('ADMIN')")
+    @PatchMapping("/supplements/{id}/state") @PreAuthorize("hasAnyRole('ADMIN', 'GERENTE')")
     public Supplement state(@PathVariable UUID id,@Valid @RequestBody StateInput input,Authentication auth) {return service.state(id,input,auth.getName());}
-    @GetMapping("/supplements/{id}/history") @PreAuthorize("hasRole('ADMIN')")
+    @GetMapping("/supplements/{id}/history") @PreAuthorize("hasAnyRole('ADMIN', 'GERENTE')")
     public Object supplementHistory(@PathVariable UUID id,@RequestParam(defaultValue="0") int page) {return service.supplementHistory(id,page);}
     @GetMapping("/supplements/{id}/images/{image}") public ResponseEntity<byte[]> image(@PathVariable UUID id,@PathVariable UUID image,@RequestParam(defaultValue="true") boolean thumbnail, Authentication auth) {
         var result=service.image(id,image,thumbnail,isCustomer(auth));
@@ -71,22 +71,22 @@ public class CatalogController {
     @GetMapping("/promotions") public Page<Promotion> promotions(@RequestParam(defaultValue="VIGENTE") String state,@RequestParam(required=false) UUID supplementId,
         @RequestParam(defaultValue="0") int page,@RequestParam(defaultValue="12") int size, Authentication auth) {return service.promotions(state,supplementId,page,size,isCustomer(auth));}
     @GetMapping("/promotions/{id}") public Promotion promotion(@PathVariable UUID id, Authentication auth) {return service.promotion(id,isCustomer(auth));}
-    @PostMapping("/promotions") @PreAuthorize("hasRole('ADMIN')")
+    @PostMapping("/promotions") @PreAuthorize("hasAnyRole('ADMIN', 'GERENTE')")
     public ResponseEntity<Promotion> createPromotion(@Valid @RequestBody PromotionInput input,Authentication auth) {return ResponseEntity.status(HttpStatus.CREATED).body(service.savePromotion(null,input,auth.getName()));}
-    @PutMapping("/promotions/{id}") @PreAuthorize("hasRole('ADMIN')")
+    @PutMapping("/promotions/{id}") @PreAuthorize("hasAnyRole('ADMIN', 'GERENTE')")
     public Promotion updatePromotion(@PathVariable UUID id,@Valid @RequestBody PromotionInput input,Authentication auth) {return service.savePromotion(id,input,auth.getName());}
-    @PostMapping("/promotions/{id}/deactivate") @PreAuthorize("hasRole('ADMIN')")
+    @PostMapping("/promotions/{id}/deactivate") @PreAuthorize("hasAnyRole('ADMIN', 'GERENTE')")
     public Promotion deactivate(@PathVariable UUID id,@Valid @RequestBody PromotionCancellation input,Authentication auth) {return service.deactivatePromotion(id,input,auth.getName());}
-    @GetMapping("/promotions/{id}/history") @PreAuthorize("hasRole('ADMIN')") public Object promotionHistory(@PathVariable UUID id,@RequestParam(defaultValue="0") int page) {return service.promotionHistory(id,page);}
+    @GetMapping("/promotions/{id}/history") @PreAuthorize("hasAnyRole('ADMIN', 'GERENTE')") public Object promotionHistory(@PathVariable UUID id,@RequestParam(defaultValue="0") int page) {return service.promotionHistory(id,page);}
 
     @GetMapping("/supplements/scan/{code}")
-    @PreAuthorize("hasAnyRole('ADMIN','RECEPCION')")
+    @PreAuthorize("hasAnyRole('ADMIN','GERENTE','RECEPCION')")
     public Supplement scanProduct(@PathVariable String code) {
         return service.scan(code);
     }
 
     @PatchMapping("/supplements/{id}/barcode")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasAnyRole('ADMIN', 'GERENTE', 'RECEPCION')")
     public Supplement updateBarcode(@PathVariable UUID id, @RequestBody Map<String, String> body, Authentication auth) {
         return service.updateBarcode(id, body != null ? body.get("barcode") : null, auth.getName());
     }

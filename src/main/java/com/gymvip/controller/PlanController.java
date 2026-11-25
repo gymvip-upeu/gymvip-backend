@@ -36,7 +36,7 @@ public class PlanController {
     }
 
     @PostMapping
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasAnyRole('ADMIN', 'GERENTE')")
     public ResponseEntity<PlanResponse> createPlan(
             @Valid @RequestBody CreatePlanRequest request,
             Authentication authentication
@@ -47,7 +47,7 @@ public class PlanController {
     }
 
     @PutMapping("/{id}")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasAnyRole('ADMIN', 'GERENTE')")
     public ResponseEntity<PlanResponse> updatePlan(
             @PathVariable UUID id,
             @Valid @RequestBody UpdatePlanRequest request,
@@ -59,7 +59,7 @@ public class PlanController {
     }
 
     @PatchMapping("/{id}/status")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasAnyRole('ADMIN', 'GERENTE')")
     public ResponseEntity<PlanResponse> updateStatus(
             @PathVariable UUID id,
             @Valid @RequestBody UpdatePlanStatusRequest request,
