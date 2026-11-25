@@ -75,12 +75,12 @@ class SupplementOrderUnitTest {
             when(rs.getBigDecimal("discount_pen")).thenReturn(BigDecimal.ZERO);
             when(rs.getBigDecimal("total_pen")).thenReturn(total);
             when(rs.getString("payment_method")).thenReturn("YAPE");
-            when(rs.getTimestamp("created_at_utc")).thenReturn(Timestamp.from(clock.instant()));
+            when(rs.getTimestamp("created_at_utc")).thenReturn(Timestamp.valueOf(java.time.LocalDateTime.ofInstant(clock.instant(), java.time.ZoneOffset.UTC)));
             when(rs.getBoolean("stock_reserved")).thenReturn(true);
             when(rs.getBoolean("has_pickup_token")).thenReturn(pickupToken != null);
             when(rs.getString("pickup_token")).thenReturn(pickupToken);
-            when(rs.getTimestamp("pickup_token_issued_at_utc")).thenReturn(pickupToken != null ? Timestamp.from(clock.instant()) : null);
-            when(rs.getTimestamp("pickup_token_consumed_at_utc")).thenReturn("ENTREGADO".equals(fulfillmentStatus) ? Timestamp.from(clock.instant()) : null);
+            when(rs.getTimestamp("pickup_token_issued_at_utc")).thenReturn(pickupToken != null ? Timestamp.valueOf(java.time.LocalDateTime.ofInstant(clock.instant(), java.time.ZoneOffset.UTC)) : null);
+            when(rs.getTimestamp("pickup_token_consumed_at_utc")).thenReturn("ENTREGADO".equals(fulfillmentStatus) ? Timestamp.valueOf(java.time.LocalDateTime.ofInstant(clock.instant(), java.time.ZoneOffset.UTC)) : null);
         } catch (SQLException ignored) {}
         return rs;
     }
@@ -148,7 +148,7 @@ class SupplementOrderUnitTest {
 
         ResultSet orderRs = mockOrderRow("PENDIENTE_PAGO", "PENDIENTE", "PENDIENTE", new BigDecimal("360.00"), null);
         when(jdbc.query(contains("FROM supplement_orders o"), any(RowMapper.class), any(UUID.class)))
-                .thenReturn(List.of(orderRs));
+                .thenAnswer(call -> List.of(((RowMapper<?>) call.getArgument(1)).mapRow(orderRs, 0)));
 
         OrderDetailDto order = orderService.checkout("socio@gymvip.pe", new CheckoutRequest("YAPE", "Por la tarde", "idem-2"));
         assertNotNull(order);
@@ -156,7 +156,7 @@ class SupplementOrderUnitTest {
         assertEquals(new BigDecimal("360.00"), order.totalPen());
 
         verify(jdbc).update(contains("DELETE FROM member_cart_items WHERE cart_id = ?"), eq(testCartId));
-        verify(jdbc).update(contains("UPDATE supplements SET stock = ?"), eq(8), eq("DISPONIBLE"), any(Instant.class), eq(testSupplementId));
+        verify(jdbc).update(contains("UPDATE supplements SET stock = ?"), eq(8), eq("DISPONIBLE"), any(java.time.LocalDateTime.class), eq(testSupplementId));
     }
 
     @Test
@@ -234,7 +234,7 @@ class SupplementOrderUnitTest {
 
         ResultSet orderRs = mockOrderRow("CONFIRMADO_PREPARACION", "VERIFICADO", "EN_PREPARACION", new BigDecimal("250.00"), null);
         when(jdbc.query(contains("FROM supplement_orders o"), any(RowMapper.class), eq(testOrderId)))
-                .thenReturn(List.of(orderRs));
+                .thenAnswer(call -> List.of(((RowMapper<?>) call.getArgument(1)).mapRow(orderRs, 0)));
 
         PaymentApprovalRequest req = new PaymentApprovalRequest(new BigDecimal("250.00"), "Aprobado");
         OrderDetailDto result = orderService.approvePayment(testOrderId, req, "admin@gymvip.pe");
@@ -288,13 +288,13 @@ class SupplementOrderUnitTest {
 
         ResultSet orderRs = mockOrderRow("RECHAZADO", "RECHAZADO", "ANULADO", new BigDecimal("250.00"), null);
         when(jdbc.query(contains("FROM supplement_orders o"), any(RowMapper.class), eq(testOrderId)))
-                .thenReturn(List.of(orderRs));
+                .thenAnswer(call -> List.of(((RowMapper<?>) call.getArgument(1)).mapRow(orderRs, 0)));
 
         PaymentRejectionRequest req = new PaymentRejectionRequest("Voucher borroso e ilegible");
         OrderDetailDto result = orderService.rejectPayment(testOrderId, req, "admin@gymvip.pe");
 
         assertEquals("RECHAZADO", result.orderStatus());
-        verify(jdbc).update(contains("UPDATE supplements SET stock = ?, availability = 'DISPONIBLE'"), eq(10), any(Instant.class), eq(testSupplementId));
+        verify(jdbc).update(contains("UPDATE supplements SET stock = ?, availability = 'DISPONIBLE'"), eq(10), any(java.time.LocalDateTime.class), eq(testSupplementId));
         verify(jdbc).update(contains("INSERT INTO supplement_stock_movements"), any(), eq(testSupplementId), eq(2), eq(8), eq(10), contains("LIBERACION_STOCK"), any(), any());
     }
 
@@ -306,7 +306,7 @@ class SupplementOrderUnitTest {
 
         ResultSet orderRs = mockOrderRow("PENDIENTE_PAGO", "PENDIENTE", "PENDIENTE", new BigDecimal("180.00"), null);
         when(jdbc.query(contains("o.id = ? AND o.account_id = ?"), any(RowMapper.class), eq(testOrderId), eq(testAccountId)))
-                .thenReturn(List.of(orderRs));
+                .thenAnswer(call -> List.of(((RowMapper<?>) call.getArgument(1)).mapRow(orderRs, 0)));
 
         ConflictException ex = assertThrows(ConflictException.class, () ->
                 orderService.getPickupTicket("socio@gymvip.pe", testOrderId)
@@ -328,7 +328,7 @@ class SupplementOrderUnitTest {
         assertFalse(ticket.isConsumed());
         assertEquals("ORD-20261120-1234", ticket.orderNumber());
 
-        verify(jdbc, never()).update(contains("SET order_status = 'ENTREGADO'"), any(Instant.class), anyString(), any(Instant.class), any(Instant.class), any(UUID.class));
+        verify(jdbc, never()).update(contains("SET order_status = 'ENTREGADO'"), any(java.time.LocalDateTime.class), anyString(), any(java.time.LocalDateTime.class), any(java.time.LocalDateTime.class), any(UUID.class));
     }
 
     @Test
@@ -349,13 +349,13 @@ class SupplementOrderUnitTest {
 
         ResultSet orderRs = mockOrderRow("ENTREGADO", "VERIFICADO", "ENTREGADO", new BigDecimal("180.00"), "rtk_valid_token_123");
         when(jdbc.query(contains("FROM supplement_orders o"), any(RowMapper.class), eq(testOrderId)))
-                .thenReturn(List.of(orderRs));
+                .thenAnswer(call -> List.of(((RowMapper<?>) call.getArgument(1)).mapRow(orderRs, 0)));
 
         OrderDetailDto delivered = orderService.fulfillOrderDelivery("rtk_valid_token_123", "recepcion@gymvip.pe", "DNI verificado");
 
         assertEquals("ENTREGADO", delivered.orderStatus());
         verify(jdbc).update(contains("order_status = 'ENTREGADO', fulfillment_status = 'ENTREGADO'"),
-                any(Instant.class), eq("recepcion@gymvip.pe"), any(Instant.class), any(Instant.class), eq(testOrderId));
+                any(java.time.LocalDateTime.class), eq("recepcion@gymvip.pe"), any(java.time.LocalDateTime.class), any(java.time.LocalDateTime.class), eq(testOrderId));
     }
 
     @Test
@@ -406,17 +406,17 @@ class SupplementOrderUnitTest {
 
         ResultSet orderRs = mockOrderRow("CANCELADO", "PENDIENTE", "ANULADO", new BigDecimal("180.00"), null);
         when(jdbc.query(contains("FROM supplement_orders o"), any(RowMapper.class), eq(testOrderId)))
-                .thenReturn(List.of(orderRs));
+                .thenAnswer(call -> List.of(((RowMapper<?>) call.getArgument(1)).mapRow(orderRs, 0)));
 
         OrderDetailDto cancelled = orderService.cancelOrder("socio@gymvip.pe", testOrderId, "Ya no lo necesito");
         assertEquals("CANCELADO", cancelled.orderStatus());
-        verify(jdbc).update(contains("UPDATE supplements SET stock = ?, availability = 'DISPONIBLE'"), eq(6), any(Instant.class), eq(testSupplementId));
+        verify(jdbc).update(contains("UPDATE supplements SET stock = ?, availability = 'DISPONIBLE'"), eq(6), any(java.time.LocalDateTime.class), eq(testSupplementId));
     }
 
     @Test
     @DisplayName("12. Liberación de reservas vencidas (>30 min) devuelve stock a disponibles")
     void testReleaseExpiredReservations() {
-        when(jdbc.query(contains("WHERE stock_reserved = true AND stock_released = false"), any(RowMapper.class), any(Instant.class)))
+        when(jdbc.query(contains("WHERE stock_reserved = true AND stock_released = false"), any(RowMapper.class), any(java.time.LocalDateTime.class)))
                 .thenReturn(List.of(Map.of("id", testOrderId, "order_number", "ORD-20261120-1234")));
 
         when(jdbc.query(contains("SELECT supplement_id, quantity FROM supplement_order_items"), any(RowMapper.class), eq(testOrderId)))
@@ -428,8 +428,8 @@ class SupplementOrderUnitTest {
         int released = orderService.releaseExpiredReservations();
 
         assertEquals(1, released);
-        verify(jdbc).update(contains("UPDATE supplements SET stock = ?, availability = 'DISPONIBLE'"), eq(5), any(Instant.class), eq(testSupplementId));
-        verify(jdbc).update(contains("order_status = 'EXPIRADO', stock_released = true"), any(Instant.class), eq(testOrderId));
+        verify(jdbc).update(contains("UPDATE supplements SET stock = ?, availability = 'DISPONIBLE'"), eq(5), any(java.time.LocalDateTime.class), eq(testSupplementId));
+        verify(jdbc).update(contains("order_status = 'EXPIRADO', stock_released = true"), any(java.time.LocalDateTime.class), eq(testOrderId));
     }
 
     @Test

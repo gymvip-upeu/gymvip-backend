@@ -15,6 +15,8 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.Clock;
 import java.time.Instant;
+import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.time.temporal.ChronoUnit;
@@ -39,6 +41,14 @@ public class SupplementOrderService {
         return clock.instant();
     }
 
+    /** Bind UTC instants explicitly for the schema's timestamp-without-time-zone columns. */
+    private int updateSql(String sql, Object... values) {
+        Object[] parameters = Arrays.stream(values)
+                .map(value -> value instanceof Instant instant ? LocalDateTime.ofInstant(instant, ZoneOffset.UTC) : value)
+                .toArray();
+        return jdbc.update(sql, parameters);
+    }
+
     private String generateSecureToken(String prefix, int byteLength) {
         byte[] bytes = new byte[byteLength];
         secureRandom.nextBytes(bytes);
@@ -61,7 +71,7 @@ public class SupplementOrderService {
             return existing.get(0);
         }
         UUID cartId = UUID.randomUUID();
-        jdbc.update("INSERT INTO member_carts (id, account_id, created_at_utc, updated_at_utc) VALUES (?, ?, ?, ?)",
+        updateSql("INSERT INTO member_carts (id, account_id, created_at_utc, updated_at_utc) VALUES (?, ?, ?, ?)",
                 cartId, accountId, now(), now());
         return cartId;
     }
@@ -108,25 +118,29 @@ public class SupplementOrderService {
         UUID cartId = getOrCreateCartId(accountId);
 
         if (req.quantity() <= 0) {
-            jdbc.update("DELETE FROM member_cart_items WHERE cart_id = ? AND supplement_id = ?", cartId, req.supplementId());
+            updateSql("DELETE FROM member_cart_items WHERE cart_id = ? AND supplement_id = ?", cartId, req.supplementId());
         } else {
+            Integer purchasable = jdbc.queryForObject("SELECT count(*) FROM supplements WHERE id = ? AND published AND availability = 'DISPONIBLE'", Integer.class, req.supplementId());
+            if (purchasable == null || purchasable == 0) {
+                throw new ConflictException("El suplemento está agotado o ya no está publicado. Actualiza el catálogo.");
+            }
             int cappedQty = Math.min(req.quantity(), 20);
-            jdbc.update("""
+            updateSql("""
                 INSERT INTO member_cart_items (id, cart_id, supplement_id, quantity, created_at_utc, updated_at_utc)
                 VALUES (?, ?, ?, ?, ?, ?)
                 ON CONFLICT (cart_id, supplement_id)
                 DO UPDATE SET quantity = EXCLUDED.quantity, updated_at_utc = EXCLUDED.updated_at_utc
             """, UUID.randomUUID(), cartId, req.supplementId(), cappedQty, now(), now());
         }
-        jdbc.update("UPDATE member_carts SET updated_at_utc = ? WHERE id = ?", now(), cartId);
+        updateSql("UPDATE member_carts SET updated_at_utc = ? WHERE id = ?", now(), cartId);
         return getCart(userEmail);
     }
 
     public void clearCart(String userEmail) {
         UUID accountId = getAccountIdByEmail(userEmail);
         UUID cartId = getOrCreateCartId(accountId);
-        jdbc.update("DELETE FROM member_cart_items WHERE cart_id = ?", cartId);
-        jdbc.update("UPDATE member_carts SET updated_at_utc = ? WHERE id = ?", now(), cartId);
+        updateSql("DELETE FROM member_cart_items WHERE cart_id = ?", cartId);
+        updateSql("UPDATE member_carts SET updated_at_utc = ? WHERE id = ?", now(), cartId);
     }
 
     // =========================================================================
@@ -236,11 +250,11 @@ public class SupplementOrderService {
             // Descontar stock reservándolo
             int newStock = currentStock - reqQty;
             String newAvailability = newStock > 0 ? "DISPONIBLE" : "AGOTADO";
-            jdbc.update("UPDATE supplements SET stock = ?, availability = ?, updated_at_utc = ? WHERE id = ?",
+            updateSql("UPDATE supplements SET stock = ?, availability = ?, updated_at_utc = ? WHERE id = ?",
                     newStock, newAvailability, now(), supId);
 
             // Registrar movimiento de kardex
-            jdbc.update("""
+            updateSql("""
                 INSERT INTO supplement_stock_movements (id, supplement_id, movement_type, quantity, previous_stock, new_stock, reason, actor, created_at_utc)
                 VALUES (?, ?, 'SALIDA', ?, ?, ?, ?, ?, ?)
             """, UUID.randomUUID(), supId, reqQty, currentStock, newStock, "RESERVA_CHECKOUT_" + orderNumber, userEmail, now());
@@ -258,7 +272,7 @@ public class SupplementOrderService {
                 ? req.idempotencyKey().trim() : null;
 
         // Insertar pedido en estado PENDIENTE_PAGO
-        jdbc.update("""
+        updateSql("""
             INSERT INTO supplement_orders (id, order_number, client_id, account_id, order_status, payment_status, fulfillment_status,
                                           subtotal_pen, discount_pen, total_pen, payment_method, reservation_expires_at_utc,
                                           stock_reserved, stock_released, customer_notes, idempotency_key, created_at_utc, updated_at_utc)
@@ -267,7 +281,7 @@ public class SupplementOrderService {
                 reservationExpiry, customerNotes, idempotencyKey, now(), now());
 
         for (Object[] item : orderItems) {
-            jdbc.update("""
+            updateSql("""
                 INSERT INTO supplement_order_items (id, order_id, supplement_id, product_name, product_brand, product_presentation, product_flavor,
                                                    unit_regular_price_pen, unit_final_price_pen, applied_promotion_id, applied_promotion_name,
                                                    quantity, line_total_pen)
@@ -276,7 +290,7 @@ public class SupplementOrderService {
         }
 
         // Limpiar el carrito
-        jdbc.update("DELETE FROM member_cart_items WHERE cart_id = ?", cartId);
+        updateSql("DELETE FROM member_cart_items WHERE cart_id = ?", cartId);
 
         // Auditoría
         recordOrderAudit(orderId, "ORDER_CREATED", null, "PENDIENTE_PAGO", userEmail,
@@ -304,7 +318,7 @@ public class SupplementOrderService {
                 "payment_method", rs.getString("payment_method"),
                 "total_pen", rs.getBigDecimal("total_pen"),
                 "stock_released", rs.getBoolean("stock_released"),
-                "reservation_expires", rs.getTimestamp("reservation_expires_at_utc") != null ? rs.getTimestamp("reservation_expires_at_utc").toInstant() : now()
+                "reservation_expires", rs.getTimestamp("reservation_expires_at_utc") != null ? rs.getTimestamp("reservation_expires_at_utc").toLocalDateTime().toInstant(ZoneOffset.UTC) : now()
         ), orderId, accountId);
 
         if (order.isEmpty()) {
@@ -338,7 +352,7 @@ public class SupplementOrderService {
             throw new ConflictException("La referencia de pago '" + ref + "' ya fue registrada previamente en el pedido " + duplicateRef.get(0) + ".");
         }
 
-        jdbc.update("""
+        updateSql("""
             UPDATE supplement_orders
             SET payment_reference = ?, payment_evidence_url = ?, payment_evidence_notes = ?,
                 payment_evidence_at_utc = ?, order_status = 'PAGADO_POR_VERIFICAR',
@@ -373,7 +387,7 @@ public class SupplementOrderService {
                 "payment_status", rs.getString("payment_status"),
                 "payment_method", rs.getString("payment_method"),
                 "reservation_expires_at_utc", rs.getTimestamp("reservation_expires_at_utc") == null
-                        ? Instant.MAX : rs.getTimestamp("reservation_expires_at_utc").toInstant(),
+                        ? Instant.MAX : rs.getTimestamp("reservation_expires_at_utc").toLocalDateTime().toInstant(ZoneOffset.UTC),
                 "total_pen", rs.getBigDecimal("total_pen"),
                 "stock_released", rs.getBoolean("stock_released"),
                 "client_id", rs.getObject("client_id", UUID.class)
@@ -412,7 +426,7 @@ public class SupplementOrderService {
             throw new ConflictException("El monto verificado (S/ " + verifiedAmount + ") es menor al total requerido (S/ " + expectedTotal + ").");
         }
 
-        jdbc.update("""
+        updateSql("""
             UPDATE supplement_orders
             SET order_status = 'CONFIRMADO_PREPARACION', payment_status = 'VERIFICADO',
                 fulfillment_status = 'EN_PREPARACION', verified_by = ?, verified_at_utc = ?,
@@ -443,7 +457,7 @@ public class SupplementOrderService {
                 "payment_method", rs.getString("payment_method"),
                 "total_pen", rs.getBigDecimal("total_pen"),
                 "stock_released", rs.getBoolean("stock_released"),
-                "reservation_expires_at_utc", rs.getTimestamp("reservation_expires_at_utc").toInstant(),
+                "reservation_expires_at_utc", rs.getTimestamp("reservation_expires_at_utc").toLocalDateTime().toInstant(ZoneOffset.UTC),
                 "client_id", rs.getObject("client_id", UUID.class)
         ), orderId);
         if (rows.isEmpty()) throw new ConflictException("El pedido pagado ya no existe.");
@@ -455,7 +469,7 @@ public class SupplementOrderService {
                 !((Instant) data.get("reservation_expires_at_utc")).isAfter(now()) ||
                 ((BigDecimal) data.get("total_pen")).compareTo(amountPen) != 0)
             throw new ConflictException("El pedido requiere revisión: reserva, importe o estado ya no coinciden.");
-        jdbc.update("""
+        updateSql("""
             UPDATE supplement_orders
             SET order_status='CONFIRMADO_PREPARACION',payment_status='VERIFICADO',
                 fulfillment_status='EN_PREPARACION',payment_reference=?,verified_by='CULQI',
@@ -500,7 +514,7 @@ public class SupplementOrderService {
             releaseStockForOrder(orderId, (String) data.get("order_number"), adminActor);
         }
 
-        jdbc.update("""
+        updateSql("""
             UPDATE supplement_orders
             SET order_status = 'RECHAZADO', payment_status = 'RECHAZADO',
                 fulfillment_status = 'ANULADO', rejection_reason = ?, stock_released = true, updated_at_utc = ?
@@ -546,7 +560,7 @@ public class SupplementOrderService {
         String pickupToken = existingToken.isBlank() ? generateSecureToken("rtk_", 18) : existingToken;
         UUID clientId = (UUID) data.get("client_id");
 
-        jdbc.update("""
+        updateSql("""
             UPDATE supplement_orders
             SET order_status = 'LISTO_PARA_RETIRO', fulfillment_status = 'LISTO',
                 pickup_token = ?, pickup_token_issued_at_utc = COALESCE(pickup_token_issued_at_utc, ?),
@@ -593,10 +607,10 @@ public class SupplementOrderService {
             BigDecimal total = row.getBigDecimal("total_pen");
             String orderStatus = row.getString("order_status");
             String issuedAt = row.getTimestamp("pickup_token_issued_at_utc") != null
-                    ? row.getTimestamp("pickup_token_issued_at_utc").toInstant().toString() : now().toString();
+                    ? row.getTimestamp("pickup_token_issued_at_utc").toLocalDateTime().toInstant(ZoneOffset.UTC).toString() : now().toString();
             var consumedTs = row.getTimestamp("pickup_token_consumed_at_utc");
             boolean isConsumed = consumedTs != null;
-            String consumedAt = isConsumed ? consumedTs.toInstant().toString() : null;
+            String consumedAt = isConsumed ? consumedTs.toLocalDateTime().toInstant(ZoneOffset.UTC).toString() : null;
 
             List<OrderItemDto> items = getOrderItems(orderId);
 
@@ -651,10 +665,10 @@ public class SupplementOrderService {
             String payStatus = row.getString("payment_status");
             String fulfillStatus = row.getString("fulfillment_status");
             String issuedAt = row.getTimestamp("pickup_token_issued_at_utc") != null
-                    ? row.getTimestamp("pickup_token_issued_at_utc").toInstant().toString() : "";
+                    ? row.getTimestamp("pickup_token_issued_at_utc").toLocalDateTime().toInstant(ZoneOffset.UTC).toString() : "";
             var consumedTs = row.getTimestamp("pickup_token_consumed_at_utc");
             boolean isConsumed = consumedTs != null;
-            String consumedAt = isConsumed ? consumedTs.toInstant().toString() : null;
+            String consumedAt = isConsumed ? consumedTs.toLocalDateTime().toInstant(ZoneOffset.UTC).toString() : null;
 
             List<OrderItemDto> items = getOrderItems(orderId);
 
@@ -716,7 +730,7 @@ public class SupplementOrderService {
             throw new ConflictException("El pedido no se encuentra en estado LISTO_PARA_RETIRO (Estado: " + orderStatus + ")");
         }
 
-        jdbc.update("""
+        updateSql("""
             UPDATE supplement_orders
             SET order_status = 'ENTREGADO', fulfillment_status = 'ENTREGADO',
                 pickup_token_consumed_at_utc = ?, fulfilled_by = ?, fulfilled_at_utc = ?,
@@ -761,7 +775,7 @@ public class SupplementOrderService {
             Integer activeLinks = jdbc.queryForObject("""
                 SELECT count(*) FROM supplement_payment_links
                 WHERE order_id=? AND status='PENDING' AND expires_at_utc>?
-            """, Integer.class, orderId, now());
+            """, Integer.class, orderId, LocalDateTime.ofInstant(now(), ZoneOffset.UTC));
             if (activeLinks != null && activeLinks > 0)
                 throw new ConflictException("Espere a que venza el enlace Culqi antes de cancelar el pedido.");
         }
@@ -778,7 +792,7 @@ public class SupplementOrderService {
             releaseStockForOrder(orderId, (String) data.get("order_number"), userEmail);
         }
 
-        jdbc.update("""
+        updateSql("""
             UPDATE supplement_orders
             SET order_status = 'CANCELADO', fulfillment_status = 'ANULADO', cancellation_reason = ?,
                 stock_released = true, updated_at_utc = ?
@@ -806,10 +820,10 @@ public class SupplementOrderService {
             if (!sup.isEmpty()) {
                 int prevStock = sup.get(0);
                 int newStock = prevStock + qty;
-                jdbc.update("UPDATE supplements SET stock = ?, availability = 'DISPONIBLE', updated_at_utc = ? WHERE id = ?",
+                updateSql("UPDATE supplements SET stock = ?, availability = 'DISPONIBLE', updated_at_utc = ? WHERE id = ?",
                         newStock, now(), supId);
 
-                jdbc.update("""
+                updateSql("""
                     INSERT INTO supplement_stock_movements (id, supplement_id, movement_type, quantity, previous_stock, new_stock, reason, actor, created_at_utc)
                     VALUES (?, ?, 'ENTRADA', ?, ?, ?, ?, ?, ?)
                 """, UUID.randomUUID(), supId, qty, prevStock, newStock, "LIBERACION_STOCK_" + orderNumber, actor, now());
@@ -827,14 +841,14 @@ public class SupplementOrderService {
         """, (rs, n) -> Map.of(
                 "id", rs.getObject("id", UUID.class),
                 "order_number", rs.getString("order_number")
-        ), now());
+        ), LocalDateTime.ofInstant(now(), ZoneOffset.UTC));
 
         int count = 0;
         for (var ord : expiredOrders) {
             UUID ordId = (UUID) ord.get("id");
             String ordNum = (String) ord.get("order_number");
             releaseStockForOrder(ordId, ordNum, "SISTEMA_RESERVA_EXPIRADA");
-            jdbc.update("""
+            updateSql("""
                 UPDATE supplement_orders
                 SET order_status = 'EXPIRADO', stock_released = true, updated_at_utc = ?
                 WHERE id = ?
@@ -892,6 +906,7 @@ public class SupplementOrderService {
     }
 
     private OrderDetailDto getOrderByIdInternal(UUID orderId) {
+        List<OrderItemDto> items = getOrderItems(orderId);
         var rows = jdbc.query("""
             SELECT o.id, o.order_number, o.client_id, c.first_name, c.last_name, c.member_code, c.phone,
                    o.order_status, o.payment_status, o.fulfillment_status,
@@ -904,13 +919,7 @@ public class SupplementOrderService {
             FROM supplement_orders o
             JOIN clients c ON c.id = o.client_id
             WHERE o.id = ?
-        """, (rs, n) -> rs, orderId);
-
-        if (rows.isEmpty()) throw new ResourceNotFoundException("Pedido no encontrado.");
-
-        try {
-            var r = rows.get(0);
-            List<OrderItemDto> items = getOrderItems(orderId);
+        """, (r, n) -> {
             String clientName = r.getString("first_name") + " " + r.getString("last_name");
             String memberCode = r.getString("member_code");
 
@@ -931,24 +940,24 @@ public class SupplementOrderService {
                     r.getString("payment_reference"),
                     r.getString("payment_evidence_url"),
                     r.getString("payment_evidence_notes"),
-                    r.getTimestamp("payment_evidence_at_utc") != null ? r.getTimestamp("payment_evidence_at_utc").toInstant().toString() : null,
+                    r.getTimestamp("payment_evidence_at_utc") != null ? r.getTimestamp("payment_evidence_at_utc").toLocalDateTime().toInstant(ZoneOffset.UTC).toString() : null,
                     r.getString("verified_by"),
-                    r.getTimestamp("verified_at_utc") != null ? r.getTimestamp("verified_at_utc").toInstant().toString() : null,
+                    r.getTimestamp("verified_at_utc") != null ? r.getTimestamp("verified_at_utc").toLocalDateTime().toInstant(ZoneOffset.UTC).toString() : null,
                     r.getBigDecimal("verified_amount_pen"),
                     r.getString("rejection_reason"),
                     r.getString("cancellation_reason"),
-                    r.getTimestamp("reservation_expires_at_utc") != null ? r.getTimestamp("reservation_expires_at_utc").toInstant().toString() : null,
+                    r.getTimestamp("reservation_expires_at_utc") != null ? r.getTimestamp("reservation_expires_at_utc").toLocalDateTime().toInstant(ZoneOffset.UTC).toString() : null,
                     r.getBoolean("stock_reserved"),
                     r.getBoolean("has_pickup_token"),
                     r.getString("fulfilled_by"),
-                    r.getTimestamp("fulfilled_at_utc") != null ? r.getTimestamp("fulfilled_at_utc").toInstant().toString() : null,
+                    r.getTimestamp("fulfilled_at_utc") != null ? r.getTimestamp("fulfilled_at_utc").toLocalDateTime().toInstant(ZoneOffset.UTC).toString() : null,
                     r.getString("customer_notes"),
-                    r.getTimestamp("created_at_utc") != null ? r.getTimestamp("created_at_utc").toInstant().toString() : now().toString(),
+                    r.getTimestamp("created_at_utc") != null ? r.getTimestamp("created_at_utc").toLocalDateTime().toInstant(ZoneOffset.UTC).toString() : now().toString(),
                     items
             );
-        } catch (SQLException e) {
-            throw new RuntimeException(e);
-        }
+        }, orderId);
+        if (rows.isEmpty()) throw new ResourceNotFoundException("Pedido no encontrado.");
+        return rows.get(0);
     }
 
     private List<OrderItemDto> getOrderItems(UUID orderId) {
@@ -974,7 +983,7 @@ public class SupplementOrderService {
     }
 
     private void recordOrderAudit(UUID orderId, String action, String fromStatus, String toStatus, String actor, String details) {
-        jdbc.update("""
+        updateSql("""
             INSERT INTO supplement_order_audit (id, order_id, action, from_order_status, to_order_status, actor, details, created_at_utc)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         """, UUID.randomUUID(), orderId, action, fromStatus, toStatus, actor, details, now());
@@ -983,7 +992,7 @@ public class SupplementOrderService {
     private void queueOutboxPush(UUID clientId, String title, String message) {
         try {
             String idempotencyKey = "order_notice_" + UUID.randomUUID();
-            jdbc.update("""
+            updateSql("""
                 INSERT INTO notification_outbox (id, idempotency_key, channel, recipient, title, payload, status)
                 VALUES (?, ?, 'PUSH', ?, ?, ?, 'PENDING')
                 ON CONFLICT (idempotency_key) DO NOTHING
