@@ -103,13 +103,29 @@ class JwtSecurityTest {
         String sessionId = UUID.randomUUID().toString().replace("-", "");
         String token = jwtService.generateToken(account, sessionId, LocalDateTime.now().plusHours(2));
 
-        // Manipular el último carácter de la firma
-        char lastChar = token.charAt(token.length() - 1);
-        char alteredChar = (lastChar == 'A') ? 'B' : 'A';
-        String tamperedToken = token.substring(0, token.length() - 1) + alteredChar;
+        // Cambiar bits significativos, no los bits de relleno del último carácter Base64URL.
+        int signatureStart = token.lastIndexOf('.') + 1;
+        char original = token.charAt(signatureStart);
+        char alteredChar = original == 'A' ? 'B' : 'A';
+        String tamperedToken = token.substring(0, signatureStart) + alteredChar + token.substring(signatureStart + 1);
 
         Optional<Claims> claimsOpt = jwtService.validateAndExtractClaims(tamperedToken);
         assertTrue(claimsOpt.isEmpty(), "Un token con firma alterada no debe producir claims válidos");
+    }
+
+    @Test
+    @DisplayName("JWT rechaza una codificación alternativa de la misma firma")
+    void nonCanonicalSignatureRejected() {
+        Account account = new Account(UUID.randomUUID(), "test@gymvip.local", "hash", Set.of("CLIENTE"), "ACTIVO", false);
+        String token = jwtService.generateToken(account, UUID.randomUUID().toString(), LocalDateTime.now().plusHours(1));
+        String alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+        int last = alphabet.indexOf(token.charAt(token.length() - 1));
+        String alternative = token.substring(0, token.length() - 1) + alphabet.charAt(last | 1);
+        String signature = token.substring(token.lastIndexOf('.') + 1);
+        String alternateSignature = alternative.substring(alternative.lastIndexOf('.') + 1);
+        assertArrayEquals(java.util.Base64.getUrlDecoder().decode(signature), java.util.Base64.getUrlDecoder().decode(alternateSignature));
+        assertTrue(jwtService.validateAndExtractClaims(alternative).isEmpty());
+        assertTrue(jwtService.extractSessionIdIfValidSignature(alternative).isEmpty());
     }
 
     @Test

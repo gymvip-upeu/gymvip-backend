@@ -32,7 +32,7 @@ import java.util.*;
 public class ClientImportServiceImpl implements ClientImportService {
 
     private static final Logger log = LoggerFactory.getLogger(ClientImportServiceImpl.class);
-    private static final long MAX_FILE_SIZE_BYTES = 5 * 1024 * 1024; // 5 MB
+    private static final long MAX_FILE_SIZE_BYTES = 5L * 1024 * 1024; // 5 MB
     private static final int MAX_DATA_ROWS = 1000;
 
     private static final String[] EXPECTED_HEADERS = {

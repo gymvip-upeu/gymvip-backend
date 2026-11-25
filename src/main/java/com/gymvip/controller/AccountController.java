@@ -19,6 +19,7 @@ import java.util.UUID;
 @RequestMapping("/api/v1/accounts")
 @PreAuthorize("hasRole('ADMIN')")
 public class AccountController {
+    private static final String SYSTEM_ACTOR = "admin_sistema";
 
     private final AccountService accountService;
 
@@ -41,7 +42,7 @@ public class AccountController {
             @Valid @RequestBody CreateStaffAccountRequest request,
             Authentication authentication
     ) {
-        String actor = authentication != null ? authentication.getName() : "admin_sistema";
+        String actor = authentication != null ? authentication.getName() : SYSTEM_ACTOR;
         StaffAccountResponse created = accountService.createStaffAccount(request, actor);
         return ResponseEntity.status(HttpStatus.CREATED).body(created);
     }
@@ -52,7 +53,7 @@ public class AccountController {
             @Valid @RequestBody UpdateStaffRoleRequest request,
             Authentication authentication
     ) {
-        String actor = authentication != null ? authentication.getName() : "admin_sistema";
+        String actor = authentication != null ? authentication.getName() : SYSTEM_ACTOR;
         StaffAccountResponse updated = accountService.updateRole(id, request, actor);
         return ResponseEntity.ok(updated);
     }
@@ -63,7 +64,7 @@ public class AccountController {
             @Valid @RequestBody UpdateStaffStatusRequest request,
             Authentication authentication
     ) {
-        String actor = authentication != null ? authentication.getName() : "admin_sistema";
+        String actor = authentication != null ? authentication.getName() : SYSTEM_ACTOR;
         StaffAccountResponse updated = accountService.updateStatus(id, request, actor);
         return ResponseEntity.ok(updated);
     }
@@ -73,7 +74,7 @@ public class AccountController {
             @PathVariable UUID id,
             Authentication authentication
     ) {
-        String actor = authentication != null ? authentication.getName() : "admin_sistema";
+        String actor = authentication != null ? authentication.getName() : SYSTEM_ACTOR;
         accountService.revokeSessions(id, actor);
         return ResponseEntity.noContent().build();
     }

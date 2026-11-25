@@ -95,7 +95,7 @@ public class JwtService {
      * @return Optional con Claims si es legítimo, o vacío si fue alterado, expiró o es malformado
      */
     public Optional<Claims> validateAndExtractClaims(String token) {
-        if (token == null || token.isBlank()) {
+        if (token == null || token.isBlank() || !hasCanonicalEncoding(token.trim())) {
             return Optional.empty();
         }
 
@@ -136,7 +136,7 @@ public class JwtService {
      * Si la firma fue manipulada o es inválida, retorna vacío.
      */
     public Optional<String> extractSessionIdIfValidSignature(String token) {
-        if (token == null || token.isBlank()) {
+        if (token == null || token.isBlank() || !hasCanonicalEncoding(token.trim())) {
             return Optional.empty();
         }
 
@@ -153,6 +153,24 @@ public class JwtService {
         } catch (Exception ex) {
             // Firma alterada o formato ilegítimo
             return Optional.empty();
+        }
+    }
+
+    /** Rechaza representaciones Base64URL alternativas de los mismos bytes firmados. */
+    private boolean hasCanonicalEncoding(String token) {
+        String[] parts = token.split("\\.", -1);
+        if (parts.length != 3) return false;
+        try {
+            for (String part : parts) {
+                if (part.isEmpty() || !part.matches("[A-Za-z0-9_-]+") ||
+                        !Base64.getUrlEncoder().withoutPadding().encodeToString(
+                                Base64.getUrlDecoder().decode(part)).equals(part)) {
+                    return false;
+                }
+            }
+            return true;
+        } catch (IllegalArgumentException ex) {
+            return false;
         }
     }
 

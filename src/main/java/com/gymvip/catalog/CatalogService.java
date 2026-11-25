@@ -43,7 +43,8 @@ public class CatalogService {
         if(minPrice!=null&&minPrice.signum()<0||maxPrice!=null&&maxPrice.signum()<0||minPrice!=null&&maxPrice!=null&&minPrice.compareTo(maxPrice)>0)throw new IllegalArgumentException("Rango de precios inválido.");
         StringBuilder where=new StringBuilder(" WHERE 1=1");List<Object> args=new ArrayList<>();
         if(customer){where.append(" AND published");}else if(published!=null){where.append(" AND published=?");args.add(published);}
-        if(!clean(query).isEmpty()){where.append(" AND (position(lower(?) in lower(name))>0 OR position(lower(?) in lower(brand))>0)");args.add(query.trim());args.add(query.trim());}
+        String normalizedQuery=clean(query);
+        if(!normalizedQuery.isEmpty()){where.append(" AND (position(lower(?) in lower(name))>0 OR position(lower(?) in lower(brand))>0)");args.add(normalizedQuery);args.add(normalizedQuery);}
         if(!clean(category).isEmpty()){where.append(" AND category=?");args.add(category);}
         if(!clean(availability).isEmpty()){where.append(" AND availability=?");args.add(availability);}
         if(minPrice!=null){where.append(" AND price_pen>=?");args.add(minPrice);}
