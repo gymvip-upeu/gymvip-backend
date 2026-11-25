@@ -13,6 +13,7 @@ import java.util.UUID;
 @Repository
 public interface PasswordResetTokenRepository extends JpaRepository<PasswordResetToken, UUID> {
 
+    @org.springframework.data.jpa.repository.Lock(jakarta.persistence.LockModeType.PESSIMISTIC_WRITE)
     Optional<PasswordResetToken> findByTokenHash(String tokenHash);
 
     @Modifying

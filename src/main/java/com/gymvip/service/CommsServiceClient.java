@@ -20,19 +20,70 @@ public class CommsServiceClient {
     private static final Logger log = LoggerFactory.getLogger(CommsServiceClient.class);
 
     private final RestClient restClient;
+    private final RestClient statusClient;
     private final String commsUrl;
     private final String serviceToken;
 
+    @org.springframework.beans.factory.annotation.Autowired
     public CommsServiceClient(
             @Value("${app.comms.url:http://localhost:8085}") String commsUrl,
             @Value("${app.comms.token:gymvip-internal-token-2026}") String serviceToken
     ) {
+        this(commsUrl, serviceToken, null);
+    }
+
+    CommsServiceClient(String commsUrl, String serviceToken, RestClient.Builder statusBuilder) {
         this.commsUrl = commsUrl;
         this.serviceToken = serviceToken;
-        this.restClient = RestClient.builder()
+        var factory = new org.springframework.http.client.JdkClientHttpRequestFactory(
+                java.net.http.HttpClient.newBuilder().connectTimeout(java.time.Duration.ofSeconds(3)).build());
+        factory.setReadTimeout(java.time.Duration.ofSeconds(20));
+        var statusFactory = new org.springframework.http.client.JdkClientHttpRequestFactory(
+                java.net.http.HttpClient.newBuilder().connectTimeout(java.time.Duration.ofSeconds(2)).build());
+        statusFactory.setReadTimeout(java.time.Duration.ofSeconds(3));
+        this.statusClient = (statusBuilder == null ? RestClient.builder().requestFactory(statusFactory) : statusBuilder)
                 .baseUrl(commsUrl)
                 .defaultHeader("X-Service-Key", serviceToken)
                 .build();
+        this.restClient = RestClient.builder()
+                .requestFactory(factory)
+                .baseUrl(commsUrl)
+                .defaultHeader("X-Service-Key", serviceToken)
+                .build();
+    }
+
+    public Map<String, Object> getWhatsAppChannelStatus() {
+        try {
+            var body = statusClient.get().uri("/api/v1/channels/status").retrieve().body(Map.class);
+            if (body == null || !(body.get("channels") instanceof Map<?, ?> channels)
+                    || !(channels.get("whatsapp") instanceof Map<?, ?> wa)
+                    || !(wa.get("enabled") instanceof Boolean enabled)) {
+                throw new IllegalStateException("Invalid status");
+            }
+            String status = String.valueOf(wa.get("status"));
+            if (!Set.of("DISABLED", "SIMULATION", "UNCONFIGURED", "CONFIGURED_REAL").contains(status)
+                    || (!enabled && !status.equals("DISABLED"))
+                    || (enabled && status.equals("DISABLED"))
+                    || (status.equals("CONFIGURED_REAL") && !Boolean.TRUE.equals(wa.get("configurationComplete")))) {
+                throw new IllegalStateException("Invalid configuration status");
+            }
+            return Map.of(
+                    "channel", "WHATSAPP",
+                    "enabled", enabled,
+                    "status", status,
+                    "source", "comunicaciones",
+                    "configurationComplete", Boolean.TRUE.equals(wa.get("configurationComplete")),
+                    "connectionVerified", false
+            );
+        } catch (Exception ignored) {
+            return Map.of(
+                    "channel", "WHATSAPP",
+                    "status", "UNVERIFIED",
+                    "source", "comunicaciones",
+                    "message", "No se pudo verificar",
+                    "connectionVerified", false
+            );
+        }
     }
 
     public record CommsDispatchResult(
@@ -41,6 +92,21 @@ public class CommsServiceClient {
             String status,
             String errorMessage
     ) {}
+
+    public CommsDispatchResult sendAccountSecurityEmail(String email, String subject, String template, Map<String, Object> variables) {
+        try {
+            var result = restClient.post().uri("/api/v1/messages/email").contentType(MediaType.APPLICATION_JSON)
+                    .body(Map.of("to", email, "subject", subject, "template", template, "variables", variables))
+                    .retrieve().body(Map.class);
+            if (result == null) return new CommsDispatchResult(false, null, "FAILED", "Respuesta vacía del proveedor.");
+            String id = Objects.toString(result.get("deliveryId"), "");
+            String status = Objects.toString(result.get("status"), "");
+            boolean accepted = status.equals("ACEPTADO_PROVEEDOR") && !id.isBlank() && !id.startsWith("sim_");
+            return new CommsDispatchResult(accepted, id, status, accepted ? null : "No se confirmó el envío real.");
+        } catch (Exception ignored) {
+            return new CommsDispatchResult(false, null, "FAILED", "No se pudo enviar el correo de seguridad.");
+        }
+    }
 
     public CommsDispatchResult sendWhatsAppReminder(
             String requestId,
@@ -92,14 +158,14 @@ public class CommsServiceClient {
         try {
             Map<String, Object> variables = Map.of(
                     "link", resetLink != null ? resetLink : "",
-                    "token", rawToken != null ? rawToken : "",
+                    "idempotencyKey", "reset-" + UUID.randomUUID(),
                     "recipientName", recipientName != null ? recipientName : "Socio VIP",
                     "expirationMinutes", 15
             );
 
             Map<String, Object> body = Map.of(
                     "to", toEmail,
-                    "subject", "Recuperación de Contraseña — GYM VIP",
+                    "subject", "Restablece tu contraseña — VIP CENTER FIT",
                     "template", "password_reset",
                     "variables", variables
             );
@@ -116,7 +182,7 @@ public class CommsServiceClient {
                 var resBody = res.getBody();
                 String delId = String.valueOf(resBody.get("deliveryId"));
                 String status = String.valueOf(resBody.get("status"));
-                boolean realDispatch = !status.toLowerCase(Locale.ROOT).contains("simul") && !delId.startsWith("sim_");
+                boolean realDispatch = "ACEPTADO_PROVEEDOR".equals(status) && !delId.isBlank() && !"null".equals(delId) && !delId.startsWith("sim_");
                 return new CommsDispatchResult(realDispatch, delId, status,
                         realDispatch ? null : "El proveedor solo simuló el envío");
             }

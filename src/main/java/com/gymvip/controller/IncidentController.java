@@ -20,7 +20,7 @@ import java.util.UUID;
 
 @RestController
 @RequestMapping("/api/v1/incidents")
-@PreAuthorize("hasAnyRole('ADMIN','AUDITOR')")
+@PreAuthorize("hasAnyRole('ADMIN','GERENTE','AUDITOR')")
 public class IncidentController {
     private final IncidentService service;
     public IncidentController(IncidentService service) { this.service = service; }

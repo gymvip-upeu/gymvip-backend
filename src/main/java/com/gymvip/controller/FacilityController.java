@@ -52,7 +52,7 @@ public class FacilityController {
     }
 
     @GetMapping("/archive")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasAnyRole('ADMIN','GERENTE')")
     public List<FacilityDto> listArchive() {
         return listByArchive(true);
     }
@@ -82,7 +82,7 @@ public class FacilityController {
     }
 
     @PostMapping
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasAnyRole('ADMIN','GERENTE')")
     @Transactional
     public ResponseEntity<FacilityDto> createFacility(@Valid @RequestBody FacilityDto request, Authentication auth) {
         UUID id = UUID.randomUUID();
@@ -101,7 +101,7 @@ public class FacilityController {
     }
 
     @PutMapping("/{id}")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasAnyRole('ADMIN','GERENTE')")
     @Transactional
     public ResponseEntity<FacilityDto> updateFacility(@PathVariable UUID id, @Valid @RequestBody FacilityDto request, Authentication auth) {
         String status = (request.status() != null && !request.status().isBlank()) ? request.status().toUpperCase() : "DISPONIBLE";
@@ -128,7 +128,7 @@ public class FacilityController {
     }
 
     @PatchMapping("/{id}/status")
-    @PreAuthorize("hasAnyRole('ADMIN','RECEPCION')")
+    @PreAuthorize("hasAnyRole('ADMIN','GERENTE','RECEPCION')")
     @Transactional
     public ResponseEntity<?> updateStatus(@PathVariable UUID id, @Valid @RequestBody StatusUpdateRequest request, Authentication auth) {
         String newStatus = request.status().toUpperCase().trim();
@@ -163,17 +163,17 @@ public class FacilityController {
             // Registro en Notification Outbox para envío push
             String idempotencyKey = "notice_facility_" + id + "_" + System.currentTimeMillis();
             jdbc.update("""
-                INSERT INTO notification_outbox (id, idempotency_key, channel, recipient, title, payload, status)
-                VALUES (?, ?, 'PUSH', 'ALL_ACTIVE_MEMBERS', ?, ?, 'PENDING')
+                INSERT INTO notification_outbox (id, idempotency_key, channel, recipient, title, payload, status, inbox_item_id)
+                VALUES (?, ?, 'PUSH', 'ALL_ACTIVE_MEMBERS', ?, ?, 'PENDING', ?)
                 ON CONFLICT (idempotency_key) DO NOTHING
-            """, UUID.randomUUID(), idempotencyKey, noticeTitle, noticeMessage);
+            """, UUID.randomUUID(), idempotencyKey, noticeTitle, noticeMessage, noticeId.toString());
         }
 
         return ResponseEntity.ok(Map.of("id", id, "status", newStatus, "updated", true));
     }
 
     @PatchMapping("/{id}/restore")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasAnyRole('ADMIN','GERENTE')")
     @Transactional
     public ResponseEntity<?> restore(@PathVariable UUID id, Authentication auth) {
         int changed = jdbc.update("""

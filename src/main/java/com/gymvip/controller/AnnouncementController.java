@@ -68,7 +68,7 @@ public class AnnouncementController {
     }
 
     @PostMapping
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasAnyRole('ADMIN','GERENTE')")
     @Transactional
     public ResponseEntity<AnnouncementDto> createAnnouncement(@Valid @RequestBody CreateAnnouncementRequest request, Authentication auth) {
         UUID id = UUID.randomUUID();
@@ -84,10 +84,10 @@ public class AnnouncementController {
         if (request.sendPush()) {
             String idempotencyKey = "announcement_push_" + id;
             jdbc.update("""
-                INSERT INTO notification_outbox (id, idempotency_key, channel, recipient, title, payload, status)
-                VALUES (?, ?, 'PUSH', 'ALL_MEMBERS', ?, ?, 'PENDING')
+                INSERT INTO notification_outbox (id, idempotency_key, channel, recipient, title, payload, status, inbox_item_id)
+                VALUES (?, ?, 'PUSH', 'ALL_MEMBERS', ?, ?, 'PENDING', ?)
                 ON CONFLICT (idempotency_key) DO NOTHING
-            """, UUID.randomUUID(), idempotencyKey, request.title(), request.message());
+            """, UUID.randomUUID(), idempotencyKey, request.title(), request.message(), id.toString());
         }
 
         return ResponseEntity.status(HttpStatus.CREATED).body(new AnnouncementDto(

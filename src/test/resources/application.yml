@@ -4,6 +4,10 @@ server:
 cors:
   allowed-origins: "*"
 
+app:
+  member-access:
+    email-enabled: false
+
 spring:
   application:
     name: gymvip-backend-test

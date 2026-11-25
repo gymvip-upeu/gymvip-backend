@@ -42,9 +42,12 @@ public class PasswordResetServiceImpl implements PasswordResetService {
     private final AuditService auditService;
     private final CommsServiceClient commsServiceClient;
     private final String resetBaseUrl;
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private com.gymvip.service.MemberAccessService memberAccess;
 
     // Control de límite de solicitudes por IP/email (máximo 3 peticiones cada 15 minutos)
     private final Map<String, RequestCounter> rateLimitMap = new ConcurrentHashMap<>();
+    private final Map<String, Long> ownResetSentAt = new ConcurrentHashMap<>();
 
     private static class RequestCounter {
         int count;
@@ -58,7 +61,7 @@ public class PasswordResetServiceImpl implements PasswordResetService {
             PasswordEncoder passwordEncoder,
             AuditService auditService,
             CommsServiceClient commsServiceClient,
-            @Value("${app.password-reset.base-url:https://gymvip.pe/reset-password}") String resetBaseUrl
+            @Value("${PASSWORD_RESET_BASE_URL:${app.password-reset.base-url:https://gymvip.pe/reset-password}}") String resetBaseUrl
     ) {
         this.accountRepository = accountRepository;
         this.sessionRepository = sessionRepository;
@@ -72,6 +75,22 @@ public class PasswordResetServiceImpl implements PasswordResetService {
     @Override
     @Transactional
     public PasswordResetResponse requestReset(PasswordResetRequest request, String ipAddress) {
+        return requestResetInternal(request, ipAddress, false);
+    }
+
+    @Override
+    @Transactional
+    public PasswordResetResponse requestOwnReset(String actor, String ipAddress) {
+        Long lastSent = ownResetSentAt.get(actor);
+        if (lastSent != null && System.currentTimeMillis() - lastSent < 60_000) {
+            throw new TooManyRequestsException("Espera un minuto antes de solicitar otro enlace.");
+        }
+        requestResetInternal(new PasswordResetRequest(actor), ipAddress, true);
+        ownResetSentAt.put(actor, System.currentTimeMillis());
+        return new PasswordResetResponse("Enviamos un enlace a tu correo registrado. Revisa tu bandeja de entrada y Spam. El enlace vence en 15 minutos.");
+    }
+
+    private PasswordResetResponse requestResetInternal(PasswordResetRequest request, String ipAddress, boolean requireDispatch) {
         String email = request.email() != null ? request.email().trim().toLowerCase() : "";
         String rateKey = (ipAddress != null ? ipAddress : "unknown") + ":" + email;
 
@@ -86,6 +105,9 @@ public class PasswordResetServiceImpl implements PasswordResetService {
 
         // Anti-enumeración: si no existe o está inactivo, responder con mensaje neutro sin error
         if (account == null || !"ACTIVO".equalsIgnoreCase(account.getStatus())) {
+            if (requireDispatch) {
+                throw new InvalidCredentialsException("No se pudo verificar el correo registrado de tu cuenta.");
+            }
             log.info("[PASSWORD RESET] Solicitud para correo no existente o inactivo (respuesta neutra)");
             return new PasswordResetResponse(GENERIC_RESET_MSG);
         }
@@ -114,13 +136,16 @@ public class PasswordResetServiceImpl implements PasswordResetService {
         tokenRepository.save(tokenEntity);
 
         // Construir enlace de recuperación
-        String resetLink = resetBaseUrl + "?token=" + rawToken;
+        String resetLink = resetBaseUrl + "#token=" + rawToken;
 
         // Despachar email vía microservicio de comunicaciones
         var dispatch = commsServiceClient.sendPasswordResetEmail(email, resetLink, rawToken, "GYM VIP");
         if (!dispatch.dispatched()) {
             tokenRepository.invalidateActiveTokensForAccount(account.getId());
             log.warn("[PASSWORD RESET] No se pudo despachar la recuperación; token invalidado");
+            if (requireDispatch) {
+                throw new com.gymvip.exception.AccountEmailUnavailableException();
+            }
         }
 
         auditService.recordEvent(
@@ -155,18 +180,30 @@ public class PasswordResetServiceImpl implements PasswordResetService {
 
         Account account = accountRepository.findById(token.getAccountId())
                 .orElseThrow(() -> new InvalidCredentialsException("La cuenta asociada al token no fue encontrada."));
+        if (!"ACTIVO".equalsIgnoreCase(account.getStatus())) {
+            throw new InvalidCredentialsException("La cuenta no está activa. Contacta a Recepción.");
+        }
+        if (passwordEncoder.matches(newPassword, account.getPasswordHash())) {
+            throw new IllegalArgumentException("Elige una contraseña diferente de la anterior.");
+        }
 
         // Actualizar contraseña de la cuenta
         account.setPasswordHash(passwordEncoder.encode(newPassword));
+        account.setMustChangePassword(false);
+        account.setTemporaryPasswordExpiresAt(null);
         account.setUpdatedAt(LocalDateTime.now());
         accountRepository.save(account);
 
         // Consumir el token (un solo uso)
         token.setUsedAt(LocalDateTime.now());
         tokenRepository.save(token);
+        tokenRepository.invalidateActiveTokensForAccount(account.getId());
 
         // Invalidar de inmediato todas las sesiones anteriores activas
         sessionRepository.deleteByAccountId(account.getId());
+        if (memberAccess != null) {
+            memberAccess.passwordChanged(account.getId(), account.getEmail());
+        }
 
         auditService.recordEvent(
                 account.getEmail(),
@@ -183,14 +220,7 @@ public class PasswordResetServiceImpl implements PasswordResetService {
     }
 
     private void validatePasswordStrength(String password) {
-        if (password.length() < 8) {
-            throw new IllegalArgumentException("La contraseña debe tener al menos 8 caracteres.");
-        }
-        boolean hasDigit = password.chars().anyMatch(Character::isDigit);
-        boolean hasLetter = password.chars().anyMatch(Character::isLetter);
-        if (!hasDigit || !hasLetter) {
-            throw new IllegalArgumentException("La contraseña debe ser alfanumérica y contener al menos una letra y un número.");
-        }
+        com.gymvip.service.AccountPasswordPolicy.validate(password);
     }
 
     private String sha256Hex(String input) {

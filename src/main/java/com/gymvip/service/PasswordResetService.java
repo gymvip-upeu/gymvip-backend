@@ -9,5 +9,7 @@ public interface PasswordResetService {
 
     PasswordResetResponse requestReset(PasswordResetRequest request, String ipAddress);
 
+    PasswordResetResponse requestOwnReset(String actor, String ipAddress);
+
     PasswordResetConfirmResponse confirmReset(PasswordResetConfirmRequest request, String ipAddress);
 }

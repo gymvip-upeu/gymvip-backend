@@ -37,7 +37,7 @@ class MemberWorkspaceIntegrationTest {
     UUID plan;
     @BeforeEach void createFixtures() {
         String doc=String.valueOf(10000000+new java.security.SecureRandom().nextInt(89999999));
-        var request=new RegisterClientRequest("DemoMiembro",UUID.randomUUID().toString().substring(0,8),LocalDate.of(1990,1,1),"PE","DNI",doc,"999888777",null);
+        var request=new RegisterClientRequest("DemoMiembro",UUID.randomUUID().toString().substring(0,8),LocalDate.of(1990,1,1),"PE","DNI",doc,"999888777","member-"+UUID.randomUUID()+"@example.test");
         member=workspace.register(new MemberWorkspaceService.Registration(request,"Nota inicial",false),ACTOR);
         plan=plans.createPlan(new CreatePlanRequest("Trimestral miembro "+UUID.randomUUID(),"",90,new BigDecimal("320.00"),"Pesas","Horario regular"),ACTOR).id();
     }

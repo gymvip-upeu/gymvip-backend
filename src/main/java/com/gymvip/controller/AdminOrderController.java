@@ -14,7 +14,7 @@ import java.util.UUID;
 
 @RestController
 @RequestMapping("/api/v1/admin/orders")
-@PreAuthorize("hasAnyRole('ADMIN', 'RECEPCION')")
+@PreAuthorize("hasAnyRole('ADMIN', 'GERENTE', 'RECEPCION')")
 public class AdminOrderController {
 
     private final SupplementOrderService orderService;

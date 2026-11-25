@@ -21,18 +21,18 @@ public class MembershipPaymentLinkController {
     }
 
     @GetMapping("/api/v1/memberships/payment-links/config")
-    @PreAuthorize("hasAnyRole('ADMIN','RECEPCION')")
+    @PreAuthorize("hasAnyRole('ADMIN','GERENTE','RECEPCION')")
     public Map<String, Boolean> config() { return Map.of("culqiEnabled", service.available()); }
 
     @PostMapping("/api/v1/memberships/payment-links")
-    @PreAuthorize("hasAnyRole('ADMIN','RECEPCION')")
+    @PreAuthorize("hasAnyRole('ADMIN','GERENTE','RECEPCION')")
     public MembershipPaymentLinkService.LinkStatus create(@RequestBody MembershipPaymentLinkService.CreateRequest request,
                                                            Authentication auth) {
         return service.create(request, auth.getName());
     }
 
     @GetMapping("/api/v1/memberships/payment-links/{id}")
-    @PreAuthorize("hasAnyRole('ADMIN','RECEPCION')")
+    @PreAuthorize("hasAnyRole('ADMIN','GERENTE','RECEPCION')")
     public MembershipPaymentLinkService.LinkStatus status(@PathVariable UUID id) { return service.status(id); }
 
     @PostMapping("/api/v1/payments/culqi/webhook")

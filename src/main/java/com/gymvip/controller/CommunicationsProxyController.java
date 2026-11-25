@@ -87,7 +87,7 @@ public class CommunicationsProxyController {
     }
 
     @PostMapping("/{id}/retry")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasAnyRole('ADMIN', 'GERENTE')")
     public ResponseEntity<?> retryCommunication(@PathVariable UUID id) {
         return ResponseEntity.ok(commsClient.retryCommunication(id));
     }

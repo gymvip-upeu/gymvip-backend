@@ -12,7 +12,7 @@ import java.util.UUID;
 
 @RestController
 @RequestMapping("/api/v1/faqs")
-@PreAuthorize("hasAnyRole('ADMIN','RECEPCION')")
+@PreAuthorize("hasAnyRole('ADMIN','GERENTE','RECEPCION')")
 public class FaqController {
     private final FaqService service;
 
@@ -38,7 +38,7 @@ public class FaqController {
     }
 
     @PostMapping("/{id}/{action:publish|activate|deactivate}")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasAnyRole('ADMIN','GERENTE')")
     public FaqDtos.Record transition(@PathVariable UUID id, @PathVariable String action,
                                     @Valid @RequestBody FaqDtos.Transition request, Authentication auth) {
         return service.transition(id, request.revision(), action, auth.getName());

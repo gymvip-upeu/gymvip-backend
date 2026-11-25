@@ -11,7 +11,7 @@ import java.util.*;
 
 @RestController
 @RequestMapping("/api/v1/member-app")
-@PreAuthorize("hasAnyRole('CLIENTE','ADMIN','RECEPCION')")
+@PreAuthorize("hasAnyRole('CLIENTE','ADMIN','GERENTE','RECEPCION','AUDITOR')")
 public class MemberAppController {
     private final MemberWorkspaceService service;
     private final com.gymvip.service.AttendanceProcessingService attendanceProcessingService;
@@ -26,13 +26,23 @@ public class MemberAppController {
 
     @GetMapping("/session")
     public Object session(Authentication auth) {
-        return Map.of("mustChangePassword", service.mustChange(auth.getName()));
+        return Map.of("mustChangePassword", service.mustChange(auth.getName()), "email", auth.getName());
     }
 
     @PostMapping("/password")
     public Object password(@Valid @RequestBody MemberWorkspaceService.PasswordChange request, Authentication auth) {
         service.changePassword(auth.getName(), request);
         return Map.of("changed", true, "requiresLogin", true);
+    }
+
+    public record FirstPassword(@jakarta.validation.constraints.NotBlank String newPassword) {}
+
+    @PostMapping("/first-password")
+    @PreAuthorize("hasRole('CLIENTE')")
+    public ResponseEntity<?> firstPassword(@Valid @RequestBody FirstPassword request, Authentication auth) {
+        service.createFirstPassword(auth.getName(), request.newPassword());
+        return ResponseEntity.ok().cacheControl(org.springframework.http.CacheControl.noStore())
+                .body(Map.of("changed", true, "requiresLogin", true));
     }
 
     @GetMapping("/me")
@@ -166,14 +176,14 @@ public class MemberAppController {
         }
         var clientOpt = service.findOwnClient(auth.getName());
         if (clientOpt.isPresent()) {
-            return ResponseEntity.ok(service.registerDeviceToken(clientOpt.get(), request));
+            return ResponseEntity.ok(service.registerDeviceToken(clientOpt.get(), request, (String) auth.getDetails()));
         }
-        return ResponseEntity.ok(Map.of("registered", true, "platform", request.platform() != null ? request.platform() : "ANDROID"));
+        throw new org.springframework.security.access.AccessDeniedException("Solo los socios registran dispositivos de Avisos.");
     }
 
     @PostMapping("/devices/unregister")
     public ResponseEntity<?> unregisterDevice(@Valid @RequestBody MemberWorkspaceService.DeviceTokenRegistration request, Authentication auth) {
-        return ResponseEntity.ok(service.unregisterDeviceToken(auth.getName(), request));
+        return ResponseEntity.ok(service.unregisterDeviceToken(auth.getName(), request, (String) auth.getDetails()));
     }
 
     @PostMapping("/attendance/check-in")

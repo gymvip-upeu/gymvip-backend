@@ -16,7 +16,12 @@ import java.util.*;
 @Service
 public class MemberWorkspaceService {
     public record Registration(@NotNull @Valid RegisterClientRequest client, @Size(max=2000) String notes, boolean createAccess) {}
-    public record Credentials(String username, String temporaryPassword, boolean mustChangePassword) {}
+    public record Credentials(String username, String temporaryPassword, boolean mustChangePassword,
+                              String expiresAt, String invitationId, String emailDeliveryStatus) {
+        public Credentials(String username, String temporaryPassword, boolean mustChangePassword) {
+            this(username, temporaryPassword, mustChangePassword, null, null, "NOT_REQUESTED");
+        }
+    }
     public record Registered(ClientResponse client, Credentials credentials) {}
     public record StatusChange(@NotBlank @Pattern(regexp="ACTIVO|INACTIVO") String status, @NotNull Long version) {}
     public record Cancellation(@NotBlank @Size(max=500) String reason) {}
@@ -46,8 +51,24 @@ public class MemberWorkspaceService {
     private final AuditService audit;
     private final PasswordEncoder passwords;
     private final Clock clock;
-    public MemberWorkspaceService(JdbcTemplate jdbc,ClientService clients,CoverageService coverage,AuditService audit,PasswordEncoder passwords,Clock clock) {
-        this.jdbc=jdbc;this.clients=clients;this.coverage=coverage;this.audit=audit;this.passwords=passwords;this.clock=clock;
+    private final MemberAccessService access;
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public MemberWorkspaceService(JdbcTemplate jdbc, ClientService clients, CoverageService coverage,
+                                  AuditService audit, PasswordEncoder passwords, Clock clock,
+                                  MemberAccessService access) {
+        this.jdbc = jdbc;
+        this.clients = clients;
+        this.coverage = coverage;
+        this.audit = audit;
+        this.passwords = passwords;
+        this.clock = clock;
+        this.access = access;
+    }
+
+    public MemberWorkspaceService(JdbcTemplate jdbc, ClientService clients, CoverageService coverage,
+                                  AuditService audit, PasswordEncoder passwords, Clock clock) {
+        this(jdbc, clients, coverage, audit, passwords, clock, null);
     }
     private LocalDateTime now() { return LocalDateTime.ofInstant(clock.instant(),ZoneOffset.UTC); }
     private void lockClient(UUID id) {
@@ -61,6 +82,9 @@ public class MemberWorkspaceService {
         return new Registered(client,request.createAccess()?provision(client.id(),actor):null);
     }
     @Transactional public Credentials provision(UUID id,String actor) {
+        if (access != null) {
+            return access.provision(id, actor);
+        }
         lockClient(id);
         var row=jdbc.queryForMap("SELECT account_id,member_code,status FROM clients WHERE id=?",id);
         if(!"ACTIVO".equals(row.get("status"))) throw new ConflictException("Activa al miembro antes de habilitar su acceso.");
@@ -161,13 +185,29 @@ public class MemberWorkspaceService {
     }
     @Transactional public void changePassword(String actor,PasswordChange request) {
         ownClient(actor);
-        var account=jdbc.queryForMap("SELECT id,password_hash FROM accounts WHERE email=? FOR UPDATE",actor);
+        var account=jdbc.queryForMap("SELECT id,password_hash,temporary_password_expires_at FROM accounts WHERE email=? FOR UPDATE",actor);
         if(!passwords.matches(request.currentPassword(),account.get("password_hash").toString())) throw new IllegalArgumentException("La contraseña actual no es correcta.");
-        if(request.newPassword().getBytes(java.nio.charset.StandardCharsets.UTF_8).length>72) throw new IllegalArgumentException("La contraseña es demasiado larga para el cifrado permitido.");
-        if(request.newPassword().equals(request.currentPassword()) || !request.newPassword().matches("(?s).*[a-z].*") || !request.newPassword().matches("(?s).*[A-Z].*") || !request.newPassword().matches("(?s).*[0-9].*")) throw new IllegalArgumentException("Usa al menos 12 caracteres, mayúsculas, minúsculas y números, distintos de la contraseña temporal.");
-        jdbc.update("UPDATE accounts SET password_hash=?,must_change_password=false WHERE id=?",passwords.encode(request.newPassword()),account.get("id"));
-        jdbc.update("DELETE FROM sessions WHERE account_id=?",account.get("id"));
-        audit.recordEvent(actor,"CHANGE_MEMBER_PASSWORD","Account",account.get("id").toString(),"Contraseña actualizada y sesiones cerradas.");
+        var expiration=account.get("temporary_password_expires_at");
+        if(expiration instanceof java.sql.Timestamp timestamp && !timestamp.toLocalDateTime().isAfter(now()))
+            throw new InvalidCredentialsException("La contraseña temporal venció. Solicita una nueva invitación a Recepción.");
+        AccountPasswordPolicy.validate(request.newPassword());
+        if(passwords.matches(request.newPassword(),account.get("password_hash").toString()))
+            throw new IllegalArgumentException("La nueva contraseña debe ser diferente de la contraseña actual.");
+        UUID accountId = (UUID) account.get("id");
+        jdbc.update("UPDATE accounts SET password_hash=? WHERE id=?",passwords.encode(request.newPassword()),accountId);
+        if (access != null) {
+            access.completeFirstPassword(accountId, actor);
+        } else {
+            jdbc.update("UPDATE accounts SET must_change_password=false,status='ACTIVO',temporary_password_expires_at=NULL WHERE id=?", accountId);
+            jdbc.update("DELETE FROM sessions WHERE account_id=?", accountId);
+            audit.recordEvent(actor,"CHANGE_MEMBER_PASSWORD","Account",accountId.toString(),"Contraseña actualizada y sesiones cerradas.");
+        }
+    }
+    @Transactional public void createFirstPassword(String actor, String newPassword) {
+        if (access == null) {
+            throw new IllegalStateException("Servicio de activación no disponible.");
+        }
+        access.createFirstPassword(actor, newPassword);
     }
     @Transactional(readOnly=true) public boolean mustChange(String actor) { return Boolean.TRUE.equals(jdbc.queryForObject("SELECT must_change_password FROM accounts WHERE email=?",Boolean.class,actor)); }
 
@@ -569,13 +609,14 @@ public class MemberWorkspaceService {
     }
 
     public record DeviceTokenRegistration(
-            @jakarta.validation.constraints.NotBlank(message = "El token de dispositivo es obligatorio") String token,
+            @jakarta.validation.constraints.NotBlank(message = "El token de dispositivo es obligatorio")
+            @jakarta.validation.constraints.Size(max = 500) String token,
             String platform,
             String deviceModel
     ) {}
 
     @Transactional
-    public Map<String, Object> registerDeviceToken(UUID clientId, DeviceTokenRegistration request) {
+    public Map<String, Object> registerDeviceToken(UUID clientId, DeviceTokenRegistration request, String sessionToken) {
         if (request == null || request.token() == null || request.token().isBlank()) {
             throw new IllegalArgumentException("El token de dispositivo es obligatorio.");
         }
@@ -583,24 +624,49 @@ public class MemberWorkspaceService {
                 ? request.platform().trim().toUpperCase() : "ANDROID";
         String deviceModel = (request.deviceModel() != null) ? request.deviceModel().trim() : null;
 
+        if (sessionToken == null || !Boolean.TRUE.equals(jdbc.queryForObject("""
+            SELECT EXISTS(SELECT 1 FROM sessions s JOIN clients c ON c.account_id=s.account_id
+            WHERE c.id=? AND s.token=? AND s.expires_at>CURRENT_TIMESTAMP AND c.status='ACTIVO')
+        """, Boolean.class, clientId, sessionToken))) {
+            throw new org.springframework.security.access.AccessDeniedException("Sesión del dispositivo no válida.");
+        }
+        String token = request.token().trim();
+        jdbc.queryForList("SELECT pg_advisory_xact_lock(hashtextextended(?,0))", token);
+        jdbc.update("UPDATE member_device_tokens SET is_active=false, updated_at_utc=CURRENT_TIMESTAMP WHERE device_token=? AND client_id<>?", token, clientId);
+
         jdbc.update("""
-            INSERT INTO member_device_tokens (client_id, device_token, platform, device_model, is_active, updated_at_utc)
-            VALUES (?, ?, ?, ?, true, CURRENT_TIMESTAMP)
+            INSERT INTO member_device_tokens (client_id, device_token, platform, device_model, session_token, is_active, updated_at_utc)
+            VALUES (?, ?, ?, ?, ?, true, CURRENT_TIMESTAMP)
             ON CONFLICT (client_id, device_token)
             DO UPDATE SET is_active = true, updated_at_utc = CURRENT_TIMESTAMP,
-                          platform = EXCLUDED.platform, device_model = EXCLUDED.device_model
-        """, clientId, request.token().trim(), platform, deviceModel);
+                          platform = EXCLUDED.platform, device_model = EXCLUDED.device_model, session_token = EXCLUDED.session_token
+        """, clientId, token, platform, deviceModel, sessionToken);
 
         return Map.of("registered", true, "platform", platform);
     }
 
     @Transactional
-    public Map<String, Object> unregisterDeviceToken(String email, DeviceTokenRegistration request) {
+    public Map<String, Object> registerDeviceToken(UUID clientId, DeviceTokenRegistration request) {
+        return registerDeviceToken(clientId, request, null);
+    }
+
+    @Transactional
+    public Map<String, Object> unregisterDeviceToken(String email, DeviceTokenRegistration request, String sessionToken) {
         if (request == null || request.token() == null || request.token().isBlank()) {
             throw new IllegalArgumentException("El token de dispositivo es obligatorio.");
         }
         String token = request.token().trim();
-        jdbc.update("UPDATE member_device_tokens SET is_active = false, updated_at_utc = CURRENT_TIMESTAMP WHERE device_token = ?", token);
+        UUID clientId = ownClient(email);
+        if (sessionToken != null) {
+            jdbc.update("UPDATE member_device_tokens SET is_active = false, updated_at_utc = CURRENT_TIMESTAMP WHERE device_token = ? AND client_id=? AND session_token=?", token, clientId, sessionToken);
+        } else {
+            jdbc.update("UPDATE member_device_tokens SET is_active = false, updated_at_utc = CURRENT_TIMESTAMP WHERE device_token = ? AND client_id=?", token, clientId);
+        }
         return Map.of("unregistered", true);
+    }
+
+    @Transactional
+    public Map<String, Object> unregisterDeviceToken(String email, DeviceTokenRegistration request) {
+        return unregisterDeviceToken(email, request, null);
     }
 }

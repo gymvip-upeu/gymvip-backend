@@ -34,38 +34,38 @@ public class AttendanceTerminalController {
     }
 
     @GetMapping("/terminals")
-    @PreAuthorize("hasAnyRole('ADMIN', 'RECEPCION')")
+    @PreAuthorize("hasAnyRole('ADMIN', 'GERENTE', 'RECEPCION')")
     public List<TerminalDto> listTerminals() {
         return terminalService.listTerminals();
     }
 
     @PostMapping("/terminals")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasAnyRole('ADMIN', 'GERENTE')")
     @ResponseStatus(HttpStatus.CREATED)
     public TerminalDto createTerminal(@Valid @RequestBody TerminalCreateRequest request, Authentication auth) {
         return terminalService.createTerminal(request, auth.getName());
     }
 
     @PostMapping("/terminals/{id}/activate")
-    @PreAuthorize("hasAnyRole('ADMIN', 'RECEPCION')")
+    @PreAuthorize("hasAnyRole('ADMIN', 'GERENTE', 'RECEPCION')")
     public TerminalDto activateTerminal(@PathVariable UUID id, Authentication auth) {
         return terminalService.activateTerminal(id, auth.getName());
     }
 
     @PostMapping("/terminals/{id}/deactivate")
-    @PreAuthorize("hasAnyRole('ADMIN', 'RECEPCION')")
+    @PreAuthorize("hasAnyRole('ADMIN', 'GERENTE', 'RECEPCION')")
     public TerminalDto deactivateTerminal(@PathVariable UUID id, Authentication auth) {
         return terminalService.deactivateTerminal(id, auth.getName());
     }
 
     @GetMapping("/terminals/{id}/challenge")
-    @PreAuthorize("hasAnyRole('ADMIN', 'RECEPCION')")
+    @PreAuthorize("hasAnyRole('ADMIN', 'GERENTE', 'RECEPCION')")
     public ChallengeResponse getChallenge(@PathVariable UUID id, Authentication auth) {
         return terminalService.generateChallenge(id, auth.getName());
     }
 
     @GetMapping({"/feed", "/terminals/{id}/feed"})
-    @PreAuthorize("hasAnyRole('ADMIN', 'RECEPCION')")
+    @PreAuthorize("hasAnyRole('ADMIN', 'GERENTE', 'RECEPCION')")
     public List<Map<String, Object>> getRecentFeed(
             @PathVariable(required = false) UUID id,
             @RequestParam(defaultValue = "15") int limit
@@ -74,7 +74,7 @@ public class AttendanceTerminalController {
     }
 
     @GetMapping("/agenda")
-    @PreAuthorize("hasAnyRole('ADMIN', 'RECEPCION')")
+    @PreAuthorize("hasAnyRole('ADMIN', 'GERENTE', 'RECEPCION')")
     public AgendaPageResponse getAgenda(
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
@@ -92,7 +92,7 @@ public class AttendanceTerminalController {
     }
 
     @GetMapping(value = "/agenda/export", produces = "text/csv")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasAnyRole('ADMIN', 'GERENTE')")
     public ResponseEntity<String> exportAgenda(
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,

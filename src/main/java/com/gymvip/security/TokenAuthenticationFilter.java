@@ -53,14 +53,36 @@ public class TokenAuthenticationFilter extends OncePerRequestFilter {
                     Session session = sessionOpt.get();
                     if (session.getExpiresAt().isAfter(LocalDateTime.now())) {
                         Optional<Account> accountOpt = accountRepository.findById(session.getAccountId());
-                        if (accountOpt.isPresent() && "ACTIVO".equalsIgnoreCase(accountOpt.get().getStatus())) {
+                        if (accountOpt.isPresent() && ("ACTIVO".equalsIgnoreCase(accountOpt.get().getStatus()) ||
+                                ("PENDIENTE_ACTIVACION".equals(accountOpt.get().getStatus())
+                                        && accountOpt.get().isMustChangePassword()
+                                        && accountOpt.get().getRoles().contains("CLIENTE")))) {
                             Account account = accountOpt.get();
+                            if (account.isMustChangePassword()) {
+                                boolean expired = account.getTemporaryPasswordExpiresAt() != null &&
+                                        !account.getTemporaryPasswordExpiresAt().isAfter(LocalDateTime.now(java.time.ZoneOffset.UTC));
+                                boolean allowed = java.util.Set.of(
+                                        "/api/v1/member-app/session",
+                                        "/api/v1/member-app/password",
+                                        "/api/v1/member-app/first-password",
+                                        "/api/v1/member-app/consents",
+                                        "/api/v1/auth/me",
+                                        "/api/v1/auth/logout"
+                                ).contains(request.getRequestURI());
+                                if (expired || !allowed) {
+                                    response.setStatus(expired ? 401 : 403);
+                                    response.setContentType("application/json");
+                                    response.getWriter().write("{\"message\":\"Crea tu nueva contraseña antes de continuar. Si venció la temporal, solicita otra invitación.\"}");
+                                    return;
+                                }
+                            }
                             List<SimpleGrantedAuthority> authorities = account.getRoles().stream()
                                     .map(role -> new SimpleGrantedAuthority("ROLE_" + role.toUpperCase()))
                                     .collect(Collectors.toList());
 
                             UsernamePasswordAuthenticationToken authentication =
                                     new UsernamePasswordAuthenticationToken(account.getEmail(), null, authorities);
+                            authentication.setDetails(sessionId);
                             SecurityContextHolder.getContext().setAuthentication(authentication);
                         }
                     } else {

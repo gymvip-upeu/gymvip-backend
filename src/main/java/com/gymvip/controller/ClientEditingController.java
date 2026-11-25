@@ -15,11 +15,11 @@ import java.util.UUID;
 public class ClientEditingController {
     private final ClientEditingService service;
     public ClientEditingController(ClientEditingService service) { this.service=service; }
-    @PutMapping("/{id}") @PreAuthorize("hasAnyRole('ADMIN','RECEPCION')")
+    @PutMapping("/{id}") @PreAuthorize("hasAnyRole('ADMIN','GERENTE','RECEPCION')")
     public ClientDetailResponse update(@PathVariable UUID id, @Valid @RequestBody UpdateClientRequest request, Authentication actor) {
         return service.update(id,request,actor.getName());
     }
-    @GetMapping("/{id}/changes") @PreAuthorize("hasRole('ADMIN')")
+    @GetMapping("/{id}/changes") @PreAuthorize("hasAnyRole('ADMIN','GERENTE','AUDITOR')")
     public PageResponse<ClientChangeResponse> history(@PathVariable UUID id,@RequestParam(defaultValue="0") int page,
                                                      @RequestParam(defaultValue="20") int size) {
         return PageResponse.from(service.history(id,page,size));

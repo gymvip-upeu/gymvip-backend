@@ -22,13 +22,13 @@ public class ClientGuardianController {
     }
 
     @GetMapping
-    @PreAuthorize("hasAnyRole('ADMIN', 'RECEPCION')")
+    @PreAuthorize("hasAnyRole('ADMIN', 'GERENTE', 'RECEPCION')")
     public List<GuardianDto> listGuardians(@PathVariable UUID clientId) {
         return guardianService.listGuardians(clientId);
     }
 
     @PostMapping
-    @PreAuthorize("hasAnyRole('ADMIN', 'RECEPCION')")
+    @PreAuthorize("hasAnyRole('ADMIN', 'GERENTE', 'RECEPCION')")
     @ResponseStatus(HttpStatus.CREATED)
     public GuardianDto addGuardian(
             @PathVariable UUID clientId,
@@ -39,7 +39,7 @@ public class ClientGuardianController {
     }
 
     @DeleteMapping("/{guardianId}")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasAnyRole('ADMIN', 'GERENTE')")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void removeGuardian(
             @PathVariable UUID clientId,

@@ -64,9 +64,18 @@ public class AuthServiceImpl implements AuthService {
             throw new InvalidCredentialsException(GENERIC_AUTH_ERROR);
         }
 
-        if (!"ACTIVO".equalsIgnoreCase(account.getStatus())) {
+        boolean pending = account.isMustChangePassword()
+                && account.getRoles().contains("CLIENTE")
+                && "PENDIENTE_ACTIVACION".equals(account.getStatus());
+        if (!("ACTIVO".equalsIgnoreCase(account.getStatus()) || pending)) {
             loginAttemptService.loginFailed(clientKey);
             throw new InvalidCredentialsException(GENERIC_AUTH_ERROR);
+        }
+
+        if (account.isMustChangePassword() && account.getTemporaryPasswordExpiresAt() != null &&
+                !account.getTemporaryPasswordExpiresAt().isAfter(LocalDateTime.now(java.time.ZoneOffset.UTC))) {
+            loginAttemptService.loginFailed(clientKey);
+            throw new InvalidCredentialsException("La contraseña temporal venció. Solicita una nueva invitación a Recepción.");
         }
 
         // Inicio de sesión exitoso: limpiar historial de intentos fallidos
@@ -74,6 +83,16 @@ public class AuthServiceImpl implements AuthService {
 
         String sessionId = UUID.randomUUID().toString().replace("-", "");
         LocalDateTime expiresAt = LocalDateTime.now().plusHours(jwtService.getExpirationHours());
+        if (account.isMustChangePassword() && account.getTemporaryPasswordExpiresAt() != null) {
+            var remaining = java.time.Duration.between(
+                    LocalDateTime.now(java.time.ZoneOffset.UTC),
+                    account.getTemporaryPasswordExpiresAt()
+            );
+            var temporaryLimit = LocalDateTime.now().plus(remaining);
+            if (temporaryLimit.isBefore(expiresAt)) {
+                expiresAt = temporaryLimit;
+            }
+        }
 
         Session session = new Session(sessionId, account.getId(), expiresAt, LocalDateTime.now(), userAgent, ipAddress);
         sessionRepository.save(session);

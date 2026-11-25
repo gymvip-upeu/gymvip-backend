@@ -115,7 +115,7 @@ class PasswordResetUnitTest {
 
         verify(tokenRepository).invalidateActiveTokensForAccount(sampleAccountId);
         verify(tokenRepository).save(any(PasswordResetToken.class));
-        verify(commsServiceClient).sendPasswordResetEmail(eq("socio@vipcenterfit.pe"), contains("https://gymvip.pe/reset-password?token="), anyString(), eq("GYM VIP"));
+        verify(commsServiceClient).sendPasswordResetEmail(eq("socio@vipcenterfit.pe"), contains("https://gymvip.pe/reset-password#token="), anyString(), eq("GYM VIP"));
         verify(auditService).recordEvent(eq("socio@vipcenterfit.pe"), eq("PASSWORD_RESET_REQUESTED"), eq("Account"), eq(sampleAccountId.toString()), anyString());
     }
 

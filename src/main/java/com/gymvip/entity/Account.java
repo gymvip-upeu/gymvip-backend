@@ -39,6 +39,12 @@ public class Account {
     @Column(name = "mfa_enabled", nullable = false)
     private boolean mfaEnabled = false;
 
+    @Column(name = "must_change_password", nullable = false)
+    private boolean mustChangePassword = false;
+
+    @Column(name = "temporary_password_expires_at")
+    private LocalDateTime temporaryPasswordExpiresAt;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt = LocalDateTime.now();
 
@@ -76,6 +82,10 @@ public class Account {
     public void setStatus(String status) { this.status = status; }
     public boolean isMfaEnabled() { return mfaEnabled; }
     public void setMfaEnabled(boolean mfaEnabled) { this.mfaEnabled = mfaEnabled; }
+    public boolean isMustChangePassword() { return mustChangePassword; }
+    public void setMustChangePassword(boolean mustChangePassword) { this.mustChangePassword = mustChangePassword; }
+    public LocalDateTime getTemporaryPasswordExpiresAt() { return temporaryPasswordExpiresAt; }
+    public void setTemporaryPasswordExpiresAt(LocalDateTime temporaryPasswordExpiresAt) { this.temporaryPasswordExpiresAt = temporaryPasswordExpiresAt; }
     public LocalDateTime getCreatedAt() { return createdAt; }
     public void setCreatedAt(LocalDateTime createdAt) { this.createdAt = createdAt; }
     public LocalDateTime getUpdatedAt() { return updatedAt; }

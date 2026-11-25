@@ -2,15 +2,20 @@ package com.gymvip.controller;
 
 import com.gymvip.dto.request.LoginRequest;
 import com.gymvip.dto.response.AuthResponse;
+import com.gymvip.repository.AccountRepository;
 import com.gymvip.security.LoginRateLimiterService;
 import com.gymvip.service.AuthService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Size;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
+import java.time.LocalDateTime;
+import java.util.LinkedHashMap;
 import java.util.Map;
 
 @RestController
@@ -19,10 +24,17 @@ public class AuthController {
 
     private final AuthService authService;
     private final LoginRateLimiterService rateLimiterService;
+    private final AccountRepository accountRepository;
 
-    public AuthController(AuthService authService, LoginRateLimiterService rateLimiterService) {
+    @org.springframework.beans.factory.annotation.Autowired
+    public AuthController(AuthService authService, LoginRateLimiterService rateLimiterService, AccountRepository accountRepository) {
         this.authService = authService;
         this.rateLimiterService = rateLimiterService;
+        this.accountRepository = accountRepository;
+    }
+
+    public AuthController(AuthService authService, LoginRateLimiterService rateLimiterService) {
+        this(authService, rateLimiterService, null);
     }
 
     @PostMapping("/login")
@@ -91,15 +103,67 @@ public class AuthController {
         return ResponseEntity.ok(Map.of("message", "Todas las sesiones y dispositivos de notificación fueron revocados"));
     }
 
+    public record OwnProfileUpdateRequest(
+            @NotBlank(message = "El nombre es obligatorio") @Size(max = 120) String firstName,
+            @NotBlank(message = "El apellido es obligatorio") @Size(max = 120) String lastName,
+            @Size(max = 30) String phone
+    ) {}
+
     @GetMapping("/me")
     public ResponseEntity<?> getCurrentUser(Authentication authentication) {
         if (authentication == null) {
             return ResponseEntity.status(401).body(Map.of("message", "No autenticado"));
         }
-        return ResponseEntity.ok(Map.of(
-                "email", authentication.getName(),
-                "roles", authentication.getAuthorities()
-        ));
+        if (accountRepository == null) {
+            return ResponseEntity.ok(Map.of(
+                    "email", authentication.getName(),
+                    "roles", authentication.getAuthorities()
+            ));
+        }
+        var account = accountRepository.findByEmailIgnoreCase(authentication.getName()).orElse(null);
+        if (account == null) {
+            return ResponseEntity.status(404).body(Map.of("message", "No se encontró el perfil de la cuenta."));
+        }
+        return ResponseEntity.ok(buildProfilePayload(account));
+    }
+
+    @PutMapping("/me")
+    public ResponseEntity<?> updateCurrentUser(@Valid @RequestBody OwnProfileUpdateRequest request, Authentication authentication) {
+        if (authentication == null) {
+            return ResponseEntity.status(401).body(Map.of("message", "No autenticado"));
+        }
+        if (accountRepository == null) {
+            return ResponseEntity.status(501).body(Map.of("message", "Repositorio de cuentas no disponible."));
+        }
+        var account = accountRepository.findByEmailIgnoreCase(authentication.getName()).orElse(null);
+        if (account == null) {
+            return ResponseEntity.status(404).body(Map.of("message", "No se encontró el perfil de la cuenta."));
+        }
+        String normalizedPhone = (request.phone() == null || request.phone().isBlank()) ? null : request.phone().trim();
+        if (normalizedPhone != null && !normalizedPhone.matches("^[0-9+\\-()\\s]{7,20}$")) {
+            return ResponseEntity.badRequest().body(Map.of("message", "El teléfono debe tener un formato válido (7 a 20 caracteres)."));
+        }
+        account.setFirstName(request.firstName().trim());
+        account.setLastName(request.lastName().trim());
+        account.setPhone(normalizedPhone);
+        account.setUpdatedAt(LocalDateTime.now());
+        var saved = accountRepository.save(account);
+        return ResponseEntity.ok(buildProfilePayload(saved));
+    }
+
+    private Map<String, Object> buildProfilePayload(com.gymvip.entity.Account account) {
+        Map<String, Object> profile = new LinkedHashMap<>();
+        profile.put("id", account.getId());
+        profile.put("email", account.getEmail());
+        profile.put("firstName", account.getFirstName());
+        profile.put("lastName", account.getLastName());
+        profile.put("phone", account.getPhone());
+        profile.put("roles", account.getRoles());
+        profile.put("status", account.getStatus());
+        profile.put("mfaEnabled", account.isMfaEnabled());
+        profile.put("createdAt", account.getCreatedAt());
+        profile.put("updatedAt", account.getUpdatedAt());
+        return profile;
     }
 
     private String resolveClientIp(HttpServletRequest request) {

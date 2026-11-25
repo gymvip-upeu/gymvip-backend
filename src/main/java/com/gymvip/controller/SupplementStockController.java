@@ -22,13 +22,13 @@ public class SupplementStockController {
     }
 
     @GetMapping("/{id}/stock")
-    @PreAuthorize("hasAnyRole('ADMIN', 'RECEPCION')")
+    @PreAuthorize("hasAnyRole('ADMIN', 'GERENTE', 'RECEPCION')")
     public SupplementStockSummaryDto getStockSummary(@PathVariable UUID id) {
         return stockService.getStockSummary(id);
     }
 
     @GetMapping("/stock/alerts")
-    @PreAuthorize("hasAnyRole('ADMIN', 'RECEPCION')")
+    @PreAuthorize("hasAnyRole('ADMIN', 'GERENTE', 'RECEPCION')")
     public List<SupplementStockSummaryDto> listStockAlerts() {
         return stockService.listStockAlerts();
     }
@@ -45,7 +45,7 @@ public class SupplementStockController {
     }
 
     @GetMapping("/{id}/stock/movements")
-    @PreAuthorize("hasAnyRole('ADMIN', 'RECEPCION')")
+    @PreAuthorize("hasAnyRole('ADMIN', 'GERENTE', 'RECEPCION')")
     public List<StockMovementDto> listMovements(@PathVariable UUID id) {
         return stockService.listMovements(id);
     }

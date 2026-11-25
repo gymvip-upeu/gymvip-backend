@@ -10,7 +10,7 @@ import java.util.UUID;
 
 @RestController
 @RequestMapping("/api/v1/coverage")
-@PreAuthorize("hasAnyRole('ADMIN','RECEPCION')")
+@PreAuthorize("hasAnyRole('ADMIN','GERENTE','RECEPCION')")
 public class CoverageController {
     private final CoverageService service;
     public CoverageController(CoverageService service) {this.service=service;}

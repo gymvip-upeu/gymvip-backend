@@ -31,7 +31,7 @@ public class IdentityController {
      * Consulta en tiempo real los datos asociados a un DNI peruano (8 dígitos) vía POST.
      */
     @PostMapping("/dni/lookup")
-    @PreAuthorize("hasAnyRole('ADMIN', 'RECEPCION')")
+    @PreAuthorize("hasAnyRole('ADMIN', 'GERENTE', 'RECEPCION')")
     public ResponseEntity<IdentityLookupResponse> lookupDniPost(@Valid @RequestBody DniLookupRequest request) {
         IdentityLookupResponse response = identityLookupService.lookupDni(request.dni());
         return ResponseEntity.ok(response);
@@ -42,7 +42,7 @@ public class IdentityController {
      * Permite clientes estándar y consultas directas con query param: /api/v1/identity/dni/lookup?dni=12345678
      */
     @GetMapping("/dni/lookup")
-    @PreAuthorize("hasAnyRole('ADMIN', 'RECEPCION')")
+    @PreAuthorize("hasAnyRole('ADMIN', 'GERENTE', 'RECEPCION')")
     public ResponseEntity<IdentityLookupResponse> lookupDniGet(
             @RequestParam(name = "dni", required = true)
             @NotBlank(message = "El número de DNI es obligatorio")
