@@ -16,7 +16,10 @@ import java.util.*;
 @Service
 public class MemberWorkspaceService {
     public record Registration(@NotNull @Valid RegisterClientRequest client, @Size(max=2000) String notes, boolean createAccess) {}
-    public record Credentials(String username, String temporaryPassword, boolean mustChangePassword) {}
+    public record Credentials(String username, String temporaryPassword, boolean mustChangePassword,
+            String expiresAt,String invitationId,String emailDeliveryStatus) {
+        public Credentials(String username,String temporaryPassword,boolean mustChangePassword) {this(username,temporaryPassword,mustChangePassword,null,null,"NOT_REQUESTED");}
+    }
     public record Registered(ClientResponse client, Credentials credentials) {}
     public record StatusChange(@NotBlank @Pattern(regexp="ACTIVO|INACTIVO") String status, @NotNull Long version) {}
     public record Cancellation(@NotBlank @Size(max=500) String reason) {}
@@ -46,9 +49,13 @@ public class MemberWorkspaceService {
     private final AuditService audit;
     private final PasswordEncoder passwords;
     private final Clock clock;
-    public MemberWorkspaceService(JdbcTemplate jdbc,ClientService clients,CoverageService coverage,AuditService audit,PasswordEncoder passwords,Clock clock) {
+    private final MemberAccessService access;
+    @org.springframework.beans.factory.annotation.Autowired
+    public MemberWorkspaceService(JdbcTemplate jdbc,ClientService clients,CoverageService coverage,AuditService audit,PasswordEncoder passwords,Clock clock,MemberAccessService access) {
         this.jdbc=jdbc;this.clients=clients;this.coverage=coverage;this.audit=audit;this.passwords=passwords;this.clock=clock;
+        this.access=access;
     }
+    public MemberWorkspaceService(JdbcTemplate jdbc,ClientService clients,CoverageService coverage,AuditService audit,PasswordEncoder passwords,Clock clock) {this(jdbc,clients,coverage,audit,passwords,clock,null);}
     private LocalDateTime now() { return LocalDateTime.ofInstant(clock.instant(),ZoneOffset.UTC); }
     private void lockClient(UUID id) {
         if(jdbc.query("SELECT id FROM clients WHERE id=? FOR UPDATE",(r,n)->r.getObject(1,UUID.class),id).isEmpty())
@@ -65,15 +72,7 @@ public class MemberWorkspaceService {
         var row=jdbc.queryForMap("SELECT account_id,member_code,status FROM clients WHERE id=?",id);
         if(!"ACTIVO".equals(row.get("status"))) throw new ConflictException("Activa al miembro antes de habilitar su acceso.");
         if(row.get("account_id")!=null) throw new ConflictException("El miembro ya tiene acceso a la app. No se reemplazará su contraseña.");
-        byte[] bytes=new byte[18];new SecureRandom().nextBytes(bytes);
-        String secret=Base64.getUrlEncoder().withoutPadding().encodeToString(bytes)+"aA7!";
-        String username=row.get("member_code").toString().toLowerCase(Locale.ROOT)+"@miembros.gymvip.local";
-        UUID account=UUID.randomUUID();
-        jdbc.update("INSERT INTO accounts(id,email,password_hash,status,must_change_password) VALUES (?,?,?,'ACTIVO',true)",account,username,passwords.encode(secret));
-        jdbc.update("INSERT INTO account_roles(account_id,role_id) VALUES (?,'CLIENTE')",account);
-        jdbc.update("UPDATE clients SET account_id=?,version=version+1 WHERE id=?",account,id);
-        audit.recordEvent(actor,"PROVISION_MEMBER_ACCESS","Client",id.toString(),"Acceso CLIENTE creado; cambio de contraseña obligatorio.");
-        return new Credentials(username,secret,true);
+        return access.provision(id,actor);
     }
     @Transactional(readOnly=true) public Map<String,Object> workspace(UUID id) {
         var client=clients.getClientById(id);
@@ -161,14 +160,20 @@ public class MemberWorkspaceService {
     }
     @Transactional public void changePassword(String actor,PasswordChange request) {
         ownClient(actor);
-        var account=jdbc.queryForMap("SELECT id,password_hash FROM accounts WHERE email=? FOR UPDATE",actor);
+        var account=jdbc.queryForMap("SELECT id,password_hash,temporary_password_expires_at FROM accounts WHERE email=? FOR UPDATE",actor);
         if(!passwords.matches(request.currentPassword(),account.get("password_hash").toString())) throw new IllegalArgumentException("La contraseña actual no es correcta.");
+        var expiration=account.get("temporary_password_expires_at");
+        if(expiration instanceof java.sql.Timestamp timestamp && !timestamp.toLocalDateTime().isAfter(now()))
+            throw new com.gymvip.exception.InvalidCredentialsException("La contraseña temporal venció. Solicita una nueva invitación a Recepción.");
+        AccountPasswordPolicy.validate(request.newPassword());
         if(request.newPassword().getBytes(java.nio.charset.StandardCharsets.UTF_8).length>72) throw new IllegalArgumentException("La contraseña es demasiado larga para el cifrado permitido.");
         if(request.newPassword().equals(request.currentPassword()) || !request.newPassword().matches("(?s).*[a-z].*") || !request.newPassword().matches("(?s).*[A-Z].*") || !request.newPassword().matches("(?s).*[0-9].*")) throw new IllegalArgumentException("Usa al menos 12 caracteres, mayúsculas, minúsculas y números, distintos de la contraseña temporal.");
         jdbc.update("UPDATE accounts SET password_hash=?,must_change_password=false WHERE id=?",passwords.encode(request.newPassword()),account.get("id"));
         jdbc.update("DELETE FROM sessions WHERE account_id=?",account.get("id"));
+        if(access!=null) access.completeFirstPassword((UUID)account.get("id"),actor);
         audit.recordEvent(actor,"CHANGE_MEMBER_PASSWORD","Account",account.get("id").toString(),"Contraseña actualizada y sesiones cerradas.");
     }
+    public void createFirstPassword(String actor,String newPassword) {access.createFirstPassword(actor,newPassword);}
     @Transactional(readOnly=true) public boolean mustChange(String actor) { return Boolean.TRUE.equals(jdbc.queryForObject("SELECT must_change_password FROM accounts WHERE email=?",Boolean.class,actor)); }
 
     @Transactional(readOnly=true)

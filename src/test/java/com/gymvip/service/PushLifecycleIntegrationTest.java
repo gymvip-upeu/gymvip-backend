@@ -26,7 +26,7 @@ class PushLifecycleIntegrationTest {
     record Member(UUID client,AuthResponse auth,String session) {}
     private Member member() {
         String doc=String.valueOf(10000000+new java.security.SecureRandom().nextInt(89999999));
-        var request=new RegisterClientRequest("Push QA",UUID.randomUUID().toString().substring(0,8),LocalDate.of(1990,1,1),"PE","DNI",doc,"999888777",null);
+        var request=new RegisterClientRequest("Push QA",UUID.randomUUID().toString().substring(0,8),LocalDate.of(1990,1,1),"PE","DNI",doc,"999888777","push-"+UUID.randomUUID()+"@example.test");
         var registered=workspace.register(new MemberWorkspaceService.Registration(request,"Solo pruebas push",false),"admin@vipcenterfit.pe");
         var access=workspace.provision(registered.client().id(),"admin@vipcenterfit.pe");
         workspace.changePassword(access.username(),new MemberWorkspaceService.PasswordChange(access.temporaryPassword(),"PushQa123456!"));

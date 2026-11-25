@@ -198,6 +198,12 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(error);
     }
 
+    @ExceptionHandler(AccountEmailUnavailableException.class)
+    public ResponseEntity<ErrorResponse> accountEmailUnavailable(AccountEmailUnavailableException ex,HttpServletRequest request) {
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(new ErrorResponse(503,"Service Unavailable",
+            "ACCOUNT_EMAIL_UNAVAILABLE",ex.getMessage(),request.getRequestURI(),getCorrelationId(request)));
+    }
+
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ErrorResponse> handleGeneral(Exception ex, HttpServletRequest request) {
         org.slf4j.LoggerFactory.getLogger(GlobalExceptionHandler.class).error("ERROR 500 en " + request.getRequestURI() + ": " + ex.getMessage(), ex);

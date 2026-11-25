@@ -78,6 +78,17 @@ public class CommsServiceClient {
             String errorMessage
     ) {}
 
+    public CommsDispatchResult sendAccountSecurityEmail(String email,String subject,String template,Map<String,Object> variables) {
+        try {
+            var result=restClient.post().uri("/api/v1/messages/email").contentType(MediaType.APPLICATION_JSON)
+                .body(Map.of("to",email,"subject",subject,"template",template,"variables",variables)).retrieve().body(Map.class);
+            if(result==null) return new CommsDispatchResult(false,null,"FAILED","Respuesta vacía del proveedor.");
+            String id=Objects.toString(result.get("deliveryId"),""),status=Objects.toString(result.get("status"),"");
+            boolean accepted=status.equals("ACEPTADO_PROVEEDOR") && !id.isBlank() && !id.startsWith("sim_");
+            return new CommsDispatchResult(accepted,id,status,accepted?null:"No se confirmó el envío real.");
+        } catch(Exception ignored) {return new CommsDispatchResult(false,null,"FAILED","No se pudo enviar el correo de seguridad.");}
+    }
+
     public CommsDispatchResult sendWhatsAppReminder(
             String requestId,
             String phone,
@@ -144,14 +155,14 @@ public class CommsServiceClient {
         try {
             Map<String, Object> variables = Map.of(
                     "link", resetLink != null ? resetLink : "",
-                    "token", rawToken != null ? rawToken : "",
+                    "idempotencyKey", "reset-" + java.util.UUID.randomUUID(),
                     "recipientName", recipientName != null ? recipientName : "Socio VIP",
                     "expirationMinutes", 15
             );
 
             Map<String, Object> body = Map.of(
                     "to", toEmail,
-                    "subject", "Recuperación de Contraseña — GYM VIP",
+                    "subject", "Restablece tu contraseña — VIP CENTER FIT",
                     "template", "password_reset",
                     "variables", variables
             );
@@ -168,7 +179,7 @@ public class CommsServiceClient {
                 var resBody = res.getBody();
                 String delId = String.valueOf(resBody.get("deliveryId"));
                 String status = String.valueOf(resBody.get("status"));
-                boolean realDispatch = !status.toLowerCase(Locale.ROOT).contains("simul") && !delId.startsWith("sim_");
+                boolean realDispatch = "ACEPTADO_PROVEEDOR".equals(status) && !delId.isBlank() && !"null".equals(delId) && !delId.startsWith("sim_");
                 return new CommsDispatchResult(realDispatch, delId, status,
                         realDispatch ? null : "El proveedor solo simuló el envío");
             }

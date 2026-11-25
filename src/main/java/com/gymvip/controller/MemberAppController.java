@@ -26,13 +26,22 @@ public class MemberAppController {
 
     @GetMapping("/session")
     public Object session(Authentication auth) {
-        return Map.of("mustChangePassword", service.mustChange(auth.getName()));
+        return Map.of("mustChangePassword", service.mustChange(auth.getName()),"email",auth.getName());
     }
 
     @PostMapping("/password")
     public Object password(@Valid @RequestBody MemberWorkspaceService.PasswordChange request, Authentication auth) {
         service.changePassword(auth.getName(), request);
         return Map.of("changed", true, "requiresLogin", true);
+    }
+
+    public record FirstPassword(@jakarta.validation.constraints.NotBlank String newPassword) {}
+    @PostMapping("/first-password")
+    @PreAuthorize("hasRole('CLIENTE')")
+    public ResponseEntity<?> firstPassword(@Valid @RequestBody FirstPassword request,Authentication auth) {
+        service.createFirstPassword(auth.getName(),request.newPassword());
+        return ResponseEntity.ok().cacheControl(org.springframework.http.CacheControl.noStore())
+            .body(Map.of("changed",true,"requiresLogin",true));
     }
 
     @GetMapping("/me")
