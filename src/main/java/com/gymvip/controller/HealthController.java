@@ -25,6 +25,15 @@ public class HealthController {
         this.jdbcTemplate = jdbcTemplate;
     }
 
+    @GetMapping("/")
+    public ResponseEntity<Map<String, Object>> root() {
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("service", "gymvip-backend");
+        body.put("status", "UP");
+        body.put("timestamp", Instant.now().toString());
+        return ResponseEntity.ok(body);
+    }
+
     @GetMapping({"/api/v1/health", "/health"})
     public ResponseEntity<Map<String, Object>> health() {
         Map<String, Object> body = new LinkedHashMap<>();
@@ -92,7 +101,7 @@ public class HealthController {
         Map<String, Object> dbInfo = new LinkedHashMap<>();
         dbInfo.put("status", dbOk ? "UP" : "DOWN");
         dbInfo.put("latencyMs", latencyMs);
-        dbInfo.put("engine", "PostgreSQL 17 (Flyway V1-V23)");
+        dbInfo.put("engine", detectDatabaseEngine());
         body.put("database", dbInfo);
 
         // Métricas de memoria JVM
@@ -117,5 +126,19 @@ public class HealthController {
         body.put("features", features);
 
         return ResponseEntity.ok(body);
+    }
+
+    private String detectDatabaseEngine() {
+        try {
+            String serverVersion = jdbcTemplate.queryForObject("SHOW server_version", String.class);
+            String latestFlyway = jdbcTemplate.queryForObject(
+                    "SELECT version FROM flyway_schema_history WHERE success = true ORDER BY installed_rank DESC LIMIT 1",
+                    String.class
+            );
+            String pgPart = (serverVersion != null && !serverVersion.isBlank()) ? "PostgreSQL " + serverVersion.split(" ")[0] : "PostgreSQL";
+            return (latestFlyway != null && !latestFlyway.isBlank()) ? pgPart + " (Flyway V" + latestFlyway + ")" : pgPart;
+        } catch (Exception ignored) {
+            return "PostgreSQL";
+        }
     }
 }

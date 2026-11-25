@@ -30,10 +30,16 @@ public class DataInitializer implements CommandLineRunner {
     @Value("${spring.profiles.active:dev}")
     private String activeProfile;
 
-    @Value("${APP_ADMIN_INITIAL_PASSWORD:Admin123!}")
+    @Value("${app.seed.dev-defaults-enabled:true}")
+    private boolean devDefaultsEnabled;
+
+    @Value("${APP_ADMIN_INITIAL_PASSWORD:}")
     private String adminInitialPassword;
 
-    @Value("${APP_RECEPCION_INITIAL_PASSWORD:Recepcion123!}")
+    @Value("${APP_GERENTE_INITIAL_PASSWORD:}")
+    private String gerenteInitialPassword;
+
+    @Value("${APP_RECEPCION_INITIAL_PASSWORD:}")
     private String recepcionInitialPassword;
 
     public DataInitializer(AccountRepository accountRepository,
@@ -53,50 +59,74 @@ public class DataInitializer implements CommandLineRunner {
     }
 
     private void seedAccounts() {
-        // En perfil de producción, las cuentas deben ser provisionadas por migración privada o variables seguras
-        if ("prod".equalsIgnoreCase(activeProfile) && "Admin123!".equals(adminInitialPassword)) {
-            log.warn("Producción detectada con contraseña por defecto. Se omite la provisión automática de cuentas de prueba.");
+        boolean isProd = "prod".equalsIgnoreCase(activeProfile);
+        boolean adminExists = accountRepository.existsByEmailIgnoreCase("admin@vipcenterfit.pe");
+        boolean gerenteExists = accountRepository.existsByEmailIgnoreCase("gerente@vipcenterfit.pe");
+        boolean recepcionExists = accountRepository.existsByEmailIgnoreCase("recepcion@vipcenterfit.pe");
+
+        if (adminExists && gerenteExists && recepcionExists) {
+            log.info("Cuentas base de personal ya aprovisionadas en base de datos.");
             return;
         }
 
-        if (!accountRepository.existsByEmailIgnoreCase("admin@vipcenterfit.pe")) {
-            Account admin = new Account(
-                    UUID.randomUUID(),
-                    "admin@vipcenterfit.pe",
-                    passwordEncoder.encode(adminInitialPassword),
-                    Set.of(Role.ADMIN.name()),
-                    "ACTIVO",
-                    false
-            );
-            accountRepository.save(admin);
-            log.info("Semilla de personal creada: admin@vipcenterfit.pe (Rol: ADMIN / Soporte TI)");
+        if (!adminExists) {
+            String pwd = resolveInitialPassword(adminInitialPassword, isProd, "Admin123!", "APP_ADMIN_INITIAL_PASSWORD", "admin@vipcenterfit.pe");
+            if (pwd != null) {
+                accountRepository.save(new Account(
+                        UUID.randomUUID(),
+                        "admin@vipcenterfit.pe",
+                        passwordEncoder.encode(pwd),
+                        Set.of(Role.ADMIN.name()),
+                        "ACTIVO",
+                        false
+                ));
+                log.info("Semilla de personal creada: admin@vipcenterfit.pe (Rol: ADMIN / Soporte TI)");
+            }
         }
 
-        if (!accountRepository.existsByEmailIgnoreCase("gerente@vipcenterfit.pe")) {
-            Account gerente = new Account(
-                    UUID.randomUUID(),
-                    "gerente@vipcenterfit.pe",
-                    passwordEncoder.encode("Gerente123!"),
-                    Set.of(Role.GERENTE.name()),
-                    "ACTIVO",
-                    false
-            );
-            accountRepository.save(gerente);
-            log.info("Semilla de personal creada: gerente@vipcenterfit.pe (Rol: GERENTE / Dirección y Finanzas)");
+        if (!gerenteExists) {
+            String pwd = resolveInitialPassword(gerenteInitialPassword, isProd, "Gerente123!", "APP_GERENTE_INITIAL_PASSWORD", "gerente@vipcenterfit.pe");
+            if (pwd != null) {
+                accountRepository.save(new Account(
+                        UUID.randomUUID(),
+                        "gerente@vipcenterfit.pe",
+                        passwordEncoder.encode(pwd),
+                        Set.of(Role.GERENTE.name()),
+                        "ACTIVO",
+                        false
+                ));
+                log.info("Semilla de personal creada: gerente@vipcenterfit.pe (Rol: GERENTE / Dirección y Finanzas)");
+            }
         }
 
-        if (!accountRepository.existsByEmailIgnoreCase("recepcion@vipcenterfit.pe")) {
-            Account recepcion = new Account(
-                    UUID.randomUUID(),
-                    "recepcion@vipcenterfit.pe",
-                    passwordEncoder.encode(recepcionInitialPassword),
-                    Set.of(Role.RECEPCION.name()),
-                    "ACTIVO",
-                    false
-            );
-            accountRepository.save(recepcion);
-            log.info("Semilla de personal creada: recepcion@vipcenterfit.pe (Rol: RECEPCION)");
+        if (!recepcionExists) {
+            String pwd = resolveInitialPassword(recepcionInitialPassword, isProd, "Recepcion123!", "APP_RECEPCION_INITIAL_PASSWORD", "recepcion@vipcenterfit.pe");
+            if (pwd != null) {
+                accountRepository.save(new Account(
+                        UUID.randomUUID(),
+                        "recepcion@vipcenterfit.pe",
+                        passwordEncoder.encode(pwd),
+                        Set.of(Role.RECEPCION.name()),
+                        "ACTIVO",
+                        false
+                ));
+                log.info("Semilla de personal creada: recepcion@vipcenterfit.pe (Rol: RECEPCION)");
+            }
         }
+    }
+
+    private String resolveInitialPassword(String configured, boolean isProd, String devFallback, String envName, String email) {
+        String candidate = configured != null ? configured.trim() : "";
+        if (!isProd && devDefaultsEnabled && candidate.isEmpty()) {
+            return devFallback;
+        }
+        if (candidate.length() < 12 || candidate.equals(devFallback)) {
+            if (isProd) {
+                log.warn("Cuenta {} ausente en prod y {} no definida con contraseña segura (>=12 caracteres). Se omite provisión automática.", email, envName);
+            }
+            return null;
+        }
+        return candidate;
     }
 
     private void seedInitialPlans() {
