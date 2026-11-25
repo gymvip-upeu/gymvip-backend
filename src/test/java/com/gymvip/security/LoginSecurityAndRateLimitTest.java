@@ -90,34 +90,36 @@ class LoginSecurityAndRateLimitTest {
     }
 
     @Test
-    @DisplayName("Debe bloquear la IP tras 5 intentos fallidos consecutivos y permitir desbloqueo al expirar o resetear")
+    @DisplayName("Debe bloquear la cuenta tras el máximo de intentos fallidos y permitir desbloqueo al resetear")
     void testRateLimitFiveFailedAttemptsBlocksClient() {
-        String testIp = "192.168.1.100";
-        assertFalse(loginAttemptService.isBlocked(testIp));
+        String key = LoginRateLimitPolicy.resolveAttemptKey("192.168.1.100", "gerente@gymvip.com");
+        assertFalse(loginAttemptService.isBlocked(key));
 
         for (int i = 1; i <= 4; i++) {
-            loginAttemptService.loginFailed(testIp);
-            assertFalse(loginAttemptService.isBlocked(testIp), "No debe bloquear antes de 5 intentos");
-            assertEquals(i, loginAttemptService.getAttempts(testIp));
+            loginAttemptService.loginFailed(key);
+            assertFalse(loginAttemptService.isBlocked(key), "No debe bloquear antes de 5 intentos");
+            assertEquals(i, loginAttemptService.getAttempts(key));
         }
 
         // Quinto intento fallido
-        loginAttemptService.loginFailed(testIp);
-        assertTrue(loginAttemptService.isBlocked(testIp), "Debe estar bloqueado tras 5 intentos");
-        assertTrue(loginAttemptService.getRetryAfterSeconds(testIp) > 0);
+        loginAttemptService.loginFailed(key);
+        assertTrue(loginAttemptService.isBlocked(key), "Debe estar bloqueado tras 5 intentos");
+        long retryAfter = loginAttemptService.getRetryAfterSeconds(key);
+        assertTrue(retryAfter > 0 && retryAfter <= 300L, "El bloqueo debe durar 5 minutos (300 s)");
 
         // Reset exitoso
-        loginAttemptService.loginSucceeded(testIp);
-        assertFalse(loginAttemptService.isBlocked(testIp));
-        assertEquals(0, loginAttemptService.getAttempts(testIp));
+        loginAttemptService.loginSucceeded(key);
+        assertFalse(loginAttemptService.isBlocked(key));
+        assertEquals(0, loginAttemptService.getAttempts(key));
     }
 
     @Test
-    @DisplayName("AuthService debe lanzar TooManyRequestsException cuando el cliente está bloqueado")
+    @DisplayName("AuthService debe lanzar TooManyRequestsException (5 minutos) cuando el usuario está bloqueado")
     void testAuthServiceThrowsTooManyRequestsWhenBlocked() {
         String testIp = "200.48.10.5";
-        for (int i = 0; i < 5; i++) {
-            loginAttemptService.loginFailed(testIp);
+        String key = LoginRateLimitPolicy.resolveAttemptKey(testIp, "admin@gymvip.com");
+        for (int i = 0; i < 10; i++) {
+            loginAttemptService.loginFailed(key, 10);
         }
 
         LoginRequest loginReq = new LoginRequest("admin@gymvip.com", "cualquiera123");
@@ -126,7 +128,8 @@ class LoginSecurityAndRateLimitTest {
                 () -> authService.login(loginReq, testIp, "Mozilla/5.0")
         );
 
-        assertTrue(ex.getMessage().contains("Demasiados intentos fallidos"));
+        assertTrue(ex.getMessage().contains("5 minutos"));
+        assertTrue(ex.getRetryAfterSeconds() > 0 && ex.getRetryAfterSeconds() <= 300L);
         verify(accountRepository, never()).findByIdentifierIgnoreCase(anyString());
     }
 
@@ -143,7 +146,7 @@ class LoginSecurityAndRateLimitTest {
                 () -> authService.login(new LoginRequest("inexistente@gymvip.com", "secret"), testIp, "Agent")
         );
         assertEquals(expectedMessage, ex1.getMessage());
-        assertEquals(1, loginAttemptService.getAttempts(testIp));
+        assertEquals(1, loginAttemptService.getAttempts(LoginRateLimitPolicy.resolveAttemptKey(testIp, "inexistente@gymvip.com")));
 
         // Caso 2: Password no coincide
         UUID id = UUID.randomUUID();
@@ -156,7 +159,7 @@ class LoginSecurityAndRateLimitTest {
                 () -> authService.login(new LoginRequest("activo@gymvip.com", "wrong_pass"), testIp, "Agent")
         );
         assertEquals(expectedMessage, ex2.getMessage());
-        assertEquals(2, loginAttemptService.getAttempts(testIp));
+        assertEquals(1, loginAttemptService.getAttempts(LoginRateLimitPolicy.resolveAttemptKey(testIp, "activo@gymvip.com")));
 
         // Caso 3: Cuenta inactiva con password correcto
         Account inactiveAccount = new Account(UUID.randomUUID(), "inactivo@gymvip.com", "hash_real", Set.of("RECEPCION"), "INACTIVO", false);
@@ -168,18 +171,19 @@ class LoginSecurityAndRateLimitTest {
                 () -> authService.login(new LoginRequest("inactivo@gymvip.com", "valid_pass"), testIp, "Agent")
         );
         assertEquals(expectedMessage, ex3.getMessage());
-        assertEquals(3, loginAttemptService.getAttempts(testIp));
+        assertEquals(1, loginAttemptService.getAttempts(LoginRateLimitPolicy.resolveAttemptKey(testIp, "inactivo@gymvip.com")));
     }
 
     @Test
     @DisplayName("Login exitoso resetea el contador de intentos fallidos y emite sesión válida")
     void testSuccessfulLoginResetsAttemptsAndCreatesSession() {
         String testIp = "10.0.0.2";
+        String adminKey = LoginRateLimitPolicy.resolveAttemptKey(testIp, "admin@gymvip.com");
         // Previamente 3 intentos fallidos
-        loginAttemptService.loginFailed(testIp);
-        loginAttemptService.loginFailed(testIp);
-        loginAttemptService.loginFailed(testIp);
-        assertEquals(3, loginAttemptService.getAttempts(testIp));
+        loginAttemptService.loginFailed(adminKey, 10);
+        loginAttemptService.loginFailed(adminKey, 10);
+        loginAttemptService.loginFailed(adminKey, 10);
+        assertEquals(3, loginAttemptService.getAttempts(adminKey));
 
         UUID id = UUID.randomUUID();
         Account activeAccount = new Account(id, "admin@gymvip.com", "hash_correcto", Set.of("ADMIN"), "ACTIVO", false);
@@ -190,8 +194,72 @@ class LoginSecurityAndRateLimitTest {
 
         assertNotNull(response);
         assertNotNull(response.token());
-        assertEquals(0, loginAttemptService.getAttempts(testIp));
+        assertEquals(0, loginAttemptService.getAttempts(adminKey));
         verify(sessionRepository, times(1)).save(any(Session.class));
+    }
+
+    @Test
+    @DisplayName("Bloquear un rol o usuario en AuthService no bloquea a otros usuarios/roles desde la misma IP y aplica límites diferenciados")
+    void testUserIsolationAndRoleDifferentiatedLimits() {
+        String sameIp = "190.10.20.30";
+
+        Account recepcion = new Account(UUID.randomUUID(), "recepcion@vipcenterfit.pe", "hash_r", Set.of("RECEPCION"), "ACTIVO", false);
+        Account auditor = new Account(UUID.randomUUID(), "auditor@vipcenterfit.pe", "hash_a", Set.of("AUDITOR"), "ACTIVO", false);
+        Account gerente = new Account(UUID.randomUUID(), "gerente@vipcenterfit.pe", "hash_g", Set.of("GERENTE"), "ACTIVO", false);
+        Account cliente = new Account(UUID.randomUUID(), "cliente@vipcenterfit.pe", "hash_c", Set.of("CLIENTE"), "ACTIVO", false);
+        Account admin = new Account(UUID.randomUUID(), "admin@vipcenterfit.pe", "hash_ad", Set.of("ADMIN"), "ACTIVO", false);
+
+        when(accountRepository.findByIdentifierIgnoreCase("recepcion@vipcenterfit.pe")).thenReturn(Optional.of(recepcion));
+        when(accountRepository.findByIdentifierIgnoreCase("auditor@vipcenterfit.pe")).thenReturn(Optional.of(auditor));
+        when(accountRepository.findByIdentifierIgnoreCase("gerente@vipcenterfit.pe")).thenReturn(Optional.of(gerente));
+        when(accountRepository.findByIdentifierIgnoreCase("cliente@vipcenterfit.pe")).thenReturn(Optional.of(cliente));
+        when(accountRepository.findByIdentifierIgnoreCase("admin@vipcenterfit.pe")).thenReturn(Optional.of(admin));
+        when(passwordEncoder.matches(eq("bad"), anyString())).thenReturn(false);
+        when(passwordEncoder.matches(eq("ok_admin"), eq("hash_ad"))).thenReturn(true);
+
+        // RECEPCION: 3 fallos -> bloqueado al 4to intento
+        for (int i = 0; i < 3; i++) {
+            assertThrows(InvalidCredentialsException.class,
+                    () -> authService.login(new LoginRequest("recepcion@vipcenterfit.pe", "bad"), sameIp, "UA"));
+        }
+        assertThrows(TooManyRequestsException.class,
+                () -> authService.login(new LoginRequest("recepcion@vipcenterfit.pe", "bad"), sameIp, "UA"));
+
+        // Misma IP: ADMIN sigue pudiendo iniciar sesión normalmente
+        AuthResponse adminOk = authService.login(new LoginRequest("admin@vipcenterfit.pe", "ok_admin"), sameIp, "UA");
+        assertNotNull(adminOk.token());
+
+        // AUDITOR: 4 fallos -> bloqueado al 5to intento
+        for (int i = 0; i < 4; i++) {
+            assertThrows(InvalidCredentialsException.class,
+                    () -> authService.login(new LoginRequest("auditor@vipcenterfit.pe", "bad"), sameIp, "UA"));
+        }
+        assertThrows(TooManyRequestsException.class,
+                () -> authService.login(new LoginRequest("auditor@vipcenterfit.pe", "bad"), sameIp, "UA"));
+
+        // GERENTE: 5 fallos -> bloqueado al 6to intento
+        for (int i = 0; i < 5; i++) {
+            assertThrows(InvalidCredentialsException.class,
+                    () -> authService.login(new LoginRequest("gerente@vipcenterfit.pe", "bad"), sameIp, "UA"));
+        }
+        assertThrows(TooManyRequestsException.class,
+                () -> authService.login(new LoginRequest("gerente@vipcenterfit.pe", "bad"), sameIp, "UA"));
+
+        // CLIENTE: 6 fallos -> bloqueado al 7mo intento
+        for (int i = 0; i < 6; i++) {
+            assertThrows(InvalidCredentialsException.class,
+                    () -> authService.login(new LoginRequest("cliente@vipcenterfit.pe", "bad"), sameIp, "UA"));
+        }
+        assertThrows(TooManyRequestsException.class,
+                () -> authService.login(new LoginRequest("cliente@vipcenterfit.pe", "bad"), sameIp, "UA"));
+
+        // ADMIN: permite 10 fallos antes de bloquear al 11vo intento
+        for (int i = 0; i < 10; i++) {
+            assertThrows(InvalidCredentialsException.class,
+                    () -> authService.login(new LoginRequest("admin@vipcenterfit.pe", "bad"), sameIp, "UA"));
+        }
+        assertThrows(TooManyRequestsException.class,
+                () -> authService.login(new LoginRequest("admin@vipcenterfit.pe", "bad"), sameIp, "UA"));
     }
 
     @Test

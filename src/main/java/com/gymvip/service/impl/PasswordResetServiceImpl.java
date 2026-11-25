@@ -249,7 +249,7 @@ public class PasswordResetServiceImpl implements PasswordResetService {
         }
 
         if (counter.count >= 3) {
-            throw new TooManyRequestsException("Demasiadas solicitudes de recuperación. Por favor intente nuevamente en 15 minutos.");
+            throw new TooManyRequestsException("Demasiadas solicitudes de recuperación. Por favor intente nuevamente en 15 minutos.", 900L);
         }
 
         counter.count++;

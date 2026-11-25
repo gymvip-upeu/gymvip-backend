@@ -117,7 +117,7 @@ public class GlobalExceptionHandler {
                 getCorrelationId(request)
         );
         return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
-                .header("Retry-After", "900")
+                .header("Retry-After", String.valueOf(ex.getRetryAfterSeconds()))
                 .body(error);
     }
 

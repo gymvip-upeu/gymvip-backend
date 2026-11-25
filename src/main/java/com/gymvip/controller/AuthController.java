@@ -2,7 +2,10 @@ package com.gymvip.controller;
 
 import com.gymvip.dto.request.LoginRequest;
 import com.gymvip.dto.response.AuthResponse;
+import com.gymvip.entity.Account;
+import com.gymvip.exception.TooManyRequestsException;
 import com.gymvip.repository.AccountRepository;
+import com.gymvip.security.LoginRateLimitPolicy;
 import com.gymvip.security.LoginRateLimiterService;
 import com.gymvip.service.AuthService;
 import jakarta.servlet.http.HttpServletRequest;
@@ -10,6 +13,7 @@ import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
@@ -37,26 +41,44 @@ public class AuthController {
         this(authService, rateLimiterService, null);
     }
 
-    @PostMapping("/login")
+    @PostMapping(value = "/login", produces = MediaType.APPLICATION_JSON_VALUE)
     public ResponseEntity<?> login(@Valid @RequestBody LoginRequest request, HttpServletRequest httpRequest) {
         String ip = resolveClientIp(httpRequest);
-        if (rateLimiterService.isBlocked(ip)) {
-            return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS).body(Map.of(
-                    "status", 429,
-                    "error", "TOO_MANY_REQUESTS",
-                    "message", "Demasiados intentos fallidos. Por seguridad, intente nuevamente en 1 minuto."
-            ));
+        String identifier = request.email() != null ? request.email().trim().toLowerCase(java.util.Locale.ROOT) : "";
+        String attemptKey = rateLimiterService.resolveAttemptKey(ip, identifier);
+        if (rateLimiterService.isBlocked(attemptKey)) {
+            long retryAfter = Math.max(1L, rateLimiterService.getRetryAfterSeconds(attemptKey));
+            return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+                    .header("Retry-After", String.valueOf(retryAfter))
+                    .body(Map.of(
+                            "status", 429,
+                            "error", "TOO_MANY_REQUESTS",
+                            "message", "Demasiados intentos fallidos. Por seguridad, intente nuevamente en 5 minutos."
+                    ));
         }
 
         try {
             String userAgent = httpRequest.getHeader("User-Agent");
             AuthResponse response = authService.login(request, ip, userAgent);
-            rateLimiterService.recordSuccessfulAttempt(ip);
+            rateLimiterService.recordSuccessfulAttempt(attemptKey);
             return ResponseEntity.ok(response);
+        } catch (TooManyRequestsException ex) {
+            throw ex;
         } catch (Exception ex) {
-            rateLimiterService.recordFailedAttempt(ip);
+            int maxAttempts = resolveMaxAttempts(identifier);
+            rateLimiterService.recordFailedAttempt(attemptKey, maxAttempts);
             throw ex;
         }
+    }
+
+    private int resolveMaxAttempts(String identifier) {
+        if (accountRepository == null || identifier == null || identifier.isBlank()) {
+            return LoginRateLimitPolicy.DEFAULT_MAX_ATTEMPTS;
+        }
+        return accountRepository.findByIdentifierIgnoreCase(identifier)
+                .map(Account::getRoles)
+                .map(LoginRateLimitPolicy::resolveMaxAttempts)
+                .orElse(LoginRateLimitPolicy.DEFAULT_MAX_ATTEMPTS);
     }
 
     @PostMapping("/logout")

@@ -10,19 +10,21 @@ import com.gymvip.repository.AccountRepository;
 import com.gymvip.repository.SessionRepository;
 import com.gymvip.security.JwtService;
 import com.gymvip.security.LoginAttemptService;
+import com.gymvip.security.LoginRateLimitPolicy;
 import com.gymvip.service.AuthService;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.util.Locale;
 import java.util.UUID;
 
 @Service
 public class AuthServiceImpl implements AuthService {
 
     public static final String GENERIC_AUTH_ERROR = "Credenciales de acceso incorrectas o cuenta inhabilitada";
-    public static final String RATE_LIMIT_ERROR = "Demasiados intentos fallidos de inicio de sesión. Por favor, intente nuevamente en 15 minutos.";
+    public static final String RATE_LIMIT_ERROR = "Demasiados intentos fallidos de inicio de sesión. Por favor, intente nuevamente en 5 minutos.";
 
     private final AccountRepository accountRepository;
     private final SessionRepository sessionRepository;
@@ -45,22 +47,26 @@ public class AuthServiceImpl implements AuthService {
     @Override
     @Transactional
     public AuthResponse login(LoginRequest request, String ipAddress, String userAgent) {
-        String clientKey = resolveClientKey(ipAddress);
+        String identifier = request.email() != null ? request.email().trim().toLowerCase(Locale.ROOT) : "";
+        String attemptKey = LoginRateLimitPolicy.resolveAttemptKey(ipAddress, identifier);
 
-        if (loginAttemptService.isBlocked(clientKey)) {
-            throw new TooManyRequestsException(RATE_LIMIT_ERROR);
+        if (loginAttemptService.isBlocked(attemptKey)) {
+            throw new TooManyRequestsException(RATE_LIMIT_ERROR, Math.max(1L, loginAttemptService.getRetryAfterSeconds(attemptKey)));
         }
 
-        String identifier = request.email() != null ? request.email().trim().toLowerCase() : "";
         Account account = accountRepository.findByIdentifierIgnoreCase(identifier).orElse(null);
+        int maxAttempts = LoginRateLimitPolicy.resolveMaxAttempts(account != null ? account.getRoles() : null);
+        if (loginAttemptService.isBlocked(attemptKey, maxAttempts)) {
+            throw new TooManyRequestsException(RATE_LIMIT_ERROR, Math.max(1L, loginAttemptService.getRetryAfterSeconds(attemptKey)));
+        }
 
         if (account == null) {
-            loginAttemptService.loginFailed(clientKey);
+            loginAttemptService.loginFailed(attemptKey, maxAttempts);
             throw new InvalidCredentialsException(GENERIC_AUTH_ERROR);
         }
 
         if (!passwordEncoder.matches(request.password(), account.getPasswordHash())) {
-            loginAttemptService.loginFailed(clientKey);
+            loginAttemptService.loginFailed(attemptKey, maxAttempts);
             throw new InvalidCredentialsException(GENERIC_AUTH_ERROR);
         }
 
@@ -68,18 +74,18 @@ public class AuthServiceImpl implements AuthService {
                 && account.getRoles().contains("CLIENTE")
                 && "PENDIENTE_ACTIVACION".equals(account.getStatus());
         if (!("ACTIVO".equalsIgnoreCase(account.getStatus()) || pending)) {
-            loginAttemptService.loginFailed(clientKey);
+            loginAttemptService.loginFailed(attemptKey, maxAttempts);
             throw new InvalidCredentialsException(GENERIC_AUTH_ERROR);
         }
 
         if (account.isMustChangePassword() && account.getTemporaryPasswordExpiresAt() != null &&
                 !account.getTemporaryPasswordExpiresAt().isAfter(LocalDateTime.now(java.time.ZoneOffset.UTC))) {
-            loginAttemptService.loginFailed(clientKey);
+            loginAttemptService.loginFailed(attemptKey, maxAttempts);
             throw new InvalidCredentialsException("La contraseña temporal venció. Solicita una nueva invitación a Recepción.");
         }
 
         // Inicio de sesión exitoso: limpiar historial de intentos fallidos
-        loginAttemptService.loginSucceeded(clientKey);
+        loginAttemptService.loginSucceeded(attemptKey);
 
         String sessionId = UUID.randomUUID().toString().replace("-", "");
         LocalDateTime expiresAt = LocalDateTime.now().plusHours(jwtService.getExpirationHours());
@@ -142,10 +148,4 @@ public class AuthServiceImpl implements AuthService {
         sessionRepository.deleteByAccountId(current.getAccountId());
     }
 
-    private String resolveClientKey(String ipAddress) {
-        if (ipAddress == null || ipAddress.isBlank()) {
-            return "UNKNOWN";
-        }
-        return ipAddress.trim();
-    }
 }
