@@ -276,3 +276,13 @@ El servidor quedará escuchando en `http://localhost:8081`.
 - **Fecha:** 23 de Noviembre de 2026.
 - **Revisión de Ingeniería:** Consolidación Maestra Sprint 1 & 2 / Release Candidate v2.5.
 - **Autoría:** Equipo de Ingeniería GYM VIP / VIP CENTER FIT.
+
+
+---
+
+## 25. Actualización Enterprise & RBAC (25/11/2026 — Rama `develop`)
+- **Jerarquía y RBAC Granular:** 21 roles (`Role.java`) y 42 permisos (`PermissionCatalog.java`) inyectados en JWT/Filter (`TokenAuthenticationFilter.java`), más endpoints `/api/v1/rbac/**`.
+- **Seguridad Privilegiada & MFA:** Guardias anti-autoinactivación, anti-autodegradación y anti-escalada en `AccountServiceImpl.java`; TOTP RFC 6238 + recovery codes SHA-256 en `AccountSecurityController.java`; rate limiting por usuario/rol de 5 minutos (`LoginRateLimitPolicy.java`).
+- **Esquema Aditivo V31:** `V31__enterprise_rbac_hierarchy_and_training.sql` (`organizations`, `branches`, `account_branch_assignments`, `user_preferences`, `exercises`, `workout_routines*`, `workout_sessions`, `gym_classes`, `class_reservations`).
+- **APIs Enterprise & Training:** `/api/v1/preferences`, `/api/v1/enterprise/gyms|branches`, `/api/v1/training/**` y `/api/v1/accounts/audit`.
+- **Verificación:** `202/202` pruebas unitarias Maven aprobadas (`EnterpriseRbacAndProtectionTest` incluido). Documentación completa en `../documentos/INFORME_EVOLUCION_ENTERPRISE_MOBILE.md`.
