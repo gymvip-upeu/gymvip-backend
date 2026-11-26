@@ -1,9 +1,34 @@
 package com.gymvip.enums;
 
 public enum Role {
-    ADMIN,       // Soporte Técnico / Administrador de Sistemas TI
-    GERENTE,     // Gerente General / Dirección y Finanzas del Negocio
-    RECEPCION,   // Personal de Mostrador y Atención en Caja
-    AUDITOR,     // Control Interno y Supervisión de Operaciones
-    CLIENTE      // Socio / Atleta en App Móvil
+    // Nivel Plataforma (Proveedor SaaS GYM VIP)
+    SUPER_ADMIN,
+    SOPORTE_PLATAFORMA,
+
+    // Nivel Empresarial (Organización / Cadena Cliente)
+    ADMIN_EMPRESA,
+    GERENTE_GENERAL,
+    AUDITOR_EMPRESA,
+    CONTADOR,
+    RECURSOS_HUMANOS,
+
+    // Nivel Sede (Operación Local)
+    GERENTE_SEDE,
+    RECEPCION,
+    CAJERO,
+    INVENTARIO,
+    COMPRAS,
+    ENTRENADOR_JEFE,
+    ENTRENADOR,
+    MARKETING,
+    ATENCION_CLIENTE,
+    MANTENIMIENTO,
+
+    // Compatibilidad histórica (en migración controlada hacia SUPER_ADMIN / ADMIN_EMPRESA / GERENTE_GENERAL / AUDITOR_EMPRESA)
+    ADMIN,       // Soporte Técnico / Administrador heredado de plataforma y empresa
+    GERENTE,     // Dirección y Finanzas heredado
+    AUDITOR,     // Control Interno y Supervisión de Operaciones heredado
+
+    // Nivel Socio / Atleta
+    CLIENTE
 }

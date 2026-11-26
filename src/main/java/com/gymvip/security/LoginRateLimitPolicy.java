@@ -16,12 +16,28 @@ public final class LoginRateLimitPolicy {
     public static final long LOCK_TIME_SECONDS = 300L; // 5 minutos
     public static final long LOCK_TIME_MILLIS = LOCK_TIME_SECONDS * 1000L;
 
-    private static final Map<String, Integer> ROLE_MAX_ATTEMPTS = Map.of(
-            "RECEPCION", 3,
-            "AUDITOR", 4,
-            "GERENTE", 5,
-            "CLIENTE", 6,
-            "ADMIN", 10
+    private static final Map<String, Integer> ROLE_MAX_ATTEMPTS = Map.ofEntries(
+            Map.entry("RECEPCION", 3),
+            Map.entry("CAJERO", 3),
+            Map.entry("AUDITOR", 4),
+            Map.entry("AUDITOR_EMPRESA", 4),
+            Map.entry("CONTADOR", 4),
+            Map.entry("GERENTE", 5),
+            Map.entry("GERENTE_GENERAL", 5),
+            Map.entry("GERENTE_SEDE", 5),
+            Map.entry("SOPORTE_PLATAFORMA", 5),
+            Map.entry("ENTRENADOR_JEFE", 5),
+            Map.entry("ENTRENADOR", 5),
+            Map.entry("INVENTARIO", 5),
+            Map.entry("COMPRAS", 5),
+            Map.entry("MARKETING", 5),
+            Map.entry("ATENCION_CLIENTE", 5),
+            Map.entry("MANTENIMIENTO", 5),
+            Map.entry("RECURSOS_HUMANOS", 5),
+            Map.entry("CLIENTE", 6),
+            Map.entry("ADMIN", 10),
+            Map.entry("ADMIN_EMPRESA", 10),
+            Map.entry("SUPER_ADMIN", 10)
     );
 
     private LoginRateLimitPolicy() {

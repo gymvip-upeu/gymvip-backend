@@ -70,9 +70,15 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                         .requestMatchers("/", "/api/v1/health", "/api/v1/health/**", "/health", "/health/**", "/actuator/health", "/actuator/health/**", "/actuator/info").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/v1/payments/culqi/webhook").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/api/v1/enterprise/gyms").permitAll()
                         .requestMatchers("/error").permitAll()
+                        .requestMatchers("/api/v1/preferences", "/api/v1/preferences/**").authenticated()
+                        .requestMatchers("/api/v1/rbac", "/api/v1/rbac/**").authenticated()
+                        .requestMatchers("/api/v1/security/mfa/**").authenticated()
+                        .requestMatchers("/api/v1/security/privileged/**").hasAnyRole("SUPER_ADMIN", "ADMIN")
+                        .requestMatchers("/api/v1/training/**").authenticated()
                         .requestMatchers("/api/v1/member-app/faqs", "/api/v1/member-app/services").authenticated()
-                        .requestMatchers("/api/v1/member-app/**").hasAnyRole("CLIENTE", "ADMIN", "GERENTE", "RECEPCION", "AUDITOR")
+                        .requestMatchers("/api/v1/member-app/**").hasAnyRole("CLIENTE", "SUPER_ADMIN", "ADMIN", "ADMIN_EMPRESA", "GERENTE", "GERENTE_GENERAL", "GERENTE_SEDE", "RECEPCION", "AUDITOR", "AUDITOR_EMPRESA")
                         .requestMatchers(HttpMethod.GET,
                                 "/api/v1/catalog/products",
                                 "/api/v1/catalog/options",
@@ -81,14 +87,14 @@ public class SecurityConfig {
                                 "/api/v1/catalog/supplements/*/images/**",
                                 "/api/v1/catalog/promotions",
                                 "/api/v1/catalog/promotions/*")
-                        .hasAnyRole("CLIENTE", "ADMIN", "GERENTE", "RECEPCION")
-                        .requestMatchers("/api/v1/catalog/**").hasAnyRole("ADMIN", "GERENTE", "RECEPCION")
-                        .requestMatchers("/api/v1/clients/import/**").hasRole("ADMIN")
-                        .requestMatchers("/api/v1/dashboard", "/api/v1/dashboard/**").hasAnyRole("ADMIN", "GERENTE", "RECEPCION", "AUDITOR")
-                        .requestMatchers("/api/v1/reports", "/api/v1/reports/**").hasAnyRole("ADMIN", "GERENTE", "AUDITOR")
-                        .requestMatchers("/api/v1/incidents", "/api/v1/incidents/**").hasAnyRole("ADMIN", "GERENTE", "AUDITOR")
+                        .hasAnyRole("CLIENTE", "SUPER_ADMIN", "ADMIN", "ADMIN_EMPRESA", "GERENTE", "GERENTE_GENERAL", "GERENTE_SEDE", "RECEPCION")
+                        .requestMatchers("/api/v1/catalog/**").hasAnyRole("SUPER_ADMIN", "ADMIN", "ADMIN_EMPRESA", "GERENTE", "GERENTE_GENERAL", "GERENTE_SEDE", "RECEPCION", "INVENTARIO")
+                        .requestMatchers("/api/v1/clients/import/**", "/api/v1/data-import/**").hasAnyRole("SUPER_ADMIN", "ADMIN", "ADMIN_EMPRESA")
+                        .requestMatchers("/api/v1/dashboard", "/api/v1/dashboard/**").hasAnyRole("SUPER_ADMIN", "ADMIN", "ADMIN_EMPRESA", "GERENTE", "GERENTE_GENERAL", "GERENTE_SEDE", "RECEPCION", "AUDITOR", "AUDITOR_EMPRESA")
+                        .requestMatchers("/api/v1/reports", "/api/v1/reports/**").hasAnyRole("SUPER_ADMIN", "ADMIN", "ADMIN_EMPRESA", "GERENTE", "GERENTE_GENERAL", "GERENTE_SEDE", "AUDITOR", "AUDITOR_EMPRESA", "CONTADOR")
+                        .requestMatchers("/api/v1/incidents", "/api/v1/incidents/**").hasAnyRole("SUPER_ADMIN", "ADMIN", "ADMIN_EMPRESA", "GERENTE", "GERENTE_GENERAL", "GERENTE_SEDE", "AUDITOR", "AUDITOR_EMPRESA", "MANTENIMIENTO")
                         .requestMatchers("/api/v1/auth/me", "/api/v1/auth/revoke-other-sessions").authenticated()
-                        .anyRequest().hasAnyRole("ADMIN", "GERENTE", "RECEPCION")
+                        .anyRequest().hasAnyRole("SUPER_ADMIN", "ADMIN", "ADMIN_EMPRESA", "GERENTE", "GERENTE_GENERAL", "GERENTE_SEDE", "RECEPCION", "CAJERO", "INVENTARIO", "ENTRENADOR_JEFE", "ENTRENADOR")
                 )
                 .addFilterBefore(tokenAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
 

@@ -1,29 +1,29 @@
 package com.gymvip.service.impl;
 
 import com.gymvip.dto.request.CreateStaffAccountRequest;
+import com.gymvip.dto.request.UpdateStaffProfileRequest;
 import com.gymvip.dto.request.UpdateStaffRoleRequest;
 import com.gymvip.dto.request.UpdateStaffStatusRequest;
-import com.gymvip.dto.request.UpdateStaffProfileRequest;
 import com.gymvip.dto.response.StaffAccountResponse;
 import com.gymvip.entity.Account;
-import com.gymvip.enums.Role;
+import com.gymvip.entity.AuditEvent;
 import com.gymvip.exception.AccountNotFoundException;
 import com.gymvip.exception.ConflictException;
 import com.gymvip.exception.LastAdminProtectionException;
 import com.gymvip.mapper.AccountMapper;
 import com.gymvip.repository.AccountRepository;
+import com.gymvip.repository.AuditEventRepository;
 import com.gymvip.repository.SessionRepository;
+import com.gymvip.security.PermissionCatalog;
 import com.gymvip.service.AccountService;
 import com.gymvip.service.AuditService;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Set;
-import java.util.UUID;
+import java.util.*;
 import java.util.stream.Collectors;
 
 @Service
@@ -34,17 +34,29 @@ public class AccountServiceImpl implements AccountService {
     private final AccountMapper accountMapper;
     private final PasswordEncoder passwordEncoder;
     private final AuditService auditService;
+    private final AuditEventRepository auditEventRepository;
 
     public AccountServiceImpl(AccountRepository accountRepository,
                               SessionRepository sessionRepository,
                               AccountMapper accountMapper,
                               PasswordEncoder passwordEncoder,
                               AuditService auditService) {
+        this(accountRepository, sessionRepository, accountMapper, passwordEncoder, auditService, null);
+    }
+
+    @Autowired
+    public AccountServiceImpl(AccountRepository accountRepository,
+                              SessionRepository sessionRepository,
+                              AccountMapper accountMapper,
+                              PasswordEncoder passwordEncoder,
+                              AuditService auditService,
+                              AuditEventRepository auditEventRepository) {
         this.accountRepository = accountRepository;
         this.sessionRepository = sessionRepository;
         this.accountMapper = accountMapper;
         this.passwordEncoder = passwordEncoder;
         this.auditService = auditService;
+        this.auditEventRepository = auditEventRepository;
     }
 
     @Override
@@ -67,15 +79,17 @@ public class AccountServiceImpl implements AccountService {
     @Override
     @Transactional
     public StaffAccountResponse createStaffAccount(CreateStaffAccountRequest request, String actorEmail) {
-        String normalizedEmail = request.email() != null ? request.email().trim().toLowerCase() : "";
+        String normalizedEmail = request.email() != null ? request.email().trim().toLowerCase(Locale.ROOT) : "";
         if (accountRepository.existsByEmailIgnoreCase(normalizedEmail)) {
             throw new ConflictException("Ya existe una cuenta de personal con el correo: " + normalizedEmail);
         }
 
-        String targetRole = request.role() != null ? request.role().trim().toUpperCase() : "";
-        if (!targetRole.equals(Role.ADMIN.name()) && !targetRole.equals(Role.GERENTE.name()) && !targetRole.equals(Role.RECEPCION.name()) && !targetRole.equals(Role.AUDITOR.name())) {
-            throw new IllegalArgumentException("Rol no autorizado para personal del gimnasio: " + targetRole + ". Roles válidos: ADMIN, GERENTE, RECEPCION, AUDITOR");
+        String targetRole = PermissionCatalog.normalizeRole(request.role());
+        if (!PermissionCatalog.isAssignableStaffRole(targetRole)) {
+            throw new IllegalArgumentException("Rol no autorizado para personal del gimnasio: " + targetRole);
         }
+
+        ensureActorCanAssignRole(actorEmail, targetRole);
 
         Account account = new Account(
                 UUID.randomUUID(),
@@ -107,16 +121,35 @@ public class AccountServiceImpl implements AccountService {
     public StaffAccountResponse updateRole(UUID id, UpdateStaffRoleRequest request, String actorEmail) {
         Account account = requireStaff(id);
 
-        String targetRole = request.role() != null ? request.role().trim().toUpperCase() : "";
-        if (!targetRole.equals(Role.ADMIN.name()) && !targetRole.equals(Role.GERENTE.name()) && !targetRole.equals(Role.RECEPCION.name()) && !targetRole.equals(Role.AUDITOR.name())) {
-            throw new IllegalArgumentException("Rol no autorizado para personal: " + targetRole + ". Roles válidos: ADMIN, GERENTE, RECEPCION, AUDITOR");
+        String targetRole = PermissionCatalog.normalizeRole(request.role());
+        if (!PermissionCatalog.isAssignableStaffRole(targetRole)) {
+            throw new IllegalArgumentException("Rol no autorizado para personal: " + targetRole);
         }
 
-        boolean currentlyAdmin = account.getRoles().contains("ADMIN");
-        if (currentlyAdmin && !targetRole.equals("ADMIN")) {
+        boolean sameAccount = actorEmail != null && actorEmail.trim().equalsIgnoreCase(account.getEmail());
+        boolean currentlyPrivileged = PermissionCatalog.isPlatformOrLegacyAdmin(account.getRoles());
+        boolean willRemainPrivileged = "ADMIN".equals(targetRole) || "SUPER_ADMIN".equals(targetRole);
+
+        if (sameAccount && currentlyPrivileged && !willRemainPrivileged) {
+            throw new LastAdminProtectionException("Operación denegada: no puedes autodegradar tu propia cuenta privilegiada.");
+        }
+        if (sameAccount && !currentlyPrivileged && ("SUPER_ADMIN".equals(targetRole) || "ADMIN".equals(targetRole))) {
+            throw new LastAdminProtectionException("Operación denegada: autoelevación de privilegios prohibida.");
+        }
+
+        ensureActorCanModifyTargetAccount(actorEmail, account);
+        ensureActorCanAssignRole(actorEmail, targetRole);
+
+        if (currentlyPrivileged && !willRemainPrivileged) {
             long activeAdmins = accountRepository.countActiveAdmins();
             if (activeAdmins <= 1) {
                 throw new LastAdminProtectionException("Operación denegada: no es posible revocar los privilegios del único Administrador activo.");
+            }
+        }
+        if (PermissionCatalog.isSuperAdmin(account.getRoles()) && !"SUPER_ADMIN".equals(targetRole)) {
+            long activeSuperAdmins = accountRepository.countActiveSuperAdmins();
+            if (activeSuperAdmins <= 1 && accountRepository.countActiveAdmins() <= 1) {
+                throw new LastAdminProtectionException("Operación denegada: no es posible degradar al único Super Administrador autorizado.");
             }
         }
 
@@ -124,7 +157,6 @@ public class AccountServiceImpl implements AccountService {
         account.setUpdatedAt(LocalDateTime.now());
         Account saved = accountRepository.save(account);
 
-        // Revocar inmediatamente cualquier sesión activa previa con roles obsoletos
         sessionRepository.deleteByAccountId(id);
 
         auditService.recordEvent(
@@ -143,12 +175,18 @@ public class AccountServiceImpl implements AccountService {
     public StaffAccountResponse updateStatus(UUID id, UpdateStaffStatusRequest request, String actorEmail) {
         Account account = requireStaff(id);
 
-        String targetStatus = request.status() != null ? request.status().trim().toUpperCase() : "";
+        String targetStatus = request.status() != null ? request.status().trim().toUpperCase(Locale.ROOT) : "";
         if (!targetStatus.equals("ACTIVO") && !targetStatus.equals("INACTIVO")) {
             throw new IllegalArgumentException("Estado no válido: " + targetStatus + ". Valores permitidos: ACTIVO, INACTIVO");
         }
 
-        boolean currentlyAdmin = account.getRoles().contains("ADMIN");
+        if ("INACTIVO".equals(targetStatus) && actorEmail != null && actorEmail.trim().equalsIgnoreCase(account.getEmail())) {
+            throw new LastAdminProtectionException("Operación denegada: no puedes autoinactivar ni autoeliminar tu propia cuenta.");
+        }
+
+        ensureActorCanModifyTargetAccount(actorEmail, account);
+
+        boolean currentlyAdmin = PermissionCatalog.isPlatformOrLegacyAdmin(account.getRoles());
         if (currentlyAdmin && "INACTIVO".equals(targetStatus) && "ACTIVO".equalsIgnoreCase(account.getStatus())) {
             long activeAdmins = accountRepository.countActiveAdmins();
             if (activeAdmins <= 1) {
@@ -179,7 +217,9 @@ public class AccountServiceImpl implements AccountService {
     @Transactional
     public StaffAccountResponse updateProfile(UUID id, UpdateStaffProfileRequest request, String actorEmail) {
         Account account = requireStaff(id);
-        String email = request.email().trim().toLowerCase(java.util.Locale.ROOT);
+        ensureActorCanModifyTargetAccount(actorEmail, account);
+
+        String email = request.email().trim().toLowerCase(Locale.ROOT);
         boolean emailChanged = !account.getEmail().equalsIgnoreCase(email);
         if (emailChanged && accountRepository.existsByEmailIgnoreCase(email)) {
             throw new ConflictException("El correo ya está registrado.");
@@ -190,26 +230,19 @@ public class AccountServiceImpl implements AccountService {
         account.setPhone(request.phone() == null ? null : request.phone().trim());
         account.setUpdatedAt(LocalDateTime.now());
         Account saved = accountRepository.save(account);
-        if (emailChanged) sessionRepository.deleteByAccountId(id);
+        if (emailChanged) {
+            sessionRepository.deleteByAccountId(id);
+        }
         auditService.recordEvent(actorEmail, "UPDATE_STAFF_PROFILE", "Account", id.toString(),
                 "Datos del colaborador actualizados; correo modificado: " + emailChanged);
         return accountMapper.toResponse(saved);
-    }
-
-    private boolean isStaff(Account account) {
-        return account.getRoles().stream().anyMatch(role ->
-                role.equals("ADMIN") || role.equals("GERENTE") || role.equals("RECEPCION") || role.equals("AUDITOR"));
-    }
-
-    private Account requireStaff(UUID id) {
-        return accountRepository.findById(id).filter(this::isStaff)
-                .orElseThrow(() -> new AccountNotFoundException("Colaborador no encontrado con ID: " + id));
     }
 
     @Override
     @Transactional
     public void revokeSessions(UUID id, String actorEmail) {
         Account account = requireStaff(id);
+        ensureActorCanModifyTargetAccount(actorEmail, account);
 
         sessionRepository.deleteByAccountId(id);
 
@@ -220,5 +253,69 @@ public class AccountServiceImpl implements AccountService {
                 account.getId().toString(),
                 "Sesiones revocadas para la cuenta: " + account.getEmail()
         );
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<AuditEvent> listAccountAuditHistory(UUID accountId) {
+        if (auditEventRepository == null) {
+            return List.of();
+        }
+        return auditEventRepository.findTop50ByEntityNameAndEntityIdOrderByTimestampUtcDesc("Account", accountId.toString());
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<AuditEvent> listRecentStaffAuditEvents() {
+        if (auditEventRepository == null) {
+            return List.of();
+        }
+        return auditEventRepository.findTop100ByEntityNameOrderByTimestampUtcDesc("Account");
+    }
+
+    private void ensureActorCanAssignRole(String actorEmail, String targetRole) {
+        if (actorEmail == null || actorEmail.isBlank()) {
+            return;
+        }
+        Account actor = accountRepository.findByEmailIgnoreCase(actorEmail.trim()).orElse(null);
+        if (actor == null) {
+            return;
+        }
+        Set<String> actorRoles = actor.getRoles();
+        if ("SUPER_ADMIN".equals(targetRole) && !PermissionCatalog.isPlatformOrLegacyAdmin(actorRoles)) {
+            throw new LastAdminProtectionException("Operación denegada: solo SUPER_ADMIN autorizado puede otorgar el rol SUPER_ADMIN.");
+        }
+        boolean actorIsAdmin = PermissionCatalog.isPlatformOrLegacyAdmin(actorRoles);
+        if (!actorIsAdmin && ("SUPER_ADMIN".equals(targetRole) || "ADMIN".equals(targetRole) || "ADMIN_EMPRESA".equals(targetRole))) {
+            throw new LastAdminProtectionException("Operación denegada: un rol gerencial no puede crear ni asignar cuentas administrativas privilegiadas.");
+        }
+    }
+
+    private void ensureActorCanModifyTargetAccount(String actorEmail, Account target) {
+        if (actorEmail == null || actorEmail.isBlank()) {
+            return;
+        }
+        Account actor = accountRepository.findByEmailIgnoreCase(actorEmail.trim()).orElse(null);
+        if (actor == null) {
+            return;
+        }
+        boolean actorIsAdmin = PermissionCatalog.isPlatformOrLegacyAdmin(actor.getRoles());
+        boolean targetIsAdmin = PermissionCatalog.isPlatformOrLegacyAdmin(target.getRoles());
+        boolean targetIsSuper = PermissionCatalog.isSuperAdmin(target.getRoles());
+        if (targetIsSuper && !PermissionCatalog.isSuperAdmin(actor.getRoles()) && !PermissionCatalog.containsNormalized(actor.getRoles(), "ADMIN")) {
+            throw new LastAdminProtectionException("Operación denegada: una cuenta SUPER_ADMIN solo puede gestionarse por plataforma autorizada.");
+        }
+        if (targetIsAdmin && !actorIsAdmin) {
+            throw new LastAdminProtectionException("Operación denegada: no tienes autorización para modificar ni desactivar administradores.");
+        }
+    }
+
+    private boolean isStaff(Account account) {
+        return account.getRoles().stream().anyMatch(PermissionCatalog::isStaffRole);
+    }
+
+    private Account requireStaff(UUID id) {
+        return accountRepository.findById(id).filter(this::isStaff)
+                .orElseThrow(() -> new AccountNotFoundException("Colaborador no encontrado con ID: " + id));
     }
 }

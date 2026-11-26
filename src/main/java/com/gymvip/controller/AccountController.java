@@ -18,7 +18,7 @@ import java.util.UUID;
 
 @RestController
 @RequestMapping("/api/v1/accounts")
-@PreAuthorize("hasAnyRole('ADMIN', 'GERENTE')")
+@PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'ADMIN_EMPRESA', 'GERENTE', 'GERENTE_GENERAL', 'RECURSOS_HUMANOS')")
 public class AccountController {
 
     private final AccountService accountService;
@@ -87,5 +87,15 @@ public class AccountController {
         String actor = authentication != null ? authentication.getName() : "admin_sistema";
         accountService.revokeSessions(id, actor);
         return ResponseEntity.noContent().build();
+    }
+
+    @GetMapping("/{id}/audit")
+    public ResponseEntity<List<com.gymvip.entity.AuditEvent>> accountAudit(@PathVariable UUID id) {
+        return ResponseEntity.ok(accountService.listAccountAuditHistory(id));
+    }
+
+    @GetMapping("/audit")
+    public ResponseEntity<List<com.gymvip.entity.AuditEvent>> recentStaffAudit() {
+        return ResponseEntity.ok(accountService.listRecentStaffAuditEvents());
     }
 }

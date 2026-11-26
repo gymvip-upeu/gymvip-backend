@@ -181,6 +181,9 @@ public class AuthController {
         profile.put("lastName", account.getLastName());
         profile.put("phone", account.getPhone());
         profile.put("roles", account.getRoles());
+        profile.put("permissions", com.gymvip.security.PermissionCatalog.resolvePermissions(account.getRoles()));
+        profile.put("organizationId", account.getOrganizationId());
+        profile.put("primaryBranchId", account.getPrimaryBranchId());
         profile.put("status", account.getStatus());
         profile.put("mfaEnabled", account.isMfaEnabled());
         profile.put("createdAt", account.getCreatedAt());

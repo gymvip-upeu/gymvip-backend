@@ -76,9 +76,13 @@ public class TokenAuthenticationFilter extends OncePerRequestFilter {
                                     return;
                                 }
                             }
-                            List<SimpleGrantedAuthority> authorities = account.getRoles().stream()
+                            java.util.List<SimpleGrantedAuthority> authorities = new java.util.ArrayList<>();
+                            account.getRoles().stream()
                                     .map(role -> new SimpleGrantedAuthority("ROLE_" + role.toUpperCase()))
-                                    .collect(Collectors.toList());
+                                    .forEach(authorities::add);
+                            PermissionCatalog.resolvePermissions(account.getRoles()).stream()
+                                    .map(SimpleGrantedAuthority::new)
+                                    .forEach(authorities::add);
 
                             UsernamePasswordAuthenticationToken authentication =
                                     new UsernamePasswordAuthenticationToken(account.getEmail(), null, authorities);

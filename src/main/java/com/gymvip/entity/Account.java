@@ -39,6 +39,21 @@ public class Account {
     @Column(name = "mfa_enabled", nullable = false)
     private boolean mfaEnabled = false;
 
+    @Column(name = "organization_id")
+    private UUID organizationId;
+
+    @Column(name = "primary_branch_id")
+    private UUID primaryBranchId;
+
+    @Column(name = "totp_secret", length = 120)
+    private String totpSecret;
+
+    @Column(name = "mfa_recovery_hashes", length = 1200)
+    private String mfaRecoveryHashes;
+
+    @Column(name = "mfa_verified_at")
+    private LocalDateTime mfaVerifiedAt;
+
     @Column(name = "must_change_password", nullable = false)
     private boolean mustChangePassword = false;
 
@@ -90,4 +105,14 @@ public class Account {
     public void setCreatedAt(LocalDateTime createdAt) { this.createdAt = createdAt; }
     public LocalDateTime getUpdatedAt() { return updatedAt; }
     public void setUpdatedAt(LocalDateTime updatedAt) { this.updatedAt = updatedAt; }
+    public UUID getOrganizationId() { return organizationId; }
+    public void setOrganizationId(UUID organizationId) { this.organizationId = organizationId; }
+    public UUID getPrimaryBranchId() { return primaryBranchId; }
+    public void setPrimaryBranchId(UUID primaryBranchId) { this.primaryBranchId = primaryBranchId; }
+    public String getTotpSecret() { return totpSecret; }
+    public void setTotpSecret(String totpSecret) { this.totpSecret = totpSecret; }
+    public String getMfaRecoveryHashes() { return mfaRecoveryHashes; }
+    public void setMfaRecoveryHashes(String mfaRecoveryHashes) { this.mfaRecoveryHashes = mfaRecoveryHashes; }
+    public LocalDateTime getMfaVerifiedAt() { return mfaVerifiedAt; }
+    public void setMfaVerifiedAt(LocalDateTime mfaVerifiedAt) { this.mfaVerifiedAt = mfaVerifiedAt; }
 }
