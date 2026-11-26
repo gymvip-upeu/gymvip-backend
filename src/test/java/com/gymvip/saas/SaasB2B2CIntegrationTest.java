@@ -85,7 +85,7 @@ public class SaasB2B2CIntegrationTest {
         mockMvc.perform(get("/api/v1/public/gyms"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$", hasSize(greaterThanOrEqualTo(1))))
-                .andExpect(jsonPath("$[0].code").value("vip-center-fit"));
+                .andExpect(jsonPath("$[*].code", hasItem("vip-center-fit")));
 
         mockMvc.perform(get("/api/v1/legal/documents"))
                 .andExpect(status().isOk())
@@ -183,8 +183,23 @@ public class SaasB2B2CIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("SUSPENDIDA"));
 
+        // Cross-tenant isolation: another gym's gerente CANNOT export newOrgId, and legacy ADMIN CANNOT manage another tenant
         mockMvc.perform(get("/api/v1/platform/export/organization/" + newOrgId)
                         .header("Authorization", "Bearer " + gerenteToken))
+                .andExpect(status().isForbidden());
+
+        mockMvc.perform(get("/api/v1/organization/commercial-profile?organizationId=" + newOrgId)
+                        .header("Authorization", "Bearer " + adminToken))
+                .andExpect(status().isForbidden());
+
+        // Own-tenant gerente CAN export their organization, and SUPER_ADMIN CAN export suspended newOrgId for portability
+        mockMvc.perform(get("/api/v1/platform/export/organization/11111111-1111-4111-8111-111111111111")
+                        .header("Authorization", "Bearer " + gerenteToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.dataPortabilityGuarantee", containsString("independientemente del estado comercial")));
+
+        mockMvc.perform(get("/api/v1/platform/export/organization/" + newOrgId)
+                        .header("Authorization", "Bearer " + superAdminToken))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.dataPortabilityGuarantee", containsString("independientemente del estado comercial")));
     }

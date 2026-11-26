@@ -282,7 +282,7 @@ public class AccountServiceImpl implements AccountService {
             return;
         }
         Set<String> actorRoles = actor.getRoles();
-        if ("SUPER_ADMIN".equals(targetRole) && !PermissionCatalog.isPlatformOrLegacyAdmin(actorRoles)) {
+        if ("SUPER_ADMIN".equals(targetRole) && !PermissionCatalog.isSuperAdmin(actorRoles)) {
             throw new LastAdminProtectionException("Operación denegada: solo SUPER_ADMIN autorizado puede otorgar el rol SUPER_ADMIN.");
         }
         boolean actorIsAdmin = PermissionCatalog.isPlatformOrLegacyAdmin(actorRoles);
@@ -302,7 +302,7 @@ public class AccountServiceImpl implements AccountService {
         boolean actorIsAdmin = PermissionCatalog.isPlatformOrLegacyAdmin(actor.getRoles());
         boolean targetIsAdmin = PermissionCatalog.isPlatformOrLegacyAdmin(target.getRoles());
         boolean targetIsSuper = PermissionCatalog.isSuperAdmin(target.getRoles());
-        if (targetIsSuper && !PermissionCatalog.isSuperAdmin(actor.getRoles()) && !PermissionCatalog.containsNormalized(actor.getRoles(), "ADMIN")) {
+        if (targetIsSuper && !PermissionCatalog.isSuperAdmin(actor.getRoles())) {
             throw new LastAdminProtectionException("Operación denegada: una cuenta SUPER_ADMIN solo puede gestionarse por plataforma autorizada.");
         }
         if (targetIsAdmin && !actorIsAdmin) {

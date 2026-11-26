@@ -186,10 +186,10 @@ public final class PermissionCatalog {
                 "Gestión de áreas e incidencias físicas del gimnasio.",
                 false, false, Set.of("branches.read", "incidents.read", "incidents.manage", "preferences.manage"));
 
-        // Roles heredados conservados para compatibilidad retrospectiva
+        // Roles heredados conservados para compatibilidad retrospectiva (sin privilegios de plataforma)
         register("ADMIN", "Administrador Técnico (Legacy)", "ORGANIZATION",
-                "Rol administrativo heredado; en migración controlada hacia SUPER_ADMIN o ADMIN_EMPRESA.",
-                true, true, SUPER_ADMIN_PERMS);
+                "Rol administrativo heredado acotado a su organización; no otorga gobierno global SaaS.",
+                true, true, CORP_ADMIN_PERMS);
         register("GERENTE", "Gerente (Legacy)", "ORGANIZATION",
                 "Rol gerencial heredado equivalente a GERENTE_GENERAL.",
                 false, true, union(MANAGER_BRANCH_PERMS, Set.of("plans.manage", "employees.create", "employees.assign_role", "employees.inactivate", "branches.manage", "integrations.read")));

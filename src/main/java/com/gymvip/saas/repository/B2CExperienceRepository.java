@@ -8,7 +8,7 @@ import com.gymvip.saas.domain.SaasCalculations;
 import com.gymvip.service.MemberWorkspaceService;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.access.AccessDeniedException;
-import org.springframework.stereotype.Repository;
+import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
@@ -19,7 +19,7 @@ import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.util.*;
 
-@Repository
+@Service
 public class B2CExperienceRepository {
 
     private static final Set<String> VALID_PUBLISH_STATES = Set.of("BORRADOR", "PUBLICADO", "OCULTO");
@@ -641,7 +641,7 @@ public class B2CExperienceRepository {
     private UUID resolveOrgIdForActor(String actorEmail, UUID requestedOrgId) {
         Account account = accountRepository.findByEmailIgnoreCase(actorEmail)
                 .orElseThrow(() -> new ResourceNotFoundException("Cuenta no encontrada."));
-        boolean isSuperAdmin = account.getRoles().stream().anyMatch(r -> "SUPER_ADMIN".equalsIgnoreCase(r) || "ADMIN".equalsIgnoreCase(r));
+        boolean isSuperAdmin = account.getRoles().stream().anyMatch(r -> "SUPER_ADMIN".equalsIgnoreCase(r));
         if (isSuperAdmin && requestedOrgId != null) {
             return requestedOrgId;
         }

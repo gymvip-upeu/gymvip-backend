@@ -4,8 +4,9 @@ import com.gymvip.entity.Account;
 import com.gymvip.repository.AccountRepository;
 import com.gymvip.saas.domain.SaasCalculations;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.crypto.password.PasswordEncoder;
-import org.springframework.stereotype.Repository;
+import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
@@ -14,7 +15,7 @@ import java.time.LocalDate;
 import java.time.YearMonth;
 import java.util.*;
 
-@Repository
+@Service
 public class SaasPlatformRepository {
 
     private static final Set<String> VALID_LICENSE_STATUSES = Set.of(
@@ -409,7 +410,19 @@ public class SaasPlatformRepository {
         return response;
     }
 
-    public Map<String, Object> exportOrganizationPortableSummary(UUID organizationId) {
+    public Map<String, Object> exportOrganizationPortableSummary(UUID organizationId, String actorEmail) {
+        Account actor = accountRepository.findByEmailIgnoreCase(actorEmail)
+                .orElseThrow(() -> new AccessDeniedException("Cuenta no autorizada para exportar datos."));
+        boolean isSuperAdmin = actor.getRoles().stream()
+                .anyMatch(r -> "SUPER_ADMIN".equalsIgnoreCase(r));
+        if (!isSuperAdmin) {
+            UUID actorOrgId = actor.getOrganizationId() != null
+                    ? actor.getOrganizationId()
+                    : UUID.fromString("11111111-1111-4111-8111-111111111111");
+            if (!actorOrgId.equals(organizationId)) {
+                throw new AccessDeniedException("No tienes autorización para exportar datos de otra organización.");
+            }
+        }
         Map<String, Object> org = camelizeMap(jdbc.queryForMap(
                 "SELECT id, code, name, tax_id, plan_tier, status, is_published, created_at FROM organizations WHERE id = ?",
                 organizationId
