@@ -11,6 +11,7 @@ import com.gymvip.repository.SessionRepository;
 import com.gymvip.security.JwtService;
 import com.gymvip.security.LoginAttemptService;
 import com.gymvip.security.LoginRateLimitPolicy;
+import com.gymvip.security.TotpService;
 import com.gymvip.service.AuthService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -20,6 +21,9 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
 import java.util.Locale;
 import java.util.UUID;
 
@@ -36,6 +40,8 @@ public class AuthServiceImpl implements AuthService {
     private final JwtService jwtService;
     @Autowired(required = false)
     private JdbcTemplate jdbcTemplate;
+    @Autowired(required = false)
+    private TotpService totpService;
 
     public AuthServiceImpl(AccountRepository accountRepository,
                            SessionRepository sessionRepository,
@@ -65,12 +71,7 @@ public class AuthServiceImpl implements AuthService {
             throw new TooManyRequestsException(RATE_LIMIT_ERROR, Math.max(1L, loginAttemptService.getRetryAfterSeconds(attemptKey)));
         }
 
-        if (account == null) {
-            loginAttemptService.loginFailed(attemptKey, maxAttempts);
-            throw new InvalidCredentialsException(GENERIC_AUTH_ERROR);
-        }
-
-        if (!passwordEncoder.matches(request.password(), account.getPasswordHash())) {
+        if (account == null || !passwordEncoder.matches(request.password(), account.getPasswordHash())) {
             loginAttemptService.loginFailed(attemptKey, maxAttempts);
             throw new InvalidCredentialsException(GENERIC_AUTH_ERROR);
         }
@@ -90,9 +91,65 @@ public class AuthServiceImpl implements AuthService {
             throw new InvalidCredentialsException("La contraseña temporal venció. Solicita una nueva invitación a Recepción.");
         }
 
-        // Inicio de sesión exitoso: limpiar historial de intentos fallidos
         loginAttemptService.loginSucceeded(attemptKey);
 
+        // TEC-09: Exigir segundo factor TOTP antes de emitir sesión JWT cuando MFA está habilitado
+        if (account.isMfaEnabled() && account.getTotpSecret() != null && !account.getTotpSecret().isBlank() && totpService != null) {
+            String challengeToken = jwtService.generateMfaChallengeToken(account);
+            return new AuthResponse(
+                    null,
+                    account.getId(),
+                    account.getEmail(),
+                    account.getRoles(),
+                    true,
+                    challengeToken,
+                    "Verificación MFA TOTP requerida para completar el ingreso."
+            );
+        }
+
+        return issueSessionResponse(account, ipAddress, userAgent, rawTempExpiresAt);
+    }
+
+    @Override
+    @Transactional
+    public AuthResponse verifyMfaLogin(String challengeToken, String code, String ipAddress, String userAgent) {
+        UUID accountId = jwtService.validateMfaChallengeToken(challengeToken)
+                .orElseThrow(() -> new InvalidCredentialsException("El desafío MFA expiró o es inválido. Vuelva a iniciar sesión."));
+        Account account = accountRepository.findById(accountId)
+                .orElseThrow(() -> new InvalidCredentialsException(GENERIC_AUTH_ERROR));
+
+        String attemptKey = LoginRateLimitPolicy.resolveAttemptKey(ipAddress, account.getEmail().toLowerCase(Locale.ROOT) + ":mfa");
+        int maxAttempts = LoginRateLimitPolicy.resolveMaxAttempts(account.getRoles());
+        if (loginAttemptService.isBlocked(attemptKey, maxAttempts)) {
+            throw new TooManyRequestsException(RATE_LIMIT_ERROR, Math.max(1L, loginAttemptService.getRetryAfterSeconds(attemptKey)));
+        }
+
+        if (!"ACTIVO".equalsIgnoreCase(account.getStatus()) || !account.isMfaEnabled() || totpService == null) {
+            throw new InvalidCredentialsException(GENERIC_AUTH_ERROR);
+        }
+
+        boolean validOtp = totpService.verifyCode(account.getTotpSecret(), code);
+        boolean validRecovery = false;
+        if (!validOtp && code != null && account.getMfaRecoveryHashes() != null && !account.getMfaRecoveryHashes().isBlank()) {
+            String hashed = totpService.hashRecoveryCode(code);
+            List<String> current = new ArrayList<>(Arrays.asList(account.getMfaRecoveryHashes().split(",")));
+            if (current.remove(hashed)) {
+                validRecovery = true;
+                account.setMfaRecoveryHashes(String.join(",", current));
+                accountRepository.save(account);
+            }
+        }
+
+        if (!validOtp && !validRecovery) {
+            loginAttemptService.loginFailed(attemptKey, maxAttempts);
+            throw new InvalidCredentialsException("Código TOTP o código de recuperación inválido.");
+        }
+
+        loginAttemptService.loginSucceeded(attemptKey);
+        return issueSessionResponse(account, ipAddress, userAgent, resolveRawTemporaryPasswordExpiresAt(account));
+    }
+
+    private AuthResponse issueSessionResponse(Account account, String ipAddress, String userAgent, LocalDateTime rawTempExpiresAt) {
         String sessionId = UUID.randomUUID().toString().replace("-", "");
         LocalDateTime expiresAt = LocalDateTime.now().plusHours(jwtService.getExpirationHours());
         if (account.isMustChangePassword() && rawTempExpiresAt != null) {
@@ -110,7 +167,6 @@ public class AuthServiceImpl implements AuthService {
         sessionRepository.save(session);
 
         String jwtToken = jwtService.generateToken(account, sessionId, expiresAt);
-
         return new AuthResponse(jwtToken, account.getId(), account.getEmail(), account.getRoles());
     }
 
@@ -119,7 +175,6 @@ public class AuthServiceImpl implements AuthService {
     public void logout(String token) {
         if (token != null && !token.isBlank()) {
             String trimmed = token.trim();
-            // Si es un token JWT, extrae el sessionId (claim jti); de lo contrario usa el valor directo
             String sessionIdToDelete = jwtService.extractSessionIdIfValidSignature(trimmed)
                     .orElse(trimmed);
             sessionRepository.deleteById(sessionIdToDelete);
@@ -166,10 +221,9 @@ public class AuthServiceImpl implements AuthService {
                     return raw;
                 }
             } catch (Exception ignored) {
-                // Fallback a entidad JPA si la tabla/driver no soporta getObject(LocalDateTime) en un mock aislado
+                // Fallback a entidad JPA en entornos de mock aislados
             }
         }
         return account.getTemporaryPasswordExpiresAt();
     }
-
 }

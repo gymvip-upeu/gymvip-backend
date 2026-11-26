@@ -140,4 +140,48 @@ public class AccountSecurityController {
                 "Migración hacia " + target + " | Motivo: " + (request.reason() != null ? request.reason() : "N/A"));
         return ResponseEntity.ok(updated);
     }
+
+    public record PrivilegedRevocationRequest(
+            UUID accountId,
+            String replacementRole,
+            String currentPassword,
+            String mfaCode,
+            String reason
+    ) {}
+
+    /**
+     * TEC-10: Revocación excepcional y auditada de privilegios administrativos con doble factor
+     * (contraseña + TOTP si el actor tiene MFA activo) y bloqueo estricto de auto-revocación.
+     */
+    @PostMapping("/privileged/revoke-role")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN')")
+    public ResponseEntity<?> revokePrivilegedRole(@RequestBody PrivilegedRevocationRequest request,
+                                                  Authentication authentication) {
+        Account actor = accountRepository.findByEmailIgnoreCase(authentication.getName()).orElse(null);
+        if (actor == null || request == null || request.currentPassword() == null
+                || !passwordEncoder.matches(request.currentPassword(), actor.getPasswordHash())) {
+            throw new InvalidCredentialsException("Reautenticación obligatoria fallida para revocar privilegios.");
+        }
+        if (actor.isMfaEnabled() && !totpService.verifyCode(actor.getTotpSecret(), request.mfaCode())) {
+            throw new InvalidCredentialsException("Se requiere código TOTP vigente del administrador para confirmar la revocación.");
+        }
+        if (request.accountId() == null || actor.getId().equals(request.accountId())) {
+            return ResponseEntity.badRequest().body(Map.of("message", "No está permitido revocar sus propios privilegios ni dejar la plataforma sin responsable."));
+        }
+        if (request.reason() == null || request.reason().trim().length() < 8) {
+            return ResponseEntity.badRequest().body(Map.of("message", "Debe consignar un motivo explícito (mínimo 8 caracteres)."));
+        }
+        String nextRole = PermissionCatalog.normalizeRole(
+                request.replacementRole() != null ? request.replacementRole() : "RECEPCION"
+        );
+        if (Set.of("SUPER_ADMIN", "ADMIN").contains(nextRole)) {
+            return ResponseEntity.badRequest().body(Map.of("message", "La revocación debe asignar un rol operativo de menor privilegio."));
+        }
+        var updated = accountService.updateRole(request.accountId(), new UpdateStaffRoleRequest(nextRole), actor.getEmail());
+        sessionRepository.deleteByAccountId(request.accountId());
+        auditService.recordEvent(actor.getEmail(), "PRIVILEGED_ROLE_REVOKED", "Account",
+                request.accountId().toString(),
+                "Privilegio degradado a " + nextRole + " | Motivo: " + request.reason().trim());
+        return ResponseEntity.ok(updated);
+    }
 }

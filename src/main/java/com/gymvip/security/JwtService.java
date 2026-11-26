@@ -156,6 +156,43 @@ public class JwtService {
         }
     }
 
+    public String generateMfaChallengeToken(Account account) {
+        Date now = new Date();
+        Date exp = new Date(now.getTime() + 5 * 60 * 1000L); // 5 minutos máximo
+        return Jwts.builder()
+                .subject(account.getEmail())
+                .id(UUID.randomUUID().toString())
+                .claim("accountId", account.getId().toString())
+                .claim("purpose", "MFA_CHALLENGE")
+                .issuedAt(now)
+                .expiration(exp)
+                .signWith(signingKey, Jwts.SIG.HS256)
+                .compact();
+    }
+
+    public Optional<UUID> validateMfaChallengeToken(String token) {
+        if (token == null || token.isBlank()) {
+            return Optional.empty();
+        }
+        try {
+            Claims claims = Jwts.parser()
+                    .verifyWith(signingKey)
+                    .build()
+                    .parseSignedClaims(token.trim())
+                    .getPayload();
+            if (!"MFA_CHALLENGE".equals(claims.get("purpose", String.class))) {
+                return Optional.empty();
+            }
+            if (claims.getExpiration() == null || claims.getExpiration().before(new Date())) {
+                return Optional.empty();
+            }
+            String accountIdStr = claims.get("accountId", String.class);
+            return accountIdStr != null ? Optional.of(UUID.fromString(accountIdStr)) : Optional.empty();
+        } catch (Exception ex) {
+            return Optional.empty();
+        }
+    }
+
     public int getExpirationHours() {
         return expirationHours > 0 ? expirationHours : 24;
     }

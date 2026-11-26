@@ -66,7 +66,7 @@ public class SecurityConfig {
                         .accessDeniedHandler(accessDeniedHandler())
                 )
                 .authorizeHttpRequests(auth -> auth
-                        .requestMatchers("/api/v1/auth/login", "/api/v1/auth/logout", "/api/v1/auth/activate", "/api/v1/auth/password-reset/**").permitAll()
+                        .requestMatchers("/api/v1/auth/login", "/api/v1/auth/mfa/verify-login", "/api/v1/auth/logout", "/api/v1/auth/activate", "/api/v1/auth/password-reset/**").permitAll()
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                         .requestMatchers("/", "/api/v1/health", "/api/v1/health/**", "/health", "/health/**", "/actuator/health", "/actuator/health/**", "/actuator/info").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/v1/payments/culqi/webhook").permitAll()
@@ -93,6 +93,7 @@ public class SecurityConfig {
                         .requestMatchers("/api/v1/dashboard", "/api/v1/dashboard/**").hasAnyRole("SUPER_ADMIN", "ADMIN", "ADMIN_EMPRESA", "GERENTE", "GERENTE_GENERAL", "GERENTE_SEDE", "RECEPCION", "AUDITOR", "AUDITOR_EMPRESA")
                         .requestMatchers("/api/v1/reports", "/api/v1/reports/**").hasAnyRole("SUPER_ADMIN", "ADMIN", "ADMIN_EMPRESA", "GERENTE", "GERENTE_GENERAL", "GERENTE_SEDE", "AUDITOR", "AUDITOR_EMPRESA", "CONTADOR")
                         .requestMatchers("/api/v1/incidents", "/api/v1/incidents/**").hasAnyRole("SUPER_ADMIN", "ADMIN", "ADMIN_EMPRESA", "GERENTE", "GERENTE_GENERAL", "GERENTE_SEDE", "AUDITOR", "AUDITOR_EMPRESA", "MANTENIMIENTO")
+                        .requestMatchers("/api/v1/enterprise/ops/**", "/api/v1/enterprise/branches/**").authenticated()
                         .requestMatchers("/api/v1/auth/me", "/api/v1/auth/revoke-other-sessions").authenticated()
                         .anyRequest().hasAnyRole("SUPER_ADMIN", "ADMIN", "ADMIN_EMPRESA", "GERENTE", "GERENTE_GENERAL", "GERENTE_SEDE", "RECEPCION", "CAJERO", "INVENTARIO", "ENTRENADOR_JEFE", "ENTRENADOR")
                 )

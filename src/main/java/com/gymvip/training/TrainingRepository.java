@@ -231,7 +231,7 @@ public class TrainingRepository {
             throw new ConflictException("Ya cuentas con una reserva activa para esta clase.");
         }
 
-        Integer capacity = jdbc.queryForObject("SELECT capacity FROM gym_classes WHERE id = ?", Integer.class, classId);
+        Integer capacity = jdbc.queryForObject("SELECT capacity FROM gym_classes WHERE id = ? FOR UPDATE", Integer.class, classId);
         Integer taken = jdbc.queryForObject("SELECT COUNT(*) FROM class_reservations WHERE class_id = ? AND status = 'RESERVADA'", Integer.class, classId);
         if (capacity == null) {
             throw new IllegalArgumentException("Clase no encontrada.");
@@ -243,6 +243,24 @@ public class TrainingRepository {
                 reservationId, classId, clientId, status
         );
         return Map.of("reservationId", reservationId, "classId", classId, "status", status);
+    }
+
+    @Transactional
+    public Map<String, Object> createClass(String actorEmail, UUID branchId, String title, String category,
+                                           String trainerName, LocalDateTime startsAt, int durationMinutes, int capacity) {
+        Account actor = accountRepository.findByEmailIgnoreCase(actorEmail).orElseThrow();
+        UUID classId = UUID.randomUUID();
+        UUID effectiveBranch = branchId != null ? branchId : actor.getPrimaryBranchId();
+        jdbc.update(
+                "INSERT INTO gym_classes(id, organization_id, branch_id, title, category, trainer_name, trainer_account_id, starts_at, duration_minutes, capacity, status) " +
+                        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'PROGRAMADA')",
+                classId, actor.getOrganizationId(), effectiveBranch,
+                title.trim(), category != null ? category.trim() : "FUNCIONAL",
+                trainerName != null && !trainerName.isBlank() ? trainerName.trim() : actorEmail,
+                actor.getId(), Timestamp.valueOf(startsAt),
+                Math.max(15, durationMinutes), Math.max(1, capacity)
+        );
+        return Map.of("id", classId, "title", title.trim(), "capacity", Math.max(1, capacity), "status", "PROGRAMADA");
     }
 
     @Transactional

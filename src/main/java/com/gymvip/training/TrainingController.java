@@ -113,6 +113,28 @@ public class TrainingController {
         return ResponseEntity.ok(trainingRepository.listClasses(auth.getName()));
     }
 
+    public record CreateClassRequest(
+            UUID branchId,
+            String title,
+            String category,
+            String trainerName,
+            LocalDateTime startsAt,
+            int durationMinutes,
+            int capacity
+    ) {}
+
+    @PostMapping("/classes")
+    @PreAuthorize("hasAuthority('training.classes.manage')")
+    public ResponseEntity<Map<String, Object>> createClass(@RequestBody CreateClassRequest request, Authentication auth) {
+        if (request.title() == null || request.title().isBlank() || request.startsAt() == null) {
+            return ResponseEntity.badRequest().build();
+        }
+        return ResponseEntity.status(HttpStatus.CREATED).body(trainingRepository.createClass(
+                auth.getName(), request.branchId(), request.title(), request.category(),
+                request.trainerName(), request.startsAt(), request.durationMinutes(), request.capacity()
+        ));
+    }
+
     @PostMapping("/classes/{classId}/reserve")
     @PreAuthorize("hasAuthority('training.classes.reserve')")
     public ResponseEntity<Map<String, Object>> reserveClass(@PathVariable UUID classId, Authentication auth) {

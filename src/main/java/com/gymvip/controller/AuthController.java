@@ -81,6 +81,18 @@ public class AuthController {
                 .orElse(LoginRateLimitPolicy.DEFAULT_MAX_ATTEMPTS);
     }
 
+    public record MfaLoginVerifyRequest(@NotBlank String challengeToken, @NotBlank String code) {}
+
+    @PostMapping(value = "/mfa/verify-login", produces = MediaType.APPLICATION_JSON_VALUE)
+    public ResponseEntity<AuthResponse> verifyMfaLogin(
+            @Valid @RequestBody MfaLoginVerifyRequest request,
+            HttpServletRequest httpRequest
+    ) {
+        String ip = resolveClientIp(httpRequest);
+        String userAgent = httpRequest.getHeader("User-Agent");
+        return ResponseEntity.ok(authService.verifyMfaLogin(request.challengeToken(), request.code(), ip, userAgent));
+    }
+
     @PostMapping("/logout")
     public ResponseEntity<Void> logout(
             @RequestHeader(value = "Authorization", required = false) String authHeader,
