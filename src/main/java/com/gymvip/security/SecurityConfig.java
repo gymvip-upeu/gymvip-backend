@@ -73,7 +73,7 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, "/api/v1/enterprise/gyms", "/api/v1/public/**", "/api/v1/legal/documents", "/api/v1/app/releases/latest", "/api/v1/gyms/*/reviews", "/api/v1/group-promotions").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/v1/public/company-requests").permitAll()
                         .requestMatchers("/error").permitAll()
-                        .requestMatchers("/api/v1/platform/export/**").hasAnyRole("SUPER_ADMIN", "ADMIN_EMPRESA", "GERENTE_GENERAL", "AUDITOR_EMPRESA", "ADMIN")
+                        .requestMatchers("/api/v1/platform/export/**").hasAnyRole("SUPER_ADMIN", "ADMIN_EMPRESA", "GERENTE_GENERAL", "AUDITOR_EMPRESA", "ADMIN", "GERENTE", "AUDITOR")
                         .requestMatchers("/api/v1/platform/**").hasRole("SUPER_ADMIN")
                         .requestMatchers("/api/v1/organization/commercial-profile/**").hasAnyRole("SUPER_ADMIN", "ADMIN", "ADMIN_EMPRESA", "GERENTE_GENERAL", "GERENTE")
                         .requestMatchers("/api/v1/group-enrollments/**").authenticated()

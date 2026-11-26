@@ -203,7 +203,7 @@ public class SaasPlatformController {
     }
 
     @GetMapping("/export/organization/{organizationId}")
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN_EMPRESA','GERENTE_GENERAL','AUDITOR_EMPRESA','ADMIN')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN_EMPRESA','GERENTE_GENERAL','AUDITOR_EMPRESA','ADMIN','GERENTE','AUDITOR')")
     public ResponseEntity<Map<String, Object>> exportOrganizationPortable(@PathVariable UUID organizationId,
                                                                           Authentication auth) {
         return ResponseEntity.ok(repository.exportOrganizationPortableSummary(organizationId, auth.getName()));
