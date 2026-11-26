@@ -42,6 +42,9 @@ public class DataInitializer implements CommandLineRunner {
     @Value("${APP_RECEPCION_INITIAL_PASSWORD:}")
     private String recepcionInitialPassword;
 
+    @Value("${APP_SUPER_ADMIN_INITIAL_PASSWORD:}")
+    private String superAdminInitialPassword;
+
     public DataInitializer(AccountRepository accountRepository,
                            PlanRepository planRepository,
                            PlanService planService,
@@ -64,9 +67,24 @@ public class DataInitializer implements CommandLineRunner {
         boolean gerenteExists = accountRepository.existsByEmailIgnoreCase("gerente@vipcenterfit.pe");
         boolean recepcionExists = accountRepository.existsByEmailIgnoreCase("recepcion@vipcenterfit.pe");
 
-        if (adminExists && gerenteExists && recepcionExists) {
+        if (adminExists && gerenteExists && recepcionExists && accountRepository.existsByEmailIgnoreCase("superadmin@gymvip.pe")) {
             log.info("Cuentas base de personal ya aprovisionadas en base de datos.");
             return;
+        }
+
+        if (!accountRepository.existsByEmailIgnoreCase("superadmin@gymvip.pe")) {
+            String pwd = resolveInitialPassword(superAdminInitialPassword, isProd, "SuperAdmin123!", "APP_SUPER_ADMIN_INITIAL_PASSWORD", "superadmin@gymvip.pe");
+            if (pwd != null) {
+                accountRepository.save(new Account(
+                        UUID.randomUUID(),
+                        "superadmin@gymvip.pe",
+                        passwordEncoder.encode(pwd),
+                        Set.of(Role.SUPER_ADMIN.name()),
+                        "ACTIVO",
+                        false
+                ));
+                log.info("Semilla de plataforma creada: superadmin@gymvip.pe (Rol: SUPER_ADMIN / Operador SaaS)");
+            }
         }
 
         if (!adminExists) {
