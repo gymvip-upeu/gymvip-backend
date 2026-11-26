@@ -33,6 +33,7 @@ class CatalogIntegrationTest {
     @Autowired MockMvc mvc;
     @Autowired ObjectMapper json;
     @Autowired MutableClock clock;
+    @Autowired com.gymvip.service.MemberWorkspaceService workspace;
     static final String ACTOR="admin@vipcenterfit.pe";
     static class MutableClock extends Clock {
         Instant now=Instant.parse("2026-11-02T17:00:00Z");
@@ -101,16 +102,22 @@ class CatalogIntegrationTest {
         clock.now=Instant.parse("2026-11-11T05:00:00Z");assertEquals("FINALIZADA",catalog.promotion(promotion.id(),false).state());assertThrows(ResourceNotFoundException.class,()->catalog.promotion(promotion.id(),true));
         assertEquals("CANCELADA",catalog.deactivatePromotion(promotion.id(),new PromotionCancellation(promotion.version()),ACTOR).state());assertEquals(2,catalog.promotionHistory(promotion.id(),0).size());
     }
-    @Test void invalidDatesAndPricesAreRejectedWhileOverlappingOffersAreAllowed() throws Exception {
-        var p=create();var first=active(p);var second=active(p);assertNotEquals(first.id(),second.id());
+    @Test void invalidDatesAndPricesAreRejectedWhilePriorityAllowsOverlappingOffers() throws Exception {
+        var p=create();var first=active(p);assertNotEquals(first.id(),active(p).id());
         assertThrows(IllegalArgumentException.class,()->catalog.savePromotion(null,offer(p,new BigDecimal("150.00"),LocalDate.of(2026,12,1),LocalDate.of(2026,12,10),null),ACTOR));
         assertThrows(IllegalArgumentException.class,()->catalog.savePromotion(null,offer(p,BigDecimal.TEN,LocalDate.of(2026,12,10),LocalDate.of(2026,12,1),null),ACTOR));
     }
-    @Test void simultaneousOverlappingPromotionsCanBothBeSaved() throws Exception {
+    @Test void simultaneousPromotionsHaveDistinctIdsAndDeterministicSelection() throws Exception {
         var p=create();var request=offer(p,new BigDecimal("135.00"),LocalDate.of(2026,12,1),LocalDate.of(2026,12,10),null);
-        try(var pool=Executors.newFixedThreadPool(2)){
-            var gate=new CountDownLatch(1);Callable<String> task=()->{gate.await();try{catalog.savePromotion(null,request,ACTOR);return "saved";}catch(ConflictException ex){return "conflict";}};
-            var first=pool.submit(task);var second=pool.submit(task);gate.countDown();assertEquals("saved",first.get(30,TimeUnit.SECONDS));assertEquals("saved",second.get(30,TimeUnit.SECONDS));
+        try(var pool=Executors.newFixedThreadPool(2)) {
+            var gate=new CountDownLatch(1);
+            Callable<UUID> task=()->{gate.await();return catalog.savePromotion(null,request,ACTOR).id();};
+            var first=pool.submit(task);var second=pool.submit(task);gate.countDown();
+            var one=first.get(30,TimeUnit.SECONDS);var two=second.get(30,TimeUnit.SECONDS);
+            assertNotEquals(one,two);
+            clock.now=Instant.parse("2026-12-02T17:00:00Z");
+            var visible=java.util.stream.IntStream.range(0,100).mapToObj(page->catalog.mobileProducts(page,20,true)).flatMap(List::stream).filter(item->item.id().equals(p.id())).findFirst().orElseThrow();
+            assertEquals(java.util.stream.Stream.of(one,two).map(UUID::toString).sorted().findFirst().orElseThrow(),visible.offer().id().toString());
         }
     }
     @Test void staleProductAndPromotionVersionsAreRejected() throws Exception {
@@ -125,8 +132,44 @@ class CatalogIntegrationTest {
         mvc.perform(multipart("/api/v1/catalog/supplements").file(new MockMultipartFile("data","data.json","application/json",json.writeValueAsBytes(input("No permitido",BigDecimal.TEN,null,List.of(),null)))).file(photo("f.png"))).andExpect(status().isForbidden());
         mvc.perform(patch("/api/v1/catalog/supplements/"+p.id()+"/state").contentType(MediaType.APPLICATION_JSON).content(json.writeValueAsString(new StateInput(p.version(),"AGOTADO",true)))).andExpect(status().isForbidden());
     }
-    @Test void catalogRejectsAnonymousButAllowsClientReadAccess() throws Exception {
+    @Test @org.springframework.transaction.annotation.Transactional
+    void publishedLifecycleReachesMobileApiWithoutMembershipOrDuplicates() throws Exception {
+        String memberEmail="catalog-member-"+UUID.randomUUID()+"@example.test";
+        var registration=new com.gymvip.dto.request.RegisterClientRequest("Socio","Catálogo",LocalDate.of(1990,1,1),"PE","DNI",
+            String.valueOf(10000000+new java.security.SecureRandom().nextInt(89999999)),null,memberEmail);
+        workspace.register(new com.gymvip.service.MemberWorkspaceService.Registration(registration,"Prueba de catálogo sin plan",true),ACTOR);
+        assertEquals(0,jdbc.queryForObject("SELECT count(*) FROM memberships m JOIN clients c ON c.id=m.client_id WHERE c.email=?",Integer.class,memberEmail));
+        var body=new SupplementInput("Barra proteica Apple Pie 60 g","Quest","OTROS","Barra individual","60 g","Apple Pie",
+            "Barra individual sabor Apple Pie.","Consultar el rotulado del envase.",new BigDecimal("14.00"),"DISPONIBLE",false,true,null,List.of(),"upload:0");
+        var p=catalog.saveSupplement(null,body,List.of(photo("apple-pie.png")),ACTOR);
+        var reader=org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user(memberEmail).roles("CLIENTE");
+        mvc.perform(get("/api/v1/catalog/products").param("size","50").with(reader))
+            .andExpect(status().isOk()).andExpect(jsonPath("$[?(@.id == '"+p.id()+"')]").isEmpty());
+        p=catalog.state(p.id(),new StateInput(p.version(),"DISPONIBLE",true),ACTOR);
+        mvc.perform(get("/api/v1/catalog/products").param("size","50").with(reader))
+            .andExpect(status().isOk()).andExpect(jsonPath("$[?(@.id == '"+p.id()+"')].name").value(org.hamcrest.Matchers.contains("Barra proteica Apple Pie 60 g")))
+            .andExpect(jsonPath("$[?(@.id == '"+p.id()+"')].pricePen").value(org.hamcrest.Matchers.contains(14.0)));
+        mvc.perform(get("/api/v1/catalog/supplements/"+p.id()+"/images/"+p.images().getFirst().id()).with(reader)).andExpect(status().isOk());
+        var changed=new SupplementInput(p.name(),p.brand(),p.category(),p.presentation(),p.netContent(),p.flavor(),
+            "Presentación individual actualizada.",p.ingredients(),new BigDecimal("15.00"),"DISPONIBLE",true,true,p.version(),List.of(p.images().getFirst().id()),null);
+        p=catalog.saveSupplement(p.id(),changed,List.of(),ACTOR);
+        p=catalog.state(p.id(),new StateInput(p.version(),"AGOTADO",true),ACTOR);
+        for(int attempt=0;attempt<2;attempt++) mvc.perform(get("/api/v1/catalog/products").param("size","50").with(reader))
+            .andExpect(status().isOk()).andExpect(jsonPath("$[?(@.id == '"+p.id()+"')].availability").value(org.hamcrest.Matchers.contains("AGOTADO")))
+            .andExpect(jsonPath("$[?(@.id == '"+p.id()+"')].description").value(org.hamcrest.Matchers.contains("Presentación individual actualizada.")))
+            .andExpect(jsonPath("$[?(@.id == '"+p.id()+"')].pricePen").value(org.hamcrest.Matchers.contains(15.0)));
+        assertEquals(0,jdbc.queryForObject("SELECT stock FROM supplements WHERE id=?",Integer.class,p.id()));
+        p=catalog.state(p.id(),new StateInput(p.version(),"AGOTADO",false),ACTOR);
+        mvc.perform(get("/api/v1/catalog/products").param("size","50").with(reader)).andExpect(status().isOk())
+            .andExpect(jsonPath("$[?(@.id == '"+p.id()+"')]").isEmpty());
+        mvc.perform(get("/api/v1/catalog/supplements/"+p.id()).with(reader)).andExpect(status().isNotFound());
+        mvc.perform(get("/api/v1/catalog/supplements/"+p.id()+"/images/"+p.images().getFirst().id()).with(reader)).andExpect(status().isNotFound());
+        assertFalse(catalog.supplement(p.id(),false).published());
+    }
+    @Test void catalogAllowsPublicClientReadButStillRejectsClientWrites() throws Exception {
         mvc.perform(get("/api/v1/catalog/supplements").with(org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.anonymous())).andExpect(status().isUnauthorized());
         mvc.perform(get("/api/v1/catalog/supplements").with(org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user("cliente").roles("CLIENTE"))).andExpect(status().isOk());
+        mvc.perform(patch("/api/v1/catalog/supplements/"+UUID.randomUUID()+"/state").with(org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user("cliente").roles("CLIENTE")).contentType(MediaType.APPLICATION_JSON).content("{}"))
+            .andExpect(status().isForbidden());
     }
 }

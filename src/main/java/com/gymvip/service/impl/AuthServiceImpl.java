@@ -12,11 +12,14 @@ import com.gymvip.security.JwtService;
 import com.gymvip.security.LoginAttemptService;
 import com.gymvip.security.LoginRateLimitPolicy;
 import com.gymvip.service.AuthService;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.util.Locale;
 import java.util.UUID;
 
@@ -31,6 +34,8 @@ public class AuthServiceImpl implements AuthService {
     private final PasswordEncoder passwordEncoder;
     private final LoginAttemptService loginAttemptService;
     private final JwtService jwtService;
+    @Autowired(required = false)
+    private JdbcTemplate jdbcTemplate;
 
     public AuthServiceImpl(AccountRepository accountRepository,
                            SessionRepository sessionRepository,
@@ -78,8 +83,9 @@ public class AuthServiceImpl implements AuthService {
             throw new InvalidCredentialsException(GENERIC_AUTH_ERROR);
         }
 
-        if (account.isMustChangePassword() && account.getTemporaryPasswordExpiresAt() != null &&
-                !account.getTemporaryPasswordExpiresAt().isAfter(LocalDateTime.now(java.time.ZoneOffset.UTC))) {
+        LocalDateTime rawTempExpiresAt = resolveRawTemporaryPasswordExpiresAt(account);
+        if (account.isMustChangePassword() && rawTempExpiresAt != null &&
+                !rawTempExpiresAt.isAfter(LocalDateTime.now(ZoneOffset.UTC))) {
             loginAttemptService.loginFailed(attemptKey, maxAttempts);
             throw new InvalidCredentialsException("La contraseña temporal venció. Solicita una nueva invitación a Recepción.");
         }
@@ -89,10 +95,10 @@ public class AuthServiceImpl implements AuthService {
 
         String sessionId = UUID.randomUUID().toString().replace("-", "");
         LocalDateTime expiresAt = LocalDateTime.now().plusHours(jwtService.getExpirationHours());
-        if (account.isMustChangePassword() && account.getTemporaryPasswordExpiresAt() != null) {
+        if (account.isMustChangePassword() && rawTempExpiresAt != null) {
             var remaining = java.time.Duration.between(
-                    LocalDateTime.now(java.time.ZoneOffset.UTC),
-                    account.getTemporaryPasswordExpiresAt()
+                    LocalDateTime.now(ZoneOffset.UTC),
+                    rawTempExpiresAt
             );
             var temporaryLimit = LocalDateTime.now().plus(remaining);
             if (temporaryLimit.isBefore(expiresAt)) {
@@ -146,6 +152,24 @@ public class AuthServiceImpl implements AuthService {
                 .orElseThrow(() -> new InvalidCredentialsException(GENERIC_AUTH_ERROR));
         sessionRepository.deactivateMemberDevices(current.getAccountId());
         sessionRepository.deleteByAccountId(current.getAccountId());
+    }
+
+    private LocalDateTime resolveRawTemporaryPasswordExpiresAt(Account account) {
+        if (jdbcTemplate != null && account.getId() != null) {
+            try {
+                LocalDateTime raw = jdbcTemplate.query(
+                        "SELECT temporary_password_expires_at FROM accounts WHERE id = ?",
+                        rs -> rs.next() ? rs.getObject(1, LocalDateTime.class) : null,
+                        account.getId()
+                );
+                if (raw != null) {
+                    return raw;
+                }
+            } catch (Exception ignored) {
+                // Fallback a entidad JPA si la tabla/driver no soporta getObject(LocalDateTime) en un mock aislado
+            }
+        }
+        return account.getTemporaryPasswordExpiresAt();
     }
 
 }

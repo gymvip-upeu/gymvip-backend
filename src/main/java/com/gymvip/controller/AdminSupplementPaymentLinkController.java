@@ -11,7 +11,7 @@ import java.util.UUID;
 
 @RestController
 @RequestMapping("/api/v1/admin/orders")
-@PreAuthorize("hasAnyRole('ADMIN','GERENTE','RECEPCION')")
+@PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN','ADMIN_EMPRESA','GERENTE','GERENTE_GENERAL','GERENTE_SEDE','RECEPCION','CAJERO')")
 public class AdminSupplementPaymentLinkController {
     private final SupplementPaymentLinkService service;
 

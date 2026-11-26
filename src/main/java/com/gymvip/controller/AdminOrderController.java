@@ -14,7 +14,7 @@ import java.util.UUID;
 
 @RestController
 @RequestMapping("/api/v1/admin/orders")
-@PreAuthorize("hasAnyRole('ADMIN', 'GERENTE', 'RECEPCION')")
+@PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN','ADMIN_EMPRESA','GERENTE','GERENTE_GENERAL','GERENTE_SEDE','RECEPCION','CAJERO')")
 public class AdminOrderController {
 
     private final SupplementOrderService orderService;
@@ -40,12 +40,15 @@ public class AdminOrderController {
             Authentication auth
     ) {
         boolean cashOnly = auth.getAuthorities().stream()
-                .noneMatch(a -> "ROLE_ADMIN".equals(a.getAuthority()) || "ROLE_GERENTE".equals(a.getAuthority()));
+                .noneMatch(a -> java.util.Set.of(
+                        "ROLE_SUPER_ADMIN", "ROLE_ADMIN", "ROLE_ADMIN_EMPRESA",
+                        "ROLE_GERENTE", "ROLE_GERENTE_GENERAL", "ROLE_GERENTE_SEDE"
+                ).contains(a.getAuthority()));
         return orderService.approvePayment(id, request, auth.getName(), cashOnly);
     }
 
     @PostMapping("/{id}/reject-payment")
-    @PreAuthorize("hasAnyRole('ADMIN', 'GERENTE')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN','ADMIN_EMPRESA','GERENTE','GERENTE_GENERAL','GERENTE_SEDE')")
     public OrderDetailDto rejectPayment(
             @PathVariable UUID id,
             @Valid @RequestBody PaymentRejectionRequest request,

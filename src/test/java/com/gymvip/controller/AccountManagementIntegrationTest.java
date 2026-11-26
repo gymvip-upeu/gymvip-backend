@@ -104,10 +104,29 @@ public class AccountManagementIntegrationTest {
     }
 
     @Test
-    @DisplayName("Rechazo de creación con rol no autorizado (ej. CLIENTE o ENTRENADOR) con HTTP 400")
+    @DisplayName("Rechazo de creación con rol no staff o inexistente (CLIENTE / ROL_INEXISTENTE) con HTTP 400")
     void invalidStaffRoleRejected() throws Exception {
+        for (String invalidRole : java.util.List.of("CLIENTE", "ROL_INEXISTENTE")) {
+            CreateStaffAccountRequest request = new CreateStaffAccountRequest(
+                    "usuario.invalido@vipcenterfit.pe",
+                    "Password123!",
+                    invalidRole
+            );
+
+            mockMvc.perform(post("/api/v1/accounts")
+                            .header("Authorization", "Bearer " + adminToken)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(request)))
+                    .andExpect(status().isBadRequest());
+        }
+    }
+
+    @Test
+    @DisplayName("ADMIN autorizado puede crear colaborador con rol Enterprise ENTRENADOR")
+    void validEnterpriseTrainerRoleAccepted() throws Exception {
+        String email = "coach." + UUID.randomUUID().toString().substring(0, 6) + "@vipcenterfit.pe";
         CreateStaffAccountRequest request = new CreateStaffAccountRequest(
-                "usuario.invalido@vipcenterfit.pe",
+                email,
                 "Password123!",
                 "ENTRENADOR"
         );
@@ -116,7 +135,8 @@ public class AccountManagementIntegrationTest {
                         .header("Authorization", "Bearer " + adminToken)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
-                .andExpect(status().isBadRequest());
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.roles", hasItem("ENTRENADOR")));
     }
 
     @Test

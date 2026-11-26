@@ -16,7 +16,9 @@ import com.gymvip.service.CommsServiceClient;
 import com.gymvip.service.PasswordResetService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -25,6 +27,7 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.SecureRandom;
 import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -42,8 +45,10 @@ public class PasswordResetServiceImpl implements PasswordResetService {
     private final AuditService auditService;
     private final CommsServiceClient commsServiceClient;
     private final String resetBaseUrl;
-    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    @Autowired(required = false)
     private com.gymvip.service.MemberAccessService memberAccess;
+    @Autowired(required = false)
+    private JdbcTemplate jdbcTemplate;
 
     // Control de límite de solicitudes por IP/email (máximo 3 peticiones cada 15 minutos)
     private final Map<String, RequestCounter> rateLimitMap = new ConcurrentHashMap<>();
@@ -126,6 +131,7 @@ public class PasswordResetServiceImpl implements PasswordResetService {
         tokenRepository.invalidateActiveTokensForAccount(account.getId());
 
         // Almacenar únicamente el hash del token con TTL de 15 minutos
+        LocalDateTime nowUtc = LocalDateTime.now(ZoneOffset.UTC);
         LocalDateTime expiresAt = LocalDateTime.now().plusMinutes(15);
         PasswordResetToken tokenEntity = new PasswordResetToken(
                 UUID.randomUUID(),
@@ -134,6 +140,14 @@ public class PasswordResetServiceImpl implements PasswordResetService {
                 expiresAt
         );
         tokenRepository.save(tokenEntity);
+        if (jdbcTemplate != null) {
+            jdbcTemplate.update(
+                    "UPDATE password_reset_tokens SET created_at = ?, expires_at = ? WHERE id = ?",
+                    nowUtc,
+                    nowUtc.plusMinutes(15),
+                    tokenEntity.getId()
+            );
+        }
 
         // Construir enlace de recuperación
         String resetLink = resetBaseUrl + "#token=" + rawToken;
@@ -171,7 +185,7 @@ public class PasswordResetServiceImpl implements PasswordResetService {
         PasswordResetToken token = tokenRepository.findByTokenHash(tokenHash)
                 .orElseThrow(() -> new InvalidCredentialsException("El token de recuperación es inválido o ha expirado."));
 
-        if (!token.isValid()) {
+        if (!isTokenValidConsistent(token)) {
             throw new InvalidCredentialsException("El token de recuperación es inválido o ha expirado.");
         }
 
@@ -253,5 +267,26 @@ public class PasswordResetServiceImpl implements PasswordResetService {
         }
 
         counter.count++;
+    }
+
+    private boolean isTokenValidConsistent(PasswordResetToken token) {
+        if (token.isUsed()) {
+            return false;
+        }
+        if (jdbcTemplate != null && token.getId() != null) {
+            try {
+                LocalDateTime rawExpiresAt = jdbcTemplate.query(
+                        "SELECT expires_at FROM password_reset_tokens WHERE id = ?",
+                        rs -> rs.next() ? rs.getObject(1, LocalDateTime.class) : null,
+                        token.getId()
+                );
+                if (rawExpiresAt != null) {
+                    return rawExpiresAt.isAfter(LocalDateTime.now(ZoneOffset.UTC));
+                }
+            } catch (Exception ignored) {
+                // Fallback a entidad JPA en entornos de mock aislados
+            }
+        }
+        return token.isValid();
     }
 }
