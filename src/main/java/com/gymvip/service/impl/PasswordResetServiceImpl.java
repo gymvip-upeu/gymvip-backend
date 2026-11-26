@@ -140,6 +140,7 @@ public class PasswordResetServiceImpl implements PasswordResetService {
                 expiresAt
         );
         tokenRepository.save(tokenEntity);
+        tokenRepository.flush();
         if (jdbcTemplate != null) {
             jdbcTemplate.update(
                     "UPDATE password_reset_tokens SET created_at = ?, expires_at = ? WHERE id = ?",
