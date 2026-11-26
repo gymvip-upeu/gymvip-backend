@@ -8,7 +8,7 @@
 -- 1. Vínculo multi-sede progresivo sobre entidades existentes (no destructivo)
 ALTER TABLE accounts ADD COLUMN IF NOT EXISTS is_seed BOOLEAN NOT NULL DEFAULT FALSE;
 ALTER TABLE clients ADD COLUMN IF NOT EXISTS branch_id UUID;
-ALTER TABLE facilities ADD COLUMN IF NOT EXISTS branch_id UUID;
+ALTER TABLE gym_services ADD COLUMN IF NOT EXISTS branch_id UUID;
 ALTER TABLE supplements ADD COLUMN IF NOT EXISTS branch_id UUID;
 ALTER TABLE supplement_orders ADD COLUMN IF NOT EXISTS branch_id UUID;
 
