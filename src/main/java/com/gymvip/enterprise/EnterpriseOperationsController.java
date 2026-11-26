@@ -66,6 +66,7 @@ public class EnterpriseOperationsController {
         if (req.accountId() == null || req.jobTitle() == null || req.jobTitle().isBlank()) {
             return ResponseEntity.badRequest().body(Map.of("message", "Cuenta y cargo son obligatorios."));
         }
+        verifyAccountInOrg(req.accountId(), actor);
         int exists = jdbc.queryForObject("SELECT count(*) FROM staff_profiles WHERE account_id = ?", Integer.class, req.accountId());
         Date hDate = (req.hireDate() != null && !req.hireDate().isBlank()) ? Date.valueOf(req.hireDate()) : null;
         if (exists > 0) {
@@ -106,6 +107,7 @@ public class EnterpriseOperationsController {
         if (req.accountId() == null || req.shiftDate() == null || req.startTime() == null || req.endTime() == null) {
             return ResponseEntity.badRequest().body(Map.of("message", "Cuenta, fecha y horario son obligatorios."));
         }
+        verifyAccountInOrg(req.accountId(), actor);
         UUID id = UUID.randomUUID();
         jdbc.update(
                 "INSERT INTO staff_shifts(id, account_id, branch_id, shift_date, start_time, end_time, notes) VALUES (?, ?, ?, ?, ?, ?, ?)",
@@ -242,6 +244,14 @@ public class EnterpriseOperationsController {
         if (!Set.of("OPERATIVO", "MANTENIMIENTO", "FUERA_DE_SERVICIO", "BAJA").contains(nextStatus)) {
             return ResponseEntity.badRequest().body(Map.of("message", "Estado de activo inválido."));
         }
+        List<Map<String, Object>> existing = jdbc.queryForList(
+                "SELECT organization_id, branch_id FROM gym_equipment_assets WHERE id = ?", id
+        );
+        if (existing.isEmpty()) {
+            return ResponseEntity.notFound().build();
+        }
+        scope.effectiveOrganizationId(actor, (UUID) existing.getFirst().get("organization_id"));
+        scope.effectiveBranchId(actor, (UUID) existing.getFirst().get("branch_id"));
         jdbc.update("UPDATE gym_equipment_assets SET operational_status = ?, updated_at = NOW() WHERE id = ?", nextStatus, id);
         audit.recordEvent(actor.getEmail(), "ASSET_STATUS_CHANGED", "EquipmentAsset", id.toString(), nextStatus);
         return ResponseEntity.ok(Map.of("id", id, "operationalStatus", nextStatus));
@@ -303,6 +313,11 @@ public class EnterpriseOperationsController {
         if (req.supplierId() == null || req.items() == null || req.items().isEmpty()) {
             return ResponseEntity.badRequest().body(Map.of("message", "Proveedor e ítems son obligatorios."));
         }
+        List<Map<String, Object>> supRows = jdbc.queryForList("SELECT organization_id FROM suppliers WHERE id = ?", req.supplierId());
+        if (supRows.isEmpty()) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("message", "Proveedor no encontrado."));
+        }
+        scope.effectiveOrganizationId(actor, (UUID) supRows.getFirst().get("organization_id"));
         BigDecimal total = BigDecimal.ZERO;
         for (PurchaseOrderItemInput item : req.items()) {
             if (item.quantity() <= 0 || item.unitCostPen() == null || item.unitCostPen().signum() <= 0) {
@@ -311,7 +326,7 @@ public class EnterpriseOperationsController {
             total = total.add(item.unitCostPen().multiply(BigDecimal.valueOf(item.quantity())));
         }
         UUID poId = UUID.randomUUID();
-        String orderNumber = "OC-" + String.valueOf(System.currentTimeMillis()).substring(7);
+        String orderNumber = "OC-" + poId.toString().substring(0, 8).toUpperCase(Locale.ROOT);
         jdbc.update(
                 "INSERT INTO purchase_orders(id, order_number, organization_id, branch_id, supplier_id, status, total_pen, notes, created_by) VALUES (?, ?, ?, ?, ?, 'APROBADA', ?, ?, ?)",
                 poId, orderNumber, orgId, branchId, req.supplierId(), total, req.notes(), actor.getEmail()
@@ -450,7 +465,9 @@ public class EnterpriseOperationsController {
 
     @GetMapping("/loyalty/clients/{clientId}")
     @PreAuthorize("hasAuthority('members.read')")
-    public Map<String, Object> getLoyaltyBalance(@PathVariable UUID clientId) {
+    public Map<String, Object> getLoyaltyBalance(@PathVariable UUID clientId, Authentication auth) {
+        Account actor = scope.resolveActor(auth);
+        verifyClientScope(clientId, actor);
         List<Map<String, Object>> rows = jdbc.queryForList(
                 "SELECT client_id, enrolled, points_balance, lifetime_points, tier_level FROM loyalty_balances WHERE client_id = ?",
                 clientId
@@ -464,7 +481,9 @@ public class EnterpriseOperationsController {
     @PostMapping("/loyalty/clients/{clientId}/opt-in")
     @PreAuthorize("hasAuthority('members.update')")
     @Transactional
-    public ResponseEntity<Map<String, Object>> toggleLoyalty(@PathVariable UUID clientId, @RequestBody Map<String, Boolean> body) {
+    public ResponseEntity<Map<String, Object>> toggleLoyalty(@PathVariable UUID clientId, @RequestBody Map<String, Boolean> body, Authentication auth) {
+        Account actor = scope.resolveActor(auth);
+        verifyClientScope(clientId, actor);
         boolean enrolled = Boolean.TRUE.equals(body.get("enrolled"));
         int count = jdbc.queryForObject("SELECT count(*) FROM loyalty_balances WHERE client_id = ?", Integer.class, clientId);
         if (count == 0) {
@@ -479,6 +498,8 @@ public class EnterpriseOperationsController {
     @PreAuthorize("hasAuthority('members.update')")
     @Transactional
     public ResponseEntity<Map<String, Object>> recordLoyaltyPoints(@PathVariable UUID clientId, @RequestBody Map<String, Object> body, Authentication auth) {
+        Account actor = scope.resolveActor(auth);
+        verifyClientScope(clientId, actor);
         int delta = body.get("pointsDelta") instanceof Number n ? n.intValue() : 0;
         String reason = String.valueOf(body.getOrDefault("reason", "Bonificación operativa"));
         if (delta == 0) return ResponseEntity.badRequest().body(Map.of("message", "La variación de puntos debe ser distinta de 0."));
@@ -495,7 +516,29 @@ public class EnterpriseOperationsController {
         jdbc.update("UPDATE loyalty_balances SET points_balance = ?, lifetime_points = ?, tier_level = ?, updated_at_utc = NOW() WHERE client_id = ?",
                 next, nextLife, tier, clientId);
         jdbc.update("INSERT INTO loyalty_transactions(id, client_id, points_delta, reason, actor_email) VALUES (?, ?, ?, ?, ?)",
-                UUID.randomUUID(), clientId, delta, reason, auth.getName());
+                UUID.randomUUID(), clientId, delta, reason, actor.getEmail());
         return ResponseEntity.ok(Map.of("clientId", clientId, "pointsBalance", next, "tierLevel", tier));
+    }
+
+    private void verifyAccountInOrg(UUID targetAccountId, Account actor) {
+        List<Map<String, Object>> rows = jdbc.queryForList("SELECT organization_id FROM accounts WHERE id = ?", targetAccountId);
+        if (rows.isEmpty()) {
+            throw new IllegalArgumentException("Cuenta destino no encontrada.");
+        }
+        scope.effectiveOrganizationId(actor, (UUID) rows.getFirst().get("organization_id"));
+    }
+
+    private void verifyClientScope(UUID clientId, Account actor) {
+        List<Map<String, Object>> rows = jdbc.queryForList(
+                "SELECT c.branch_id, b.organization_id FROM clients c LEFT JOIN branches b ON b.id = c.branch_id WHERE c.id = ?",
+                clientId
+        );
+        if (rows.isEmpty()) {
+            throw new IllegalArgumentException("Socio no encontrado.");
+        }
+        UUID branchId = (UUID) rows.getFirst().get("branch_id");
+        UUID orgId = (UUID) rows.getFirst().get("organization_id");
+        if (orgId != null) scope.effectiveOrganizationId(actor, orgId);
+        if (branchId != null) scope.effectiveBranchId(actor, branchId);
     }
 }

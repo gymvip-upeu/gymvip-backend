@@ -115,6 +115,13 @@ class EnterpriseOperationsTest {
         assertEquals(201, okSupplier.getStatusCode().value());
 
         UUID clientId = UUID.randomUUID();
+        UUID branchId = TenantScopeResolver.DEFAULT_BRANCH_ID;
+        UUID orgId = TenantScopeResolver.DEFAULT_ORG_ID;
+        when(scope.effectiveBranchId(eq(actor), eq(branchId))).thenReturn(branchId);
+        when(scope.effectiveOrganizationId(eq(actor), eq(orgId))).thenReturn(orgId);
+        when(jdbc.queryForList(contains("FROM clients c LEFT JOIN branches b"), eq(clientId)))
+                .thenReturn(List.of(Map.of("branch_id", branchId, "organization_id", orgId)));
+
         when(jdbc.queryForList(contains("FROM loyalty_balances"), eq(clientId)))
                 .thenReturn(List.of(Map.of("enrolled", false, "points_balance", 0, "lifetime_points", 0)));
         var rejectedPts = ctrl.recordLoyaltyPoints(clientId, Map.of("pointsDelta", 50, "reason", "Bono"), auth);
@@ -126,5 +133,16 @@ class EnterpriseOperationsTest {
         assertEquals(200, okPts.getStatusCode().value());
         assertEquals(510, okPts.getBody().get("pointsBalance"));
         assertEquals("ORO", okPts.getBody().get("tierLevel"));
+
+        // Cross-tenant asset status mutation must be rejected by TenantScopeResolver
+        UUID foreignAssetId = UUID.randomUUID();
+        UUID foreignOrgId = UUID.randomUUID();
+        UUID foreignBranchId = UUID.randomUUID();
+        when(jdbc.queryForList(contains("FROM gym_equipment_assets WHERE id = ?"), eq(foreignAssetId)))
+                .thenReturn(List.of(Map.of("organization_id", foreignOrgId, "branch_id", foreignBranchId)));
+        when(scope.effectiveOrganizationId(eq(actor), eq(foreignOrgId)))
+                .thenThrow(new org.springframework.security.access.AccessDeniedException("Cross-tenant denied"));
+        assertThrows(org.springframework.security.access.AccessDeniedException.class,
+                () -> ctrl.updateAssetStatus(foreignAssetId, Map.of("operationalStatus", "BAJA"), auth));
     }
 }
