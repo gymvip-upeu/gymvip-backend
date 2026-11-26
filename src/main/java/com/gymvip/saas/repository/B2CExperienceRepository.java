@@ -645,13 +645,13 @@ public class B2CExperienceRepository {
         if (isSuperAdmin && requestedOrgId != null) {
             return requestedOrgId;
         }
-        if (account.getOrganizationId() != null) {
-            if (requestedOrgId != null && !account.getOrganizationId().equals(requestedOrgId) && !isSuperAdmin) {
-                throw new AccessDeniedException("No tienes autorización para administrar recursos de otra empresa.");
-            }
-            return account.getOrganizationId();
+        UUID resolvedOrgId = account.getOrganizationId() != null
+                ? account.getOrganizationId()
+                : UUID.fromString("11111111-1111-4111-8111-111111111111");
+        if (requestedOrgId != null && !resolvedOrgId.equals(requestedOrgId) && !isSuperAdmin) {
+            throw new AccessDeniedException("No tienes autorización para administrar recursos de otra empresa.");
         }
-        return UUID.fromString("11111111-1111-4111-8111-111111111111");
+        return resolvedOrgId;
     }
 
     private boolean isPrivilegedStaff(Account account) {
