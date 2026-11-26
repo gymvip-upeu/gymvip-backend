@@ -2,16 +2,16 @@
 
 [![Build Status](https://img.shields.io/badge/build-passing-brightgreen.svg)]()
 [![Java Version](https://img.shields.io/badge/Java-21%20LTS-orange.svg)]()
-[![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.4.3-green.svg)]()
+[![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.5.16-green.svg)]()
 [![Database](https://img.shields.io/badge/PostgreSQL-17%20%7C%2018-blue.svg)]()
-[![Flyway](https://img.shields.io/badge/Flyway-V1--V28-red.svg)]()
-[![Branch](https://img.shields.io/badge/branch-ACOSTA--MEJORAS--Y--ACTUALIZACIONES-yellow.svg)]()
+[![Flyway](https://img.shields.io/badge/Flyway-V1--V32-red.svg)]()
+[![Branch](https://img.shields.io/badge/branch-develop-yellow.svg)]()
 [![License](https://img.shields.io/badge/license-Academic%20Proprietary-lightgrey.svg)]()
 
 > **Ubicación en el Workspace:** `gymvip-backend/`  
 > **Organización Oficial:** [gymvip-upeu/gymvip-backend](https://github.com/gymvip-upeu/gymvip-backend)  
 > **Documentación Centralizada:** `../documentos/`  
-> **Fecha de Actualización:** 23 de Noviembre de 2026 | Revisión Canónica v2.5
+> **Fecha de Actualización:** 26 de Noviembre de 2026 | Revisión Enterprise V32 (`develop`)
 
 ---
 
