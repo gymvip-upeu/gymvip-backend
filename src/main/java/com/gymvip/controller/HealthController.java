@@ -124,7 +124,11 @@ public class HealthController {
         features.put("dashboardAnalytics", "ACTIVE");
         features.put("rateLimiting", "ACTIVE");
         features.put("caching", "ENABLED");
+        features.put("sentry", com.gymvip.config.BackendErrorTelemetry.configured() ? "CONFIGURED_REAL" : "UNCONFIGURED");
         body.put("features", features);
+        String platform = System.getenv("CONTAINER_APP_REVISION") != null ? "AZURE_CONTAINER_APPS"
+                : System.getenv("RENDER") != null ? "RENDER" : "OTHER";
+        body.put("runtime", Map.of("platform", platform));
 
         return ResponseEntity.ok(body);
     }

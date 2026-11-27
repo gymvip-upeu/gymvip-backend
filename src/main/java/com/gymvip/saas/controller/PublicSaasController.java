@@ -3,6 +3,7 @@ package com.gymvip.saas.controller;
 import com.gymvip.exception.ResourceNotFoundException;
 import com.gymvip.saas.repository.B2CExperienceRepository;
 import com.gymvip.saas.repository.SaasPlatformRepository;
+import com.gymvip.saas.service.CompanyInvitationService;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
@@ -18,11 +19,13 @@ public class PublicSaasController {
 
     private final SaasPlatformRepository saasPlatformRepository;
     private final B2CExperienceRepository b2cRepository;
+    private final CompanyInvitationService invitations;
 
     public PublicSaasController(SaasPlatformRepository saasPlatformRepository,
-                                B2CExperienceRepository b2cRepository) {
+                                B2CExperienceRepository b2cRepository, CompanyInvitationService invitations) {
         this.saasPlatformRepository = saasPlatformRepository;
         this.b2cRepository = b2cRepository;
+        this.invitations = invitations;
     }
 
     @GetMapping("/api/v1/public/gyms")
@@ -92,6 +95,17 @@ public class PublicSaasController {
     @GetMapping("/api/v1/legal/documents")
     public ResponseEntity<List<Map<String, Object>>> legalDocuments() {
         return ResponseEntity.ok(b2cRepository.listActiveLegalDocuments());
+    }
+
+    public record CompanyActivationRequest(
+            @NotBlank @jakarta.validation.constraints.Pattern(regexp = "[a-f0-9]{64}") String token,
+            @NotBlank @jakarta.validation.constraints.Size(max = 72) String password
+    ) {}
+
+    @PostMapping("/api/v1/public/company-activation")
+    public ResponseEntity<Void> activateCompanyAccount(@Valid @RequestBody CompanyActivationRequest request) {
+        invitations.activate(request.token(), request.password());
+        return ResponseEntity.noContent().build();
     }
 
     @GetMapping("/api/v1/app/releases/latest")

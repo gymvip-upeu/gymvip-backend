@@ -1,5 +1,7 @@
 package com.gymvip.saas.repository;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.gymvip.entity.Account;
 import com.gymvip.exception.ConflictException;
 import com.gymvip.exception.ResourceNotFoundException;
@@ -30,6 +32,7 @@ public class B2CExperienceRepository {
     private final JdbcTemplate jdbc;
     private final AccountRepository accountRepository;
     private final MemberWorkspaceService memberWorkspaceService;
+    private final ObjectMapper mapper = new ObjectMapper();
 
     public B2CExperienceRepository(JdbcTemplate jdbc,
                                    AccountRepository accountRepository,
@@ -43,18 +46,12 @@ public class B2CExperienceRepository {
         List<Map<String, Object>> orgs = jdbc.queryForList(
                 "SELECT o.id, o.code, o.name, o.description, o.plan_tier, " +
                         "cp.slug, cp.headline, cp.tagline, cp.about_text, cp.amenities_json, cp.schedule_json, " +
-                        "cp.reference_plans_json, cp.contact_whatsapp, cp.instagram_handle, cp.website_url " +
+                        "cp.reference_plans_json, cp.gallery_urls_json, cp.contact_whatsapp, cp.instagram_handle, cp.website_url " +
                         "FROM organizations o " +
-                        "LEFT JOIN organization_commercial_profiles cp ON cp.organization_id = o.id AND cp.publish_status = 'PUBLICADO' " +
+                        "JOIN organization_commercial_profiles cp ON cp.organization_id = o.id AND cp.publish_status = 'PUBLICADO' " +
                         "WHERE UPPER(o.status) = 'ACTIVO' AND o.is_published = TRUE " +
                         "ORDER BY o.name ASC"
         );
-
-        Map<String, Object> pricingRange = jdbc.queryForMap(
-                "SELECT MIN(price_pen) AS min_price_pen, MAX(price_pen) AS max_price_pen FROM plans WHERE status = 'ACTIVO'"
-        );
-        BigDecimal minPrice = pricingRange.get("min_price_pen") != null ? new BigDecimal(String.valueOf(pricingRange.get("min_price_pen"))) : null;
-        BigDecimal maxPrice = pricingRange.get("max_price_pen") != null ? new BigDecimal(String.valueOf(pricingRange.get("max_price_pen"))) : null;
 
         List<Map<String, Object>> reviewAggs = jdbc.queryForList(
                 "SELECT organization_id, COUNT(*) AS reviews_count, COALESCE(ROUND(AVG(rating_overall), 2), 0) AS avg_rating " +
@@ -73,7 +70,7 @@ public class B2CExperienceRepository {
         for (Map<String, Object> org : orgs) {
             UUID orgId = (UUID) org.get("id");
             List<Map<String, Object>> branches = jdbc.queryForList(
-                    "SELECT id, code, name, city, district, address, phone, schedule_summary, services_summary, capacity " +
+                    "SELECT id, organization_id, code, name, city, district, address, phone, schedule_summary, services_summary, capacity " +
                             "FROM branches WHERE organization_id = ? AND is_published = TRUE AND UPPER(status) = 'ACTIVO' ORDER BY name ASC",
                     orgId
             ).stream().filter(b ->
@@ -82,25 +79,43 @@ public class B2CExperienceRepository {
                             && (query.isEmpty()
                             || String.valueOf(org.get("name")).toLowerCase(Locale.ROOT).contains(query)
                             || String.valueOf(b.get("name")).toLowerCase(Locale.ROOT).contains(query)
-                            || String.valueOf(b.get("district")).toLowerCase(Locale.ROOT).contains(query))
+                            || String.valueOf(b.get("district")).toLowerCase(Locale.ROOT).contains(query)
+                            || String.valueOf(b.get("city")).toLowerCase(Locale.ROOT).contains(query))
             ).map(this::camelizeMap).toList();
 
-            if (!branches.isEmpty() || (cityFilter.isEmpty() && districtFilter.isEmpty() && query.isEmpty())) {
+            if (!branches.isEmpty()) {
                 Map<String, Object> dto = camelizeMap(org);
-                dto.put("minPricePen", minPrice);
-                dto.put("maxPricePen", maxPrice);
+                List<BigDecimal> prices = publishedPrices(org.get("reference_plans_json"));
+                dto.put("minPricePen", prices.stream().min(BigDecimal::compareTo).orElse(null));
+                dto.put("maxPricePen", prices.stream().max(BigDecimal::compareTo).orElse(null));
                 dto.put("branches", branches);
                 Map<String, Object> agg = aggByOrg.get(String.valueOf(orgId));
                 dto.put("reviewsCount", agg != null ? ((Number) agg.get("reviews_count")).longValue() : 0L);
                 dto.put("avgRating", agg != null ? new BigDecimal(String.valueOf(agg.get("avg_rating"))) : BigDecimal.ZERO);
                 dto.put("activeGroupPromosCount", jdbc.queryForObject(
-                        "SELECT COUNT(*) FROM group_promotions WHERE organization_id = ? AND status = 'ACTIVA' AND valid_until >= CURRENT_DATE",
+                        "SELECT COUNT(*) FROM group_promotions WHERE organization_id = ? AND status = 'ACTIVA' AND CURRENT_DATE BETWEEN valid_from AND valid_until",
                         Long.class, orgId
                 ));
                 result.add(dto);
             }
         }
         return result;
+    }
+
+    private List<BigDecimal> publishedPrices(Object raw) {
+        if (!(raw instanceof String json)) return List.of();
+        try {
+            var plans = mapper.readTree(json);
+            if (plans == null || !plans.isArray()) return List.of();
+            List<BigDecimal> prices = new ArrayList<>();
+            for (var plan : plans) {
+                var price = plan.path("pricePen");
+                if (price.isNumber() && price.decimalValue().signum() > 0) prices.add(price.decimalValue());
+            }
+            return prices;
+        } catch (JsonProcessingException invalidProfile) {
+            return List.of();
+        }
     }
 
     public Map<String, Object> getPublicGymDetail(String slugOrId) {
@@ -140,7 +155,17 @@ public class B2CExperienceRepository {
             blank.put("publishStatus", "BORRADOR");
             return blank;
         }
-        return camelizeMap(rows.get(0));
+        Map<String, Object> profile = camelizeMap(rows.getFirst());
+        Object draft = profile.remove("draftPayloadJson");
+        profile.put("hasPublishedVersion", "PUBLICADO".equals(profile.get("publishStatus")));
+        if (draft instanceof String payload && !payload.isBlank()) {
+            try {
+                profile.putAll(mapper.readValue(payload, new com.fasterxml.jackson.core.type.TypeReference<Map<String, Object>>() {}));
+            } catch (JsonProcessingException ex) {
+                throw new IllegalStateException("No se pudo leer el borrador comercial.", ex);
+            }
+        }
+        return profile;
     }
 
     @Transactional
@@ -153,12 +178,51 @@ public class B2CExperienceRepository {
         String normStatus = publishStatus != null && VALID_PUBLISH_STATES.contains(publishStatus.trim().toUpperCase(Locale.ROOT))
                 ? publishStatus.trim().toUpperCase(Locale.ROOT)
                 : "BORRADOR";
-        if ("PUBLICADO".equals(normStatus) && (headline == null || headline.isBlank())) {
-            throw new IllegalArgumentException("El titular comercial es obligatorio para publicar la ficha.");
+        if ("PUBLICADO".equals(normStatus)) {
+            if (headline == null || headline.isBlank()) {
+                throw new IllegalArgumentException("El titular comercial es obligatorio para publicar la ficha.");
+            }
+            if (!Boolean.TRUE.equals(jdbc.queryForObject("""
+                    SELECT EXISTS(SELECT 1 FROM branches WHERE organization_id = ? AND status = 'ACTIVO' AND is_published)
+                    """, Boolean.class, orgId))) {
+                throw new IllegalArgumentException("Publica al menos una sede activa antes de publicar la ficha comercial.");
+            }
         }
         String effSlug = slug != null && !slug.isBlank()
-                ? slug.trim().toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9-]+", "-")
+                ? slug.trim().toLowerCase(Locale.ROOT)
                 : "gym-" + orgId.toString().substring(0, 8);
+        if (!effSlug.matches("[a-z0-9]+(?:-[a-z0-9]+)*") || effSlug.length() > 100) {
+            throw new IllegalArgumentException("Usa un identificador público corto con letras minúsculas, números y guiones.");
+        }
+        if (Boolean.TRUE.equals(jdbc.queryForObject("""
+                SELECT EXISTS (SELECT 1 FROM organization_commercial_profiles WHERE slug = ? AND organization_id <> ?
+                    UNION ALL SELECT 1 FROM organizations WHERE code = ? AND id <> ?)
+                """, Boolean.class, effSlug, orgId, effSlug, orgId))) {
+            throw new ConflictException("El identificador público ya está en uso.");
+        }
+        validateProfileFields(amenitiesJson, scheduleJson, galleryUrlsJson, contactWhatsapp, instagramHandle, websiteUrl);
+        if ("BORRADOR".equals(normStatus)) {
+            Map<String, Object> draft = new LinkedHashMap<>();
+            draft.put("slug", effSlug);
+            draft.put("headline", headline);
+            draft.put("tagline", tagline);
+            draft.put("aboutText", aboutText);
+            draft.put("amenitiesJson", amenitiesJson);
+            draft.put("scheduleJson", scheduleJson);
+            draft.put("galleryUrlsJson", galleryUrlsJson);
+            draft.put("referencePlansJson", referencePlansJson);
+            draft.put("contactWhatsapp", contactWhatsapp);
+            draft.put("instagramHandle", instagramHandle);
+            draft.put("websiteUrl", websiteUrl);
+            draft.put("publishStatus", "BORRADOR");
+            try {
+                int updated = jdbc.update("UPDATE organization_commercial_profiles SET draft_payload_json = ?, updated_by = ?, updated_at_utc = NOW() WHERE organization_id = ? AND publish_status = 'PUBLICADO'",
+                        mapper.writeValueAsString(draft), actorEmail, orgId);
+                if (updated > 0) return getCommercialProfileForActor(actorEmail, orgId);
+            } catch (JsonProcessingException ex) {
+                throw new IllegalStateException("No se pudo guardar el borrador comercial.", ex);
+            }
+        }
 
         jdbc.update(
                 "INSERT INTO organization_commercial_profiles (organization_id, slug, headline, tagline, about_text, amenities_json, schedule_json, gallery_urls_json, reference_plans_json, contact_whatsapp, instagram_handle, website_url, publish_status, published_at_utc, updated_by, updated_at_utc) " +
@@ -169,11 +233,52 @@ public class B2CExperienceRepository {
                         "gallery_urls_json = EXCLUDED.gallery_urls_json, reference_plans_json = EXCLUDED.reference_plans_json, " +
                         "contact_whatsapp = EXCLUDED.contact_whatsapp, instagram_handle = EXCLUDED.instagram_handle, website_url = EXCLUDED.website_url, " +
                         "publish_status = EXCLUDED.publish_status, published_at_utc = CASE WHEN EXCLUDED.publish_status = 'PUBLICADO' THEN COALESCE(organization_commercial_profiles.published_at_utc, NOW()) ELSE organization_commercial_profiles.published_at_utc END, " +
-                        "updated_by = EXCLUDED.updated_by, updated_at_utc = NOW()",
+                        "updated_by = EXCLUDED.updated_by, updated_at_utc = NOW(), draft_payload_json = NULL",
                 orgId, effSlug, headline, tagline, aboutText, amenitiesJson, scheduleJson, galleryUrlsJson,
                 referencePlansJson, contactWhatsapp, instagramHandle, websiteUrl, normStatus, normStatus, actorEmail
         );
+        jdbc.update("UPDATE organizations SET is_published = ? WHERE id = ?",
+                "PUBLICADO".equals(normStatus), orgId);
         return getCommercialProfileForActor(actorEmail, orgId);
+    }
+
+    private void validateProfileFields(String amenities, String schedule, String gallery, String whatsapp, String instagram, String website) {
+        try {
+            var services = mapper.readTree(amenities == null ? "[]" : amenities);
+            var hours = mapper.readTree(schedule == null ? "{}" : schedule);
+            var photos = mapper.readTree(gallery == null ? "[]" : gallery);
+            if (services == null || !services.isArray() || services.size() > 30
+                    || hours == null || !hours.isObject() || hours.size() > 7
+                    || photos == null || !photos.isArray() || photos.size() > 8) {
+                throw new IllegalArgumentException("Revisa los servicios, los horarios y el máximo de ocho fotos.");
+            }
+            for (var value : services) {
+                if (!value.isTextual() || value.textValue().length() > 120) throw new IllegalArgumentException("Los servicios deben ser textos cortos.");
+            }
+            for (var value : hours) {
+                if (!value.isTextual() || value.textValue().length() > 120) throw new IllegalArgumentException("Los horarios deben ser textos cortos.");
+            }
+            for (var photo : photos) {
+                if (!photo.isTextual()) throw new IllegalArgumentException("Indica enlaces HTTPS para las fotos.");
+                requireHttps(photo.textValue());
+            }
+        } catch (JsonProcessingException ex) {
+            throw new IllegalArgumentException("Revisa el formato de servicios, horarios o fotos.");
+        }
+        if (whatsapp != null && !whatsapp.isBlank() && !whatsapp.trim().matches("\\+?[0-9 ()-]{8,26}")) {
+            throw new IllegalArgumentException("Introduce un teléfono comercial válido con código de país.");
+        }
+        if (instagram != null && !instagram.isBlank() && !instagram.trim().matches("@?[A-Za-z0-9._]{1,30}")) {
+            throw new IllegalArgumentException("Introduce solo el nombre de usuario de Instagram.");
+        }
+        if (website != null && !website.isBlank()) requireHttps(website.trim());
+    }
+
+    private static void requireHttps(String url) {
+        var uri = java.net.URI.create(url);
+        if (!"https".equalsIgnoreCase(uri.getScheme()) || uri.getHost() == null || uri.getUserInfo() != null) {
+            throw new IllegalArgumentException("Los enlaces públicos deben usar HTTPS y corresponder a un sitio válido.");
+        }
     }
 
     public List<Map<String, Object>> listGroupPromotions(UUID organizationId, boolean onlyActive) {
@@ -186,10 +291,22 @@ public class B2CExperienceRepository {
             params.add(organizationId);
         }
         if (onlyActive) {
-            sql.append("AND gp.status = 'ACTIVA' AND gp.valid_until >= CURRENT_DATE ");
+            sql.append("AND o.status = 'ACTIVO' AND o.is_published " +
+                    "AND EXISTS (SELECT 1 FROM organization_commercial_profiles cp WHERE cp.organization_id = o.id AND cp.publish_status = 'PUBLICADO') " +
+                    "AND gp.status = 'ACTIVA' AND (NOW() AT TIME ZONE 'America/Lima')::date BETWEEN gp.valid_from AND gp.valid_until ");
         }
         sql.append("ORDER BY gp.created_at_utc DESC");
         return jdbc.queryForList(sql.toString(), params.toArray()).stream().map(this::camelizeMap).toList();
+    }
+
+    public List<Map<String, Object>> listManagedGroupPromotions(String actorEmail, UUID organizationId) {
+        Account actor = accountRepository.findByEmailIgnoreCase(actorEmail)
+                .orElseThrow(() -> new AccessDeniedException("Cuenta no autorizada."));
+        if (Collections.disjoint(actor.getRoles(),
+                Set.of("SUPER_ADMIN", "ADMIN", "ADMIN_EMPRESA", "GERENTE_GENERAL", "GERENTE_SEDE", "GERENTE"))) {
+            throw new AccessDeniedException("No tienes autorización para consultar promociones administrativas.");
+        }
+        return listGroupPromotions(resolveOrgIdForActor(actorEmail, organizationId), false);
     }
 
     @Transactional
@@ -380,7 +497,7 @@ public class B2CExperienceRepository {
         return jdbc.queryForList(
                 "SELECT r.id, r.organization_id, r.branch_id, r.rating_overall, r.rating_cleanliness, r.rating_equipment, " +
                         "r.rating_attention, r.rating_value, r.comment, r.verified_eligibility_source, r.status, " +
-                        "r.gym_reply, r.replied_by, r.replied_at_utc, r.created_at_utc " +
+                        "r.gym_reply, r.replied_at_utc, r.created_at_utc " +
                         "FROM gym_reviews r WHERE r.organization_id = ? AND r.status = 'PUBLICADA' ORDER BY r.created_at_utc DESC",
                 organizationId
         ).stream().map(this::camelizeMap).toList();
@@ -617,7 +734,13 @@ public class B2CExperienceRepository {
 
     public Map<String, Object> getLatestAppRelease(String platform, String channel, Integer currentVersionCode) {
         List<Map<String, Object>> rows = jdbc.queryForList(
-                "SELECT * FROM app_releases WHERE UPPER(platform) = UPPER(?) AND UPPER(channel) = UPPER(?) AND is_active = TRUE ORDER BY version_code DESC LIMIT 1",
+                """
+                SELECT * FROM app_releases
+                WHERE UPPER(platform) = UPPER(?) AND UPPER(channel) = UPPER(?) AND is_active = TRUE
+                  AND sha256_checksum ~ '^[0-9A-Fa-f]{64}$' AND file_size_bytes > 0
+                  AND download_url LIKE 'https://%'
+                ORDER BY version_code DESC LIMIT 1
+                """,
                 platform != null ? platform : "ANDROID",
                 channel != null ? channel : "PRODUCTION"
         );
@@ -630,8 +753,8 @@ public class B2CExperienceRepository {
         int latestCode = ((Number) dto.get("versionCode")).intValue();
         int minSupported = ((Number) dto.get("minSupportedVersionCode")).intValue();
         boolean updateAvailable = currentVersionCode != null && latestCode > currentVersionCode;
-        boolean updateMandatory = Boolean.TRUE.equals(dto.get("isMandatory"))
-                || (currentVersionCode != null && currentVersionCode < minSupported);
+        boolean updateMandatory = updateAvailable && (Boolean.TRUE.equals(dto.get("isMandatory"))
+                || currentVersionCode < minSupported);
         dto.put("available", true);
         dto.put("updateAvailable", updateAvailable);
         dto.put("updateRequired", updateMandatory);

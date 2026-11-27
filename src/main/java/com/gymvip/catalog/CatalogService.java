@@ -43,10 +43,19 @@ public class CatalogService {
         return jdbc.query("SELECT * FROM supplements WHERE id=?"+(customer?" AND published":""),this::mapSupplement,id).stream().findFirst().orElseThrow(()->new ResourceNotFoundException("Suplemento no encontrado."));
     }
     @Transactional(readOnly=true) public Page<Supplement> supplements(String query,String category,String availability,Boolean published,BigDecimal minPrice,BigDecimal maxPrice,boolean withPromotion,int page,int size,boolean customer) {
+        return supplements(query, category, availability, published, minPrice, maxPrice, withPromotion, page, size, customer, null);
+    }
+    private Page<Supplement> supplements(String query,String category,String availability,Boolean published,BigDecimal minPrice,BigDecimal maxPrice,boolean withPromotion,int page,int size,boolean customer,MemberSupplementStock scope) {
         paging(page,size);
         if(minPrice!=null&&minPrice.signum()<0||maxPrice!=null&&maxPrice.signum()<0||minPrice!=null&&maxPrice!=null&&minPrice.compareTo(maxPrice)>0)throw new IllegalArgumentException("Rango de precios inválido.");
         StringBuilder where=new StringBuilder(" WHERE 1=1");List<Object> args=new ArrayList<>();
         if(customer){where.append(" AND published");}else if(published!=null){where.append(" AND published=?");args.add(published);}
+        if (scope != null) {
+            if (scope.branchId() == null) return new Page<>(List.of(), 0, page, 0);
+            where.append(" AND (branch_id = ? OR (branch_id IS NULL AND ?))");
+            args.add(scope.branchId());
+            args.add(scope.legacyInventory());
+        }
         if(!clean(query).isEmpty()){where.append(" AND (position(lower(?) in lower(name))>0 OR position(lower(?) in lower(brand))>0)");args.add(query.trim());args.add(query.trim());}
         if(!clean(category).isEmpty()){where.append(" AND category=?");args.add(category);}
         if(!clean(availability).isEmpty()){where.append(" AND availability=?");args.add(availability);}
@@ -60,10 +69,19 @@ public class CatalogService {
     }
     @Transactional(readOnly = true)
     public List<MobileProduct> mobileProducts(int page, int size, boolean customer) {
-        List<Supplement> items = supplements("", "", "", null, null, null, false, page, size, customer).content();
+        return mobileProducts(page, size, customer, null);
+    }
+
+    @Transactional(readOnly = true)
+    public List<MobileProduct> mobileProducts(int page, int size, boolean customer, String memberEmail) {
+        var scope = memberEmail == null ? null : MemberSupplementStock.forAccount(jdbc, memberEmail);
+        List<Supplement> items = supplements("", "", "", null, null, null, false, page, size, customer, scope).content();
         if (items.isEmpty()) return List.of();
 
         UUID[] ids = items.stream().map(Supplement::id).toArray(UUID[]::new);
+        Set<UUID> inStock = new HashSet<>(jdbc.query(
+                "SELECT id FROM supplements WHERE id = ANY (?) AND stock > 0 AND published AND availability = 'DISPONIBLE'",
+                (rs, row) -> rs.getObject("id", UUID.class), (Object) ids));
         LocalDate date = today();
         Map<UUID, MobileOffer> offers = new HashMap<>();
         Map<UUID, MobileOffer> finished = new HashMap<>();
@@ -93,7 +111,7 @@ public class CatalogService {
             String image = item.images().isEmpty() ? null : "/api/v1/catalog/supplements/" + item.id()
                     + "/images/" + item.images().getFirst().id() + "?thumbnail=true";
             return new MobileProduct(item.id(), item.name(), item.description(), item.category(), item.pricePen(),
-                    offer != null, discount, image, item.brand(), item.availability(), item.presentation(),
+                    offer != null, discount, image, item.brand(), inStock.contains(item.id()) ? "DISPONIBLE" : "AGOTADO", item.presentation(),
                     item.netContent(), item.flavor(), item.ingredients(), offer, finished.get(item.id()));
         }).toList();
     }

@@ -12,6 +12,8 @@ public class ErrorResponse {
     private String path;
     private String correlationId;
     private List<FieldErrorDetail> details;
+    @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL)
+    private com.gymvip.exception.InsufficientSupplementStockException.Stock stock;
 
     public ErrorResponse() {}
 
@@ -46,4 +48,6 @@ public class ErrorResponse {
     public String getCorrelationId() { return correlationId; }
     public List<FieldErrorDetail> getDetails() { return details; }
     public void setDetails(List<FieldErrorDetail> details) { this.details = details; }
+    public com.gymvip.exception.InsufficientSupplementStockException.Stock getStock() { return stock; }
+    public void setStock(com.gymvip.exception.InsufficientSupplementStockException.Stock stock) { this.stock = stock; }
 }

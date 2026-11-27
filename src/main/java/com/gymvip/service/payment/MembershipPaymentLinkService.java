@@ -34,6 +34,7 @@ public class MembershipPaymentLinkService {
     private final TransactionTemplate transactions;
 
     public boolean available() { return culqi.configured(); }
+    public String mode() { return culqi.mode(); }
 
     public MembershipPaymentLinkService(JdbcTemplate jdbc, MembershipServiceImpl memberships,
                                         CulqiClient culqi, ObjectMapper mapper, Clock clock, TransactionTemplate transactions) {

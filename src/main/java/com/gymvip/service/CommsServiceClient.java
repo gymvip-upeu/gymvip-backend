@@ -53,31 +53,39 @@ public class CommsServiceClient {
     }
 
     public Map<String, Object> getWhatsAppChannelStatus() {
+        return getChannelStatus("whatsapp");
+    }
+
+    public Map<String, Object> getEmailChannelStatus() {
+        return getChannelStatus("email");
+    }
+
+    private Map<String, Object> getChannelStatus(String channel) {
         try {
             var body = statusClient.get().uri("/api/v1/channels/status").retrieve().body(Map.class);
             if (body == null || !(body.get("channels") instanceof Map<?, ?> channels)
-                    || !(channels.get("whatsapp") instanceof Map<?, ?> wa)
-                    || !(wa.get("enabled") instanceof Boolean enabled)) {
+                    || !(channels.get(channel) instanceof Map<?, ?> integration)
+                    || !(integration.get("enabled") instanceof Boolean enabled)) {
                 throw new IllegalStateException("Invalid status");
             }
-            String status = String.valueOf(wa.get("status"));
+            String status = String.valueOf(integration.get("status"));
             if (!Set.of("DISABLED", "SIMULATION", "UNCONFIGURED", "CONFIGURED_REAL").contains(status)
                     || (!enabled && !status.equals("DISABLED"))
                     || (enabled && status.equals("DISABLED"))
-                    || (status.equals("CONFIGURED_REAL") && !Boolean.TRUE.equals(wa.get("configurationComplete")))) {
+                    || (status.equals("CONFIGURED_REAL") && !Boolean.TRUE.equals(integration.get("configurationComplete")))) {
                 throw new IllegalStateException("Invalid configuration status");
             }
             return Map.of(
-                    "channel", "WHATSAPP",
+                    "channel", channel.toUpperCase(Locale.ROOT),
                     "enabled", enabled,
                     "status", status,
                     "source", "comunicaciones",
-                    "configurationComplete", Boolean.TRUE.equals(wa.get("configurationComplete")),
+                    "configurationComplete", Boolean.TRUE.equals(integration.get("configurationComplete")),
                     "connectionVerified", false
             );
         } catch (Exception ignored) {
             return Map.of(
-                    "channel", "WHATSAPP",
+                    "channel", channel.toUpperCase(Locale.ROOT),
                     "status", "UNVERIFIED",
                     "source", "comunicaciones",
                     "message", "No se pudo verificar",

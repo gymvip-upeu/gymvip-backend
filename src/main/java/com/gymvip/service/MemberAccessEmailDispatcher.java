@@ -36,7 +36,18 @@ public class MemberAccessEmailDispatcher {
             provider = result.deliveryId();
         }
         if (mail.invitationId() != null) {
-            jdbc.update("UPDATE member_access_invitations SET email_status=?,provider_id=? WHERE id=?", status, provider, mail.invitationId());
+            if (com.gymvip.saas.service.CompanyInvitationService.TEMPLATE.equals(mail.template())) {
+                jdbc.update("UPDATE company_activation_invitations SET email_status=?,provider_id=? WHERE id=?", status, provider, mail.invitationId());
+                if ("ACCEPTED".equals(status)) {
+                    jdbc.update("""
+                            UPDATE organization_requests r SET status = 'INVITACION_ENVIADA', updated_at_utc = NOW()
+                            FROM company_activation_invitations i
+                            WHERE i.request_id = r.id AND i.id = ? AND r.status = 'APROBADA'
+                            """, mail.invitationId());
+                }
+            } else {
+                jdbc.update("UPDATE member_access_invitations SET email_status=?,provider_id=? WHERE id=?", status, provider, mail.invitationId());
+            }
         }
     }
 

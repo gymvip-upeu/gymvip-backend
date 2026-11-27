@@ -1,10 +1,13 @@
 package com.gymvip.service;
 
+import com.gymvip.catalog.MemberSupplementStock;
 import com.gymvip.controller.AdminOrderController;
 import com.gymvip.controller.SupplementOrderController;
 import com.gymvip.dto.order.SupplementOrderDtos.*;
 import com.gymvip.exception.ConflictException;
 import com.gymvip.exception.ResourceNotFoundException;
+import com.gymvip.exception.InsufficientSupplementStockException;
+import com.gymvip.security.TenantScopeResolver;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -58,6 +61,16 @@ class SupplementOrderUnitTest {
         when(auth.getName()).thenReturn("socio@gymvip.pe");
     }
 
+    private void mockCheckoutScope() {
+        var branch = TenantScopeResolver.DEFAULT_BRANCH_ID;
+        var org = TenantScopeResolver.DEFAULT_ORG_ID;
+        when(jdbc.query(contains("LEFT JOIN clients c"), any(RowMapper.class),
+                eq(org), eq(org), eq(org), eq(org), eq(branch), eq(org), eq("socio@gymvip.pe")))
+                .thenReturn(List.of(new MemberSupplementStock(branch, true)));
+        when(jdbc.queryForObject(contains("member_carts WHERE id = ? FOR UPDATE"), eq(UUID.class), eq(testCartId)))
+                .thenReturn(testCartId);
+    }
+
     private ResultSet mockOrderRow(String orderStatus, String paymentStatus, String fulfillmentStatus, BigDecimal total, String pickupToken) {
         ResultSet rs = mock(ResultSet.class);
         try {
@@ -88,6 +101,7 @@ class SupplementOrderUnitTest {
     @Test
     @DisplayName("1. Checkout falla con stock insuficiente para evitar sobreventa")
     void testCheckoutFailsWithInsufficientStock() {
+        mockCheckoutScope();
         when(jdbc.query(contains("accounts WHERE email"), any(RowMapper.class), eq("socio@gymvip.pe")))
                 .thenReturn(List.of(testAccountId));
         when(workspaceService.findOwnClient("socio@gymvip.pe")).thenReturn(Optional.of(testClientId));
@@ -105,22 +119,23 @@ class SupplementOrderUnitTest {
                 "price_pen", new BigDecimal("180.00"),
                 "stock", 2,
                 "availability", "DISPONIBLE",
-                "published", true
+                "published", true,
+                "in_scope", true
         );
 
-        when(jdbc.query(contains("supplements"), any(RowMapper.class), eq(testSupplementId)))
+        when(jdbc.query(contains("FROM supplements"), any(RowMapper.class), eq(TenantScopeResolver.DEFAULT_BRANCH_ID), eq(true), eq(testSupplementId)))
                 .thenReturn(List.of(supplementData));
 
-        ConflictException ex = assertThrows(ConflictException.class, () ->
-                orderService.checkout("socio@gymvip.pe", new CheckoutRequest("YAPE", "Nota", "idem-1"))
-        );
+        var error = assertThrows(InsufficientSupplementStockException.class, () ->
+                orderService.checkout("socio@gymvip.pe", new CheckoutRequest("YAPE", "Nota", "idem-1")));
 
-        assertTrue(ex.getMessage().contains("Stock insuficiente"));
+        assertEquals(new InsufficientSupplementStockException.Stock(testSupplementId, 2, 5), error.getStock());
     }
 
     @Test
     @DisplayName("2. Checkout exitoso reserva stock y limpia el carrito")
     void testCheckoutSuccess() {
+        mockCheckoutScope();
         when(jdbc.query(contains("accounts WHERE email"), any(RowMapper.class), eq("socio@gymvip.pe")))
                 .thenReturn(List.of(testAccountId));
         when(workspaceService.findOwnClient("socio@gymvip.pe")).thenReturn(Optional.of(testClientId));
@@ -138,10 +153,11 @@ class SupplementOrderUnitTest {
                 "price_pen", new BigDecimal("180.00"),
                 "stock", 10,
                 "availability", "DISPONIBLE",
-                "published", true
+                "published", true,
+                "in_scope", true
         );
 
-        when(jdbc.query(contains("supplements"), any(RowMapper.class), eq(testSupplementId)))
+        when(jdbc.query(contains("FROM supplements"), any(RowMapper.class), eq(TenantScopeResolver.DEFAULT_BRANCH_ID), eq(true), eq(testSupplementId)))
                 .thenReturn(List.of(supplementData));
         when(jdbc.query(contains("supplement_promotions"), any(RowMapper.class), eq(testSupplementId)))
                 .thenReturn(List.of());

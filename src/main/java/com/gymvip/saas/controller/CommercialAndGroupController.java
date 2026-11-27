@@ -80,9 +80,16 @@ public class CommercialAndGroupController {
     @GetMapping("/group-promotions")
     public ResponseEntity<List<Map<String, Object>>> listGroupPromotions(
             @RequestParam(required = false) UUID organizationId,
-            @RequestParam(defaultValue = "true") boolean onlyActive
+            @RequestParam(defaultValue = "true") boolean onlyActive,
+            Authentication auth
     ) {
-        return ResponseEntity.ok(repository.listGroupPromotions(organizationId, onlyActive));
+        if (onlyActive) {
+            return ResponseEntity.ok(repository.listGroupPromotions(organizationId, true));
+        }
+        if (auth == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+        }
+        return ResponseEntity.ok(repository.listManagedGroupPromotions(auth.getName(), organizationId));
     }
 
     public record CreateGroupPromotionRequest(

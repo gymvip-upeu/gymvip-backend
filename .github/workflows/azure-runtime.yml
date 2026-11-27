@@ -1,0 +1,51 @@
+name: Azure runtime
+on:
+  workflow_dispatch:
+    inputs:
+      destination:
+        description: GitHub and Azure environment
+        type: choice
+        options: [staging, production]
+        required: true
+      apply:
+        description: Apply the previously reviewed infrastructure changes
+        type: boolean
+        default: false
+permissions:
+  contents: read
+  id-token: write
+concurrency:
+  group: azure-runtime-${{ inputs.destination }}
+jobs:
+  deploy:
+    if: github.ref == 'refs/heads/develop'
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.destination }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      - name: Validate and preview changes
+        env:
+          RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
+          PARAMETERS: ${{ vars.AZURE_RUNTIME_PARAMETERS }}
+        run: |
+          printf '%s' "$PARAMETERS" > "$RUNNER_TEMP/azure-runtime.json"
+          environment_id="$(jq -er '.parameters.containerEnvironmentId.value' "$RUNNER_TEMP/azure-runtime.json")"
+          internal="$(az resource show --ids "$environment_id" --query 'properties.vnetConfiguration.internal' -o tsv)"
+          if [ "$internal" != "true" ]; then
+            echo 'Container Apps must use an internal VNet environment.' >&2
+            exit 1
+          fi
+          az deployment group what-if --resource-group "$RESOURCE_GROUP" \
+            --template-file infra/azure/main.bicep --parameters "@$RUNNER_TEMP/azure-runtime.json"
+      - name: Apply reviewed changes
+        if: inputs.apply
+        env:
+          RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
+        run: |
+          az deployment group create --resource-group "$RESOURCE_GROUP" \
+            --template-file infra/azure/main.bicep --parameters "@$RUNNER_TEMP/azure-runtime.json"

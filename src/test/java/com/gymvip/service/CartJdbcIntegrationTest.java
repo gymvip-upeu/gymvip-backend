@@ -2,6 +2,7 @@ package com.gymvip.service;
 
 import com.gymvip.dto.request.RegisterClientRequest;
 import com.gymvip.dto.order.SupplementOrderDtos.*;
+import com.gymvip.exception.InsufficientSupplementStockException;
 import org.junit.jupiter.api.*;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -56,9 +57,14 @@ class CartJdbcIntegrationTest {
         assertThrows(com.gymvip.exception.ConflictException.class,()->orders.updateCartItem(email,new UpdateCartItemRequest(product,1)));
     }
     @Test void publicationDoesNotCreateStockAndCheckoutStillChecksExistingUnits() {
-        jdbc.update("UPDATE supplements SET stock=0 WHERE id=?",product);
-        orders.updateCartItem(email,new UpdateCartItemRequest(product,1));
-        assertThrows(com.gymvip.exception.ConflictException.class,()->orders.checkout(email,new CheckoutRequest("TRANSFERENCIA_MANUAL",null,"qa-"+UUID.randomUUID())));
-        assertEquals(0,jdbc.queryForObject("SELECT stock FROM supplements WHERE id=?",Integer.class,product));
+        orders.updateCartItem(email, new UpdateCartItemRequest(product, 1));
+        jdbc.update("UPDATE supplements SET stock=0 WHERE id=?", product);
+        assertEquals(0, orders.getCart(email).items().getFirst().availableStock());
+        assertThrows(InsufficientSupplementStockException.class,
+                () -> orders.updateCartItem(email, new UpdateCartItemRequest(product, 2)));
+        var error = assertThrows(InsufficientSupplementStockException.class,
+                () -> orders.checkout(email, new CheckoutRequest("TRANSFERENCIA_MANUAL", null, "qa-" + UUID.randomUUID())));
+        assertEquals(new InsufficientSupplementStockException.Stock(product, 0, 1), error.getStock());
+        assertEquals(0, jdbc.queryForObject("SELECT stock FROM supplements WHERE id=?", Integer.class, product));
     }
 }

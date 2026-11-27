@@ -195,7 +195,7 @@ public class TrainingRepository {
     public List<Map<String, Object>> listClasses(String email) {
         UUID clientId = memberWorkspaceService.findOwnClient(email).orElse(null);
         List<Map<String, Object>> classes = jdbc.queryForList(
-                "SELECT c.id, c.branch_id, b.name AS branch_name, c.title, c.category, c.trainer_name, c.starts_at, c.duration_minutes, c.capacity, c.status, " +
+                        "SELECT c.id, c.branch_id, b.name AS branch_name, c.title, c.category, c.trainer_name, c.starts_at::text AS starts_at, c.duration_minutes, c.capacity, c.status, " +
                         "(SELECT COUNT(*) FROM class_reservations r WHERE r.class_id = c.id AND r.status = 'RESERVADA') AS reserved_count " +
                         "FROM gym_classes c LEFT JOIN branches b ON b.id = c.branch_id WHERE c.status = 'PROGRAMADA' ORDER BY c.starts_at ASC"
         );
@@ -208,6 +208,8 @@ public class TrainingRepository {
         }
         return classes.stream().map(row -> {
             Map<String, Object> dto = normalizeKeys(row);
+            LocalDateTime scheduled = LocalDateTime.parse(row.get("starts_at").toString().replace(' ', 'T'));
+            dto.put("startsAt", scheduled.atZone(java.time.ZoneId.of("America/Lima")).toOffsetDateTime().toString());
             dto.put("reservedByMe", myClassIds.contains(String.valueOf(row.get("id"))));
             return dto;
         }).toList();
@@ -257,7 +259,7 @@ public class TrainingRepository {
                 classId, actor.getOrganizationId(), effectiveBranch,
                 title.trim(), category != null ? category.trim() : "FUNCIONAL",
                 trainerName != null && !trainerName.isBlank() ? trainerName.trim() : actorEmail,
-                actor.getId(), Timestamp.valueOf(startsAt),
+                actor.getId(), startsAt,
                 Math.max(15, durationMinutes), Math.max(1, capacity)
         );
         return Map.of("id", classId, "title", title.trim(), "capacity", Math.max(1, capacity), "status", "PROGRAMADA");

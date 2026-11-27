@@ -12,6 +12,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
@@ -33,6 +35,9 @@ public class SaasB2B2CIntegrationTest {
 
     @Autowired
     private ObjectMapper objectMapper;
+
+    @Autowired
+    private JdbcTemplate jdbc;
 
     @Autowired
     private AuthService authService;
@@ -81,7 +86,17 @@ public class SaasB2B2CIntegrationTest {
     }
 
     @Test
+    @Transactional
     void publicGymShowcaseLegalDocsAndAppReleaseWorkWithoutLogin() throws Exception {
+        UUID org = jdbc.queryForObject("SELECT id FROM organizations WHERE code='vip-center-fit'", UUID.class);
+        jdbc.update("UPDATE branches SET is_published=FALSE WHERE organization_id=?", org);
+        jdbc.update("UPDATE organizations SET is_published=TRUE WHERE id=?", org);
+        jdbc.update("UPDATE organization_commercial_profiles SET publish_status='PUBLICADO' WHERE organization_id=?", org);
+        mockMvc.perform(get("/api/v1/public/gyms"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[*].code", not(hasItem("vip-center-fit"))));
+
+        jdbc.update("UPDATE branches SET is_published=TRUE WHERE organization_id=? AND status='ACTIVO'", org);
         mockMvc.perform(get("/api/v1/public/gyms"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$", hasSize(greaterThanOrEqualTo(1))))
@@ -93,8 +108,87 @@ public class SaasB2B2CIntegrationTest {
 
         mockMvc.perform(get("/api/v1/app/releases/latest?platform=ANDROID&currentVersionCode=100"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.available").value(true))
-                .andExpect(jsonPath("$.updateAvailable").value(true));
+                .andExpect(jsonPath("$.available").value(false))
+                .andExpect(jsonPath("$.updateAvailable").doesNotExist());
+    }
+
+    @Test
+    @Transactional
+    void approvedCompanyRemainsPrivateAndActivationExpiresAndIsSingleUse() throws Exception {
+        String email = "empresa-" + UUID.randomUUID() + "@example.test";
+        String ruc = String.valueOf(20_000_000_000L + new java.security.SecureRandom().nextInt(100_000_000));
+        var submitted = mockMvc.perform(post("/api/v1/public/company-requests")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsBytes(Map.of(
+                                "businessName", "Gimnasio QA", "ruc", ruc, "city", "Lima", "district", "Surco",
+                                "contactName", "Contacto QA", "contactEmail", email, "contactPhone", "999000000",
+                                "legalAccepted", true))))
+                .andExpect(status().isCreated()).andReturn();
+        UUID requestId = UUID.fromString(objectMapper.readTree(submitted.getResponse().getContentAsByteArray()).get("id").asText());
+        mockMvc.perform(post("/api/v1/platform/company-requests/{id}/approve", requestId)
+                        .header("Authorization", "Bearer " + superAdminToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("APROBADA"))
+                .andExpect(jsonPath("$.invitationCode").doesNotExist());
+        UUID accountId = jdbc.queryForObject("SELECT id FROM accounts WHERE email = ?", UUID.class, email);
+        Integer branches = jdbc.queryForObject("""
+                SELECT COUNT(*) FROM branches b JOIN organization_requests r ON b.organization_id = r.approved_organization_id
+                WHERE r.id = ?
+                """, Integer.class, requestId);
+        org.junit.jupiter.api.Assertions.assertEquals(0, branches);
+
+        String token = "a".repeat(64);
+        String fingerprint = java.util.HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256")
+                .digest(token.getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+        jdbc.update("""
+                INSERT INTO company_activation_invitations (id, request_id, account_id, token_hash, expires_at, sent_by)
+                VALUES (?, ?, ?, ?, NOW() - INTERVAL '1 minute', 'qa@example.test')
+                ON CONFLICT (request_id) DO UPDATE SET token_hash=EXCLUDED.token_hash, expires_at=EXCLUDED.expires_at
+                """, UUID.randomUUID(), requestId, accountId, fingerprint);
+        byte[] activation = objectMapper.writeValueAsBytes(Map.of("token", token, "password", "AccesoEmpresa123!"));
+        mockMvc.perform(post("/api/v1/public/company-activation").contentType(MediaType.APPLICATION_JSON).content(activation))
+                .andExpect(status().isNotFound());
+        jdbc.update("UPDATE company_activation_invitations SET expires_at = NOW() + INTERVAL '24 hours' WHERE request_id = ?", requestId);
+        mockMvc.perform(post("/api/v1/public/company-activation").contentType(MediaType.APPLICATION_JSON).content(activation))
+                .andExpect(status().isNoContent());
+        mockMvc.perform(post("/api/v1/public/company-activation").contentType(MediaType.APPLICATION_JSON).content(activation))
+                .andExpect(status().isNotFound());
+        org.junit.jupiter.api.Assertions.assertEquals("ACTIVADA",
+                jdbc.queryForObject("SELECT status FROM organization_requests WHERE id = ?", String.class, requestId));
+    }
+
+    @Test
+    void listingAllGroupPromotionsRequiresStaffWithOrganizationScope() throws Exception {
+        mockMvc.perform(get("/api/v1/group-promotions").param("onlyActive", "false"))
+                .andExpect(status().isUnauthorized());
+        mockMvc.perform(get("/api/v1/group-promotions").param("onlyActive", "false")
+                        .header("Authorization", "Bearer " + memberToken))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(get("/api/v1/group-promotions").param("onlyActive", "false")
+                        .param("organizationId", UUID.randomUUID().toString())
+                        .header("Authorization", "Bearer " + adminToken))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(get("/api/v1/group-promotions").param("onlyActive", "false")
+                        .header("Authorization", "Bearer " + adminToken))
+                .andExpect(status().isOk()).andExpect(jsonPath("$").isArray());
+    }
+
+    @Test
+    void reportsValidateTenantBeforeReadingMetricsOrExporting() throws Exception {
+        mockMvc.perform(get("/api/v1/reports")
+                        .param("from", "2026-01-01").param("to", "2026-01-02")
+                        .header("Authorization", "Bearer " + gerenteToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.metrics.memberRegistrations").isNumber())
+                .andExpect(jsonPath("$.metrics.announcements").isNumber());
+
+        String otherOrganization = UUID.randomUUID().toString();
+        mockMvc.perform(get("/api/v1/reports/export")
+                        .param("from", "2026-01-01").param("to", "2026-01-02")
+                        .param("format", "xlsx").param("metrics", "memberRegistrations")
+                        .param("organizationId", otherOrganization)
+                        .header("Authorization", "Bearer " + gerenteToken))
+                .andExpect(status().isForbidden());
     }
 
     @Test

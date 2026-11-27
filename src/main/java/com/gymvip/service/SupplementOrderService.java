@@ -1,7 +1,9 @@
 package com.gymvip.service;
 
 import com.gymvip.dto.order.SupplementOrderDtos.*;
+import com.gymvip.catalog.MemberSupplementStock;
 import com.gymvip.exception.ConflictException;
+import com.gymvip.exception.InsufficientSupplementStockException;
 import com.gymvip.exception.ResourceNotFoundException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.access.AccessDeniedException;
@@ -71,23 +73,30 @@ public class SupplementOrderService {
             return existing.get(0);
         }
         UUID cartId = UUID.randomUUID();
-        updateSql("INSERT INTO member_carts (id, account_id, created_at_utc, updated_at_utc) VALUES (?, ?, ?, ?)",
+        updateSql("INSERT INTO member_carts (id, account_id, created_at_utc, updated_at_utc) VALUES (?, ?, ?, ?) ON CONFLICT (account_id) DO NOTHING",
                 cartId, accountId, now(), now());
-        return cartId;
+        return jdbc.queryForObject("SELECT id FROM member_carts WHERE account_id = ?", UUID.class, accountId);
+    }
+
+    private UUID lockCart(UUID accountId) {
+        return jdbc.queryForObject("SELECT id FROM member_carts WHERE id = ? FOR UPDATE",
+                UUID.class, getOrCreateCartId(accountId));
     }
 
     public CartSummaryDto getCart(String userEmail) {
         UUID accountId = getAccountIdByEmail(userEmail);
         UUID cartId = getOrCreateCartId(accountId);
+        var scope = MemberSupplementStock.forAccount(jdbc, userEmail);
 
         List<CartItemDto> items = jdbc.query("""
             SELECT i.id, i.supplement_id, s.name, s.brand, s.presentation, s.flavor,
-                   s.price_pen, s.stock, i.quantity
+                   s.price_pen, CASE WHEN s.published AND s.availability = 'DISPONIBLE'
+                       AND (s.branch_id = ? OR (s.branch_id IS NULL AND ?)) THEN s.stock ELSE 0 END AS stock, i.quantity
             FROM member_cart_items i
             JOIN supplements s ON s.id = i.supplement_id
             WHERE i.cart_id = ?
             ORDER BY i.created_at_utc ASC
-        """, (rs, n) -> mapCartItem(rs), cartId);
+        """, (rs, n) -> mapCartItem(rs), scope.branchId(), scope.branchId() != null && scope.legacyInventory(), cartId);
 
         BigDecimal total = items.stream()
                 .map(CartItemDto::subtotalPen)
@@ -115,16 +124,26 @@ public class SupplementOrderService {
 
     public CartSummaryDto updateCartItem(String userEmail, UpdateCartItemRequest req) {
         UUID accountId = getAccountIdByEmail(userEmail);
-        UUID cartId = getOrCreateCartId(accountId);
+        UUID cartId = lockCart(accountId);
 
         if (req.quantity() <= 0) {
             updateSql("DELETE FROM member_cart_items WHERE cart_id = ? AND supplement_id = ?", cartId, req.supplementId());
         } else {
-            Integer purchasable = jdbc.queryForObject("SELECT count(*) FROM supplements WHERE id = ? AND published AND availability = 'DISPONIBLE'", Integer.class, req.supplementId());
-            if (purchasable == null || purchasable == 0) {
-                throw new ConflictException("El suplemento está agotado o ya no está publicado. Actualiza el catálogo.");
-            }
             int cappedQty = Math.min(req.quantity(), 20);
+            Integer previous = jdbc.queryForObject("""
+                    SELECT COALESCE((SELECT quantity FROM member_cart_items WHERE cart_id = ? AND supplement_id = ?), 0)
+                    """, Integer.class, cartId, req.supplementId());
+            if (previous == null || cappedQty > previous) {
+                var scope = MemberSupplementStock.forAccount(jdbc, userEmail);
+                var product = jdbc.queryForList("SELECT name, stock, branch_id, published, availability FROM supplements WHERE id = ?", req.supplementId())
+                        .stream().findFirst().orElseThrow(() -> new ResourceNotFoundException("Suplemento no encontrado."));
+                int available = scope.includes((UUID) product.get("branch_id"))
+                        && Boolean.TRUE.equals(product.get("published")) && "DISPONIBLE".equals(product.get("availability"))
+                        ? (int) product.get("stock") : 0;
+                if (cappedQty > available) {
+                    throw new InsufficientSupplementStockException(req.supplementId(), (String) product.get("name"), available, cappedQty);
+                }
+            }
             updateSql("""
                 INSERT INTO member_cart_items (id, cart_id, supplement_id, quantity, created_at_utc, updated_at_utc)
                 VALUES (?, ?, ?, ?, ?, ?)
@@ -151,6 +170,8 @@ public class SupplementOrderService {
         UUID accountId = getAccountIdByEmail(userEmail);
         UUID clientId = workspaceService.findOwnClient(userEmail)
                 .orElseThrow(() -> new AccessDeniedException("Solo los socios activos pueden realizar pedidos de suplementos."));
+        var scope = MemberSupplementStock.forAccount(jdbc, userEmail);
+        UUID cartId = lockCart(accountId);
 
         // Manejo de idempotencia
         if (req != null && req.idempotencyKey() != null && !req.idempotencyKey().isBlank()) {
@@ -161,11 +182,11 @@ public class SupplementOrderService {
             }
         }
 
-        UUID cartId = getOrCreateCartId(accountId);
         var cartRows = jdbc.query("""
             SELECT i.supplement_id, i.quantity
             FROM member_cart_items i
             WHERE i.cart_id = ?
+            ORDER BY i.supplement_id
         """, (rs, n) -> new AbstractMap.SimpleEntry<>(rs.getObject("supplement_id", UUID.class), rs.getInt("quantity")), cartId);
 
         if (cartRows.isEmpty()) {
@@ -188,7 +209,8 @@ public class SupplementOrderService {
             int reqQty = row.getValue();
 
             var locked = jdbc.query("""
-                SELECT id, name, brand, presentation, flavor, price_pen, stock, availability, published, version
+                SELECT id, name, brand, presentation, flavor, price_pen, stock, availability, published, version,
+                       (branch_id = ? OR (branch_id IS NULL AND ?)) IS TRUE AS in_scope
                 FROM supplements
                 WHERE id = ?
                 FOR UPDATE
@@ -200,8 +222,9 @@ public class SupplementOrderService {
                     "price_pen", rs.getBigDecimal("price_pen"),
                     "stock", rs.getInt("stock"),
                     "availability", rs.getString("availability"),
-                    "published", rs.getBoolean("published")
-            ), supId);
+                    "published", rs.getBoolean("published"),
+                    "in_scope", rs.getBoolean("in_scope")
+            ), scope.branchId(), scope.branchId() != null && scope.legacyInventory(), supId);
 
             if (locked.isEmpty()) {
                 throw new ResourceNotFoundException("Producto no encontrado durante el checkout.");
@@ -212,8 +235,9 @@ public class SupplementOrderService {
             boolean published = (boolean) product.get("published");
             String availability = (String) product.get("availability");
 
-            if (!published || !"DISPONIBLE".equalsIgnoreCase(availability) || currentStock < reqQty) {
-                throw new ConflictException("Stock insuficiente para '" + product.get("name") + "'. Disponible: " + currentStock + ", solicitado: " + reqQty);
+            boolean sellable = (boolean) product.get("in_scope") && published && "DISPONIBLE".equalsIgnoreCase(availability);
+            if (!sellable || currentStock < reqQty) {
+                throw new InsufficientSupplementStockException(supId, (String) product.get("name"), sellable ? currentStock : 0, reqQty);
             }
 
             // Consultar si hay promoción vigente
@@ -273,11 +297,11 @@ public class SupplementOrderService {
 
         // Insertar pedido en estado PENDIENTE_PAGO
         updateSql("""
-            INSERT INTO supplement_orders (id, order_number, client_id, account_id, order_status, payment_status, fulfillment_status,
+            INSERT INTO supplement_orders (id, order_number, client_id, account_id, branch_id, order_status, payment_status, fulfillment_status,
                                           subtotal_pen, discount_pen, total_pen, payment_method, reservation_expires_at_utc,
                                           stock_reserved, stock_released, customer_notes, idempotency_key, created_at_utc, updated_at_utc)
-            VALUES (?, ?, ?, ?, 'PENDIENTE_PAGO', 'PENDIENTE', 'PENDIENTE', ?, ?, ?, ?, ?, true, false, ?, ?, ?, ?)
-        """, orderId, orderNumber, clientId, accountId, subtotal, discountTotal, total, paymentMethod,
+            VALUES (?, ?, ?, ?, ?, 'PENDIENTE_PAGO', 'PENDIENTE', 'PENDIENTE', ?, ?, ?, ?, ?, true, false, ?, ?, ?, ?)
+        """, orderId, orderNumber, clientId, accountId, scope.branchId(), subtotal, discountTotal, total, paymentMethod,
                 reservationExpiry, customerNotes, idempotencyKey, now(), now());
 
         for (Object[] item : orderItems) {

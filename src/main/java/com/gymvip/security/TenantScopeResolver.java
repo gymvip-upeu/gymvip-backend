@@ -1,6 +1,8 @@
 package com.gymvip.security;
 
 import com.gymvip.entity.Account;
+import com.gymvip.enterprise.BranchEntity;
+import com.gymvip.enterprise.BranchRepository;
 import com.gymvip.repository.AccountRepository;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.core.Authentication;
@@ -16,13 +18,15 @@ import java.util.UUID;
 @Component
 public class TenantScopeResolver {
 
-    public static final UUID DEFAULT_ORG_ID = UUID.fromString("a0000000-0000-0000-0000-000000000001");
-    public static final UUID DEFAULT_BRANCH_ID = UUID.fromString("b0000000-0000-0000-0000-000000000001");
+    public static final UUID DEFAULT_ORG_ID = UUID.fromString("11111111-1111-4111-8111-111111111111");
+    public static final UUID DEFAULT_BRANCH_ID = UUID.fromString("22222222-2222-4222-8222-222222222221");
 
     private final AccountRepository accountRepository;
+    private final BranchRepository branchRepository;
 
-    public TenantScopeResolver(AccountRepository accountRepository) {
+    public TenantScopeResolver(AccountRepository accountRepository, BranchRepository branchRepository) {
         this.accountRepository = accountRepository;
+        this.branchRepository = branchRepository;
     }
 
     public Account resolveActor(Authentication authentication) {
@@ -36,14 +40,15 @@ public class TenantScopeResolver {
     public boolean isGlobalPlatformRole(Account actor) {
         if (actor == null || actor.getRoles() == null) return false;
         Set<String> roles = actor.getRoles();
-        return roles.contains("SUPER_ADMIN") || roles.contains("ADMIN") || roles.contains("SOPORTE_PLATAFORMA");
+        return roles.contains("SUPER_ADMIN");
     }
 
     public boolean isCompanyWideRole(Account actor) {
         if (isGlobalPlatformRole(actor)) return true;
         if (actor == null || actor.getRoles() == null) return false;
         Set<String> roles = actor.getRoles();
-        return roles.contains("ADMIN_EMPRESA")
+        return roles.contains("ADMIN")
+                || roles.contains("ADMIN_EMPRESA")
                 || roles.contains("GERENTE_GENERAL")
                 || roles.contains("GERENTE")
                 || roles.contains("AUDITOR_EMPRESA")
@@ -63,13 +68,24 @@ public class TenantScopeResolver {
     }
 
     public UUID effectiveBranchId(Account actor, UUID requestedBranchId) {
-        UUID actorBranch = actor.getPrimaryBranchId() != null ? actor.getPrimaryBranchId() : DEFAULT_BRANCH_ID;
-        if (isGlobalPlatformRole(actor) || isCompanyWideRole(actor)) {
-            return requestedBranchId != null ? requestedBranchId : actorBranch;
+        UUID organizationId = effectiveOrganizationId(actor, null);
+        UUID primary = actor.getPrimaryBranchId();
+        if (primary == null && actor.getOrganizationId() == null) primary = DEFAULT_BRANCH_ID;
+
+        UUID branch = requestedBranchId != null ? requestedBranchId : primary;
+        if (branch == null && isCompanyWideRole(actor)) {
+            branch = branchRepository.findByOrganizationIdOrderByNameAsc(organizationId).stream()
+                    .filter(candidate -> "ACTIVO".equalsIgnoreCase(candidate.getStatus()))
+                    .map(BranchEntity::getId).findFirst().orElse(null);
         }
-        if (requestedBranchId != null && !Objects.equals(requestedBranchId, actorBranch)) {
+        if (branch == null || (!isCompanyWideRole(actor) && !Objects.equals(branch, primary))) {
             throw new AccessDeniedException("Acceso denegado: operación restringida a tu sede asignada.");
         }
-        return actorBranch;
+        BranchEntity assigned = branchRepository.findById(branch)
+                .orElseThrow(() -> new AccessDeniedException("Sede operativa no asignada."));
+        if (!isGlobalPlatformRole(actor) && !organizationId.equals(assigned.getOrganizationId())) {
+            throw new AccessDeniedException("Acceso denegado: la sede pertenece a otra empresa.");
+        }
+        return branch;
     }
 }

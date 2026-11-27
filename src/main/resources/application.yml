@@ -14,7 +14,11 @@ management:
   endpoints:
     web:
       exposure:
-        include: health,info
+        include: ${GYMVIP_MANAGEMENT_ENDPOINTS:health,info}
+  metrics:
+    distribution:
+      percentiles-histogram:
+        http.server.requests: true
   endpoint:
     health:
       show-details: when-authorized

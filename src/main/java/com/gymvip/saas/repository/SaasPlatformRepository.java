@@ -1,7 +1,10 @@
 package com.gymvip.saas.repository;
 
 import com.gymvip.entity.Account;
+import com.gymvip.exception.ConflictException;
+import com.gymvip.exception.ResourceNotFoundException;
 import com.gymvip.repository.AccountRepository;
+import com.gymvip.service.AuditService;
 import com.gymvip.saas.domain.SaasCalculations;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.access.AccessDeniedException;
@@ -31,13 +34,15 @@ public class SaasPlatformRepository {
     private final JdbcTemplate jdbc;
     private final AccountRepository accountRepository;
     private final PasswordEncoder passwordEncoder;
+    private final AuditService audit;
 
     public SaasPlatformRepository(JdbcTemplate jdbc,
                                   AccountRepository accountRepository,
-                                  PasswordEncoder passwordEncoder) {
+                                  PasswordEncoder passwordEncoder, AuditService audit) {
         this.jdbc = jdbc;
         this.accountRepository = accountRepository;
         this.passwordEncoder = passwordEncoder;
+        this.audit = audit;
     }
 
     public Map<String, Object> getGlobalPlatformMetrics() {
@@ -281,7 +286,7 @@ public class SaasPlatformRepository {
         if (ruc == null || !ruc.trim().matches("\\d{11}")) {
             throw new IllegalArgumentException("El RUC debe tener exactamente 11 dígitos numéricos.");
         }
-        String tracking = "GYM-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase(Locale.ROOT);
+        String tracking = "GYM-" + UUID.randomUUID().toString().replace("-", "").substring(0, 28).toUpperCase(Locale.ROOT);
         UUID id = UUID.randomUUID();
         String normPlan = requestedPlanCode != null && !requestedPlanCode.isBlank()
                 ? requestedPlanCode.trim().toUpperCase(Locale.ROOT)
@@ -305,7 +310,7 @@ public class SaasPlatformRepository {
 
     public Optional<Map<String, Object>> trackCompanyRequest(String trackingCode) {
         List<Map<String, Object>> rows = jdbc.queryForList(
-                "SELECT tracking_code, business_name, commercial_name, requested_plan_code, status, review_notes, created_at_utc, updated_at_utc " +
+                "SELECT tracking_code, status, created_at_utc, updated_at_utc " +
                         "FROM organization_requests WHERE UPPER(tracking_code) = UPPER(?)",
                 trackingCode.trim()
         );
@@ -313,57 +318,67 @@ public class SaasPlatformRepository {
     }
 
     public List<Map<String, Object>> listCompanyRequests(String status) {
+        String query = """
+                SELECT r.*, i.email_status AS invitation_status FROM organization_requests r
+                LEFT JOIN company_activation_invitations i ON i.request_id = r.id
+                """;
         if (status != null && !status.isBlank()) {
-            return jdbc.queryForList(
-                    "SELECT * FROM organization_requests WHERE UPPER(status) = UPPER(?) ORDER BY created_at_utc DESC",
-                    status.trim()
-            ).stream().map(this::camelizeMap).toList();
+            return jdbc.queryForList(query + " WHERE UPPER(r.status) = UPPER(?) ORDER BY r.created_at_utc DESC",
+                    status.trim()).stream().map(this::camelizeMap).toList();
         }
-        return jdbc.queryForList("SELECT * FROM organization_requests ORDER BY created_at_utc DESC")
+        return jdbc.queryForList(query + " ORDER BY r.created_at_utc DESC")
                 .stream().map(this::camelizeMap).toList();
     }
 
     @Transactional
     public Map<String, Object> reviewCompanyRequest(UUID requestId, String status, String notes, String reviewerEmail) {
         String norm = normalizeInSet(status, VALID_REQUEST_STATUSES, "Estado de solicitud inválido: " + status);
-        jdbc.update(
-                "UPDATE organization_requests SET status = ?, review_notes = ?, reviewed_by = ?, updated_at_utc = NOW() WHERE id = ?",
+        if (!Set.of("EN_REVISION", "OBSERVADA", "RECHAZADA", "ARCHIVADA").contains(norm)) {
+            throw new IllegalArgumentException("Utiliza la acción de aprobación para aprovisionar la empresa.");
+        }
+        int updated = jdbc.update(
+                "UPDATE organization_requests SET status = ?, review_notes = ?, reviewed_by = ?, updated_at_utc = NOW() WHERE id = ? AND approved_organization_id IS NULL",
                 norm, notes, reviewerEmail, requestId
         );
+        if (updated == 0) throw new ConflictException("La solicitud no admite una nueva revisión.");
         return camelizeMap(jdbc.queryForMap("SELECT * FROM organization_requests WHERE id = ?", requestId));
     }
 
     @Transactional
     public Map<String, Object> approveAndProvisionCompanyRequest(UUID requestId, String reviewerEmail, boolean startTrial) {
-        Map<String, Object> req = jdbc.queryForMap("SELECT * FROM organization_requests WHERE id = ?", requestId);
+        Map<String, Object> req = jdbc.queryForList("SELECT * FROM organization_requests WHERE id = ? FOR UPDATE", requestId)
+                .stream().findFirst().orElseThrow(() -> new ResourceNotFoundException("Solicitud no encontrada."));
         if (req.get("approved_organization_id") != null) {
-            return camelizeMap(req);
+            return Map.of("requestId", requestId, "organizationId", req.get("approved_organization_id"), "status", req.get("status"));
+        }
+        if (!Set.of("RECIBIDA", "EN_REVISION", "OBSERVADA").contains(req.get("status"))) {
+            throw new ConflictException("La solicitud debe estar en revisión para ser aprobada.");
+        }
+        String contactEmail = String.valueOf(req.get("contact_email")).trim().toLowerCase(Locale.ROOT);
+        if (accountRepository.existsByEmailIgnoreCase(contactEmail)) {
+            throw new ConflictException("El correo ya pertenece a una cuenta. Revisa el contacto antes de aprobar.");
+        }
+        String ruc = String.valueOf(req.get("ruc"));
+        jdbc.query("SELECT pg_advisory_xact_lock(hashtextextended(?, 0))", rs -> {}, "company-request:" + ruc);
+        if (Boolean.TRUE.equals(jdbc.queryForObject("SELECT EXISTS (SELECT 1 FROM organizations WHERE tax_id = ?)", Boolean.class, ruc))) {
+            throw new ConflictException("Ya existe una empresa con ese RUC.");
         }
         String name = req.get("commercial_name") != null && !String.valueOf(req.get("commercial_name")).isBlank()
                 ? String.valueOf(req.get("commercial_name"))
                 : String.valueOf(req.get("business_name"));
         String slugBase = name.toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9]+", "-").replaceAll("(^-|-$)", "");
         if (slugBase.isBlank()) slugBase = "gym";
+        if (slugBase.length() > 50) slugBase = slugBase.substring(0, 50).replaceAll("-$", "");
         String orgCode = slugBase + "-" + UUID.randomUUID().toString().substring(0, 4);
         UUID orgId = UUID.randomUUID();
         String planCode = String.valueOf(req.get("requested_plan_code"));
 
         jdbc.update(
                 "INSERT INTO organizations (id, code, name, tax_id, description, plan_tier, status, is_published) " +
-                        "VALUES (?, ?, ?, ?, ?, ?, 'ACTIVO', TRUE)",
+                        "VALUES (?, ?, ?, ?, ?, ?, 'ACTIVO', FALSE)",
                 orgId, orgCode, name, String.valueOf(req.get("ruc")),
                 "Gimnasio afiliado a la red GYM VIP (" + req.get("city") + " - " + req.get("district") + ")",
                 planCode
-        );
-
-        UUID branchId = UUID.randomUUID();
-        jdbc.update(
-                "INSERT INTO branches (id, organization_id, code, name, city, district, address, phone, schedule_summary, services_summary, capacity, is_published, status) " +
-                        "VALUES (?, ?, 'sede-principal', ?, ?, ?, ?, ?, 'Lun-Sáb 06:00 - 22:00', 'Musculación y entrenamiento general', 120, TRUE, 'ACTIVO')",
-                branchId, orgId, name + " — Sede Principal", String.valueOf(req.get("city")),
-                String.valueOf(req.get("district")),
-                req.get("address") != null ? String.valueOf(req.get("address")) : "Sede Principal",
-                String.valueOf(req.get("contact_phone"))
         );
 
         upsertLicense(orgId, planCode, startTrial ? "TRIAL" : "ACTIVA", null,
@@ -377,37 +392,18 @@ public class SaasPlatformRepository {
                 "Perfil inicial creado al aprobar solicitud de afiliación.", reviewerEmail
         );
 
-        String contactEmail = String.valueOf(req.get("contact_email")).trim().toLowerCase(Locale.ROOT);
-        String tempPwdGenerated = "Gym@" + UUID.randomUUID().toString().substring(0, 8) + "9A";
-        if (!accountRepository.existsByEmailIgnoreCase(contactEmail)) {
-            Account managerAccount = new Account(
-                    UUID.randomUUID(),
-                    contactEmail,
-                    passwordEncoder.encode(tempPwdGenerated),
-                    Set.of("ADMIN_EMPRESA", "GERENTE_GENERAL"),
-                    "PENDIENTE_ACTIVACION",
-                    false
-            );
-            managerAccount.setOrganizationId(orgId);
-            managerAccount.setPrimaryBranchId(branchId);
-            accountRepository.save(managerAccount);
-        }
+        Account managerAccount = new Account(UUID.randomUUID(), contactEmail,
+                passwordEncoder.encode(UUID.randomUUID().toString()),
+                Set.of("ADMIN_EMPRESA", "GERENTE_GENERAL"), "PENDIENTE_ACTIVACION", false);
+        managerAccount.setOrganizationId(orgId);
+        accountRepository.saveAndFlush(managerAccount);
 
-        String invitationCode = "INV-" + UUID.randomUUID().toString().substring(0, 10).toUpperCase(Locale.ROOT);
         jdbc.update(
-                "UPDATE organization_requests SET status = 'APROBADA', approved_organization_id = ?, activation_token = ?, reviewed_by = ?, updated_at_utc = NOW() WHERE id = ?",
-                orgId, invitationCode, reviewerEmail, requestId
+                "UPDATE organization_requests SET status = 'APROBADA', approved_organization_id = ?, reviewed_by = ?, updated_at_utc = NOW() WHERE id = ?",
+                orgId, reviewerEmail, requestId
         );
-
-        Map<String, Object> response = new LinkedHashMap<>();
-        response.put("requestId", requestId);
-        response.put("status", "APROBADA");
-        response.put("organizationId", orgId);
-        response.put("organizationCode", orgCode);
-        response.put("defaultBranchId", branchId);
-        response.put("adminEmail", contactEmail);
-        response.put("invitationCode", invitationCode);
-        return response;
+        audit.recordEvent(reviewerEmail, "APPROVE_COMPANY_REQUEST", "OrganizationRequest", requestId.toString(), "Empresa aprovisionada");
+        return Map.of("requestId", requestId, "status", "APROBADA", "organizationId", orgId, "organizationCode", orgCode);
     }
 
     public Map<String, Object> exportOrganizationPortableSummary(UUID organizationId, String actorEmail) {
