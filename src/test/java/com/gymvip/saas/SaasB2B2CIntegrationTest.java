@@ -93,8 +93,26 @@ public class SaasB2B2CIntegrationTest {
 
         mockMvc.perform(get("/api/v1/app/releases/latest?platform=ANDROID&currentVersionCode=100"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.available").value(true))
-                .andExpect(jsonPath("$.updateAvailable").value(true));
+                .andExpect(jsonPath("$.available").value(false))
+                .andExpect(jsonPath("$.updateAvailable").doesNotExist());
+    }
+
+    @Test
+    void reportsValidateTenantBeforeReadingMetricsOrExporting() throws Exception {
+        mockMvc.perform(get("/api/v1/reports")
+                        .param("from", "2026-01-01").param("to", "2026-01-02")
+                        .header("Authorization", "Bearer " + gerenteToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.metrics.memberRegistrations").isNumber())
+                .andExpect(jsonPath("$.metrics.announcements").isNumber());
+
+        String otherOrganization = UUID.randomUUID().toString();
+        mockMvc.perform(get("/api/v1/reports/export")
+                        .param("from", "2026-01-01").param("to", "2026-01-02")
+                        .param("format", "xlsx").param("metrics", "memberRegistrations")
+                        .param("organizationId", otherOrganization)
+                        .header("Authorization", "Bearer " + gerenteToken))
+                .andExpect(status().isForbidden());
     }
 
     @Test

@@ -1,5 +1,7 @@
 package com.gymvip.saas.repository;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.gymvip.entity.Account;
 import com.gymvip.exception.ConflictException;
 import com.gymvip.exception.ResourceNotFoundException;
@@ -30,6 +32,7 @@ public class B2CExperienceRepository {
     private final JdbcTemplate jdbc;
     private final AccountRepository accountRepository;
     private final MemberWorkspaceService memberWorkspaceService;
+    private final ObjectMapper mapper = new ObjectMapper();
 
     public B2CExperienceRepository(JdbcTemplate jdbc,
                                    AccountRepository accountRepository,
@@ -49,12 +52,6 @@ public class B2CExperienceRepository {
                         "WHERE UPPER(o.status) = 'ACTIVO' AND o.is_published = TRUE " +
                         "ORDER BY o.name ASC"
         );
-
-        Map<String, Object> pricingRange = jdbc.queryForMap(
-                "SELECT MIN(price_pen) AS min_price_pen, MAX(price_pen) AS max_price_pen FROM plans WHERE status = 'ACTIVO'"
-        );
-        BigDecimal minPrice = pricingRange.get("min_price_pen") != null ? new BigDecimal(String.valueOf(pricingRange.get("min_price_pen"))) : null;
-        BigDecimal maxPrice = pricingRange.get("max_price_pen") != null ? new BigDecimal(String.valueOf(pricingRange.get("max_price_pen"))) : null;
 
         List<Map<String, Object>> reviewAggs = jdbc.queryForList(
                 "SELECT organization_id, COUNT(*) AS reviews_count, COALESCE(ROUND(AVG(rating_overall), 2), 0) AS avg_rating " +
@@ -82,25 +79,44 @@ public class B2CExperienceRepository {
                             && (query.isEmpty()
                             || String.valueOf(org.get("name")).toLowerCase(Locale.ROOT).contains(query)
                             || String.valueOf(b.get("name")).toLowerCase(Locale.ROOT).contains(query)
-                            || String.valueOf(b.get("district")).toLowerCase(Locale.ROOT).contains(query))
+                            || String.valueOf(b.get("district")).toLowerCase(Locale.ROOT).contains(query)
+                            || String.valueOf(b.get("city")).toLowerCase(Locale.ROOT).contains(query))
             ).map(this::camelizeMap).toList();
 
-            if (!branches.isEmpty() || (cityFilter.isEmpty() && districtFilter.isEmpty() && query.isEmpty())) {
+            boolean companyMatches = String.valueOf(org.get("name")).toLowerCase(Locale.ROOT).contains(query);
+            if (!branches.isEmpty() || (cityFilter.isEmpty() && districtFilter.isEmpty() && companyMatches)) {
                 Map<String, Object> dto = camelizeMap(org);
-                dto.put("minPricePen", minPrice);
-                dto.put("maxPricePen", maxPrice);
+                List<BigDecimal> prices = publishedPrices(org.get("reference_plans_json"));
+                dto.put("minPricePen", prices.stream().min(BigDecimal::compareTo).orElse(null));
+                dto.put("maxPricePen", prices.stream().max(BigDecimal::compareTo).orElse(null));
                 dto.put("branches", branches);
                 Map<String, Object> agg = aggByOrg.get(String.valueOf(orgId));
                 dto.put("reviewsCount", agg != null ? ((Number) agg.get("reviews_count")).longValue() : 0L);
                 dto.put("avgRating", agg != null ? new BigDecimal(String.valueOf(agg.get("avg_rating"))) : BigDecimal.ZERO);
                 dto.put("activeGroupPromosCount", jdbc.queryForObject(
-                        "SELECT COUNT(*) FROM group_promotions WHERE organization_id = ? AND status = 'ACTIVA' AND valid_until >= CURRENT_DATE",
+                        "SELECT COUNT(*) FROM group_promotions WHERE organization_id = ? AND status = 'ACTIVA' AND CURRENT_DATE BETWEEN valid_from AND valid_until",
                         Long.class, orgId
                 ));
                 result.add(dto);
             }
         }
         return result;
+    }
+
+    private List<BigDecimal> publishedPrices(Object raw) {
+        if (!(raw instanceof String json)) return List.of();
+        try {
+            var plans = mapper.readTree(json);
+            if (plans == null || !plans.isArray()) return List.of();
+            List<BigDecimal> prices = new ArrayList<>();
+            for (var plan : plans) {
+                var price = plan.path("pricePen");
+                if (price.isNumber() && price.decimalValue().signum() > 0) prices.add(price.decimalValue());
+            }
+            return prices;
+        } catch (JsonProcessingException invalidProfile) {
+            return List.of();
+        }
     }
 
     public Map<String, Object> getPublicGymDetail(String slugOrId) {
@@ -173,6 +189,8 @@ public class B2CExperienceRepository {
                 orgId, effSlug, headline, tagline, aboutText, amenitiesJson, scheduleJson, galleryUrlsJson,
                 referencePlansJson, contactWhatsapp, instagramHandle, websiteUrl, normStatus, normStatus, actorEmail
         );
+        jdbc.update("UPDATE organizations SET is_published = ? WHERE id = ?",
+                "PUBLICADO".equals(normStatus), orgId);
         return getCommercialProfileForActor(actorEmail, orgId);
     }
 
@@ -617,7 +635,13 @@ public class B2CExperienceRepository {
 
     public Map<String, Object> getLatestAppRelease(String platform, String channel, Integer currentVersionCode) {
         List<Map<String, Object>> rows = jdbc.queryForList(
-                "SELECT * FROM app_releases WHERE UPPER(platform) = UPPER(?) AND UPPER(channel) = UPPER(?) AND is_active = TRUE ORDER BY version_code DESC LIMIT 1",
+                """
+                SELECT * FROM app_releases
+                WHERE UPPER(platform) = UPPER(?) AND UPPER(channel) = UPPER(?) AND is_active = TRUE
+                  AND sha256_checksum ~ '^[0-9A-Fa-f]{64}$' AND file_size_bytes > 0
+                  AND download_url LIKE 'https://%'
+                ORDER BY version_code DESC LIMIT 1
+                """,
                 platform != null ? platform : "ANDROID",
                 channel != null ? channel : "PRODUCTION"
         );
@@ -630,8 +654,8 @@ public class B2CExperienceRepository {
         int latestCode = ((Number) dto.get("versionCode")).intValue();
         int minSupported = ((Number) dto.get("minSupportedVersionCode")).intValue();
         boolean updateAvailable = currentVersionCode != null && latestCode > currentVersionCode;
-        boolean updateMandatory = Boolean.TRUE.equals(dto.get("isMandatory"))
-                || (currentVersionCode != null && currentVersionCode < minSupported);
+        boolean updateMandatory = updateAvailable && (Boolean.TRUE.equals(dto.get("isMandatory"))
+                || currentVersionCode < minSupported);
         dto.put("available", true);
         dto.put("updateAvailable", updateAvailable);
         dto.put("updateRequired", updateMandatory);

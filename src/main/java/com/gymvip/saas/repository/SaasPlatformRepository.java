@@ -335,7 +335,7 @@ public class SaasPlatformRepository {
 
     @Transactional
     public Map<String, Object> approveAndProvisionCompanyRequest(UUID requestId, String reviewerEmail, boolean startTrial) {
-        Map<String, Object> req = jdbc.queryForMap("SELECT * FROM organization_requests WHERE id = ?", requestId);
+        Map<String, Object> req = jdbc.queryForMap("SELECT * FROM organization_requests WHERE id = ? FOR UPDATE", requestId);
         if (req.get("approved_organization_id") != null) {
             return camelizeMap(req);
         }
@@ -344,13 +344,14 @@ public class SaasPlatformRepository {
                 : String.valueOf(req.get("business_name"));
         String slugBase = name.toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9]+", "-").replaceAll("(^-|-$)", "");
         if (slugBase.isBlank()) slugBase = "gym";
+        if (slugBase.length() > 50) slugBase = slugBase.substring(0, 50).replaceAll("-$", "");
         String orgCode = slugBase + "-" + UUID.randomUUID().toString().substring(0, 4);
         UUID orgId = UUID.randomUUID();
         String planCode = String.valueOf(req.get("requested_plan_code"));
 
         jdbc.update(
                 "INSERT INTO organizations (id, code, name, tax_id, description, plan_tier, status, is_published) " +
-                        "VALUES (?, ?, ?, ?, ?, ?, 'ACTIVO', TRUE)",
+                        "VALUES (?, ?, ?, ?, ?, ?, 'ACTIVO', FALSE)",
                 orgId, orgCode, name, String.valueOf(req.get("ruc")),
                 "Gimnasio afiliado a la red GYM VIP (" + req.get("city") + " - " + req.get("district") + ")",
                 planCode
@@ -359,11 +360,10 @@ public class SaasPlatformRepository {
         UUID branchId = UUID.randomUUID();
         jdbc.update(
                 "INSERT INTO branches (id, organization_id, code, name, city, district, address, phone, schedule_summary, services_summary, capacity, is_published, status) " +
-                        "VALUES (?, ?, 'sede-principal', ?, ?, ?, ?, ?, 'Lun-Sáb 06:00 - 22:00', 'Musculación y entrenamiento general', 120, TRUE, 'ACTIVO')",
+                        "VALUES (?, ?, 'sede-principal', ?, ?, ?, ?, NULL, NULL, NULL, 120, FALSE, 'ACTIVO')",
                 branchId, orgId, name + " — Sede Principal", String.valueOf(req.get("city")),
                 String.valueOf(req.get("district")),
-                req.get("address") != null ? String.valueOf(req.get("address")) : "Sede Principal",
-                String.valueOf(req.get("contact_phone"))
+                req.get("address") != null ? String.valueOf(req.get("address")) : "Sede Principal"
         );
 
         upsertLicense(orgId, planCode, startTrial ? "TRIAL" : "ACTIVA", null,
