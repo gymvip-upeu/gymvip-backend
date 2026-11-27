@@ -4,8 +4,10 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.gymvip.dto.response.ErrorResponse;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.actuate.autoconfigure.security.servlet.EndpointRequest;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.core.annotation.Order;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -24,6 +26,8 @@ import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
 import java.util.Arrays;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 import java.util.List;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -42,6 +46,22 @@ public class SecurityConfig {
     public SecurityConfig(TokenAuthenticationFilter tokenAuthenticationFilter, ObjectMapper objectMapper) {
         this.tokenAuthenticationFilter = tokenAuthenticationFilter;
         this.objectMapper = objectMapper;
+    }
+
+    @Bean
+    @Order(1)
+    public SecurityFilterChain prometheusSecurityFilterChain(
+            HttpSecurity http, @Value("${GYMVIP_METRICS_TOKEN:}") String metricsToken) throws Exception {
+        return http.securityMatcher(EndpointRequest.to("prometheus"))
+                .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+                .authorizeHttpRequests(auth -> auth.anyRequest().access((authentication, context) -> {
+                    String header = context.getRequest().getHeader("Authorization");
+                    boolean allowed = !metricsToken.isBlank() && header != null && MessageDigest.isEqual(
+                            ("Bearer " + metricsToken).getBytes(StandardCharsets.UTF_8),
+                            header.getBytes(StandardCharsets.UTF_8));
+                    return new org.springframework.security.authorization.AuthorizationDecision(allowed);
+                }))
+                .build();
     }
 
     @Bean
@@ -66,6 +86,7 @@ public class SecurityConfig {
                         .accessDeniedHandler(accessDeniedHandler())
                 )
                 .authorizeHttpRequests(auth -> auth
+                        .requestMatchers("/actuator/prometheus", "/actuator/prometheus/**").denyAll()
                         .requestMatchers("/api/v1/auth/login", "/api/v1/auth/mfa/verify-login", "/api/v1/auth/logout", "/api/v1/auth/activate", "/api/v1/auth/password-reset/**").permitAll()
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                         .requestMatchers("/", "/api/v1/health", "/api/v1/health/**", "/health", "/health/**", "/actuator/health", "/actuator/health/**", "/actuator/info").permitAll()
