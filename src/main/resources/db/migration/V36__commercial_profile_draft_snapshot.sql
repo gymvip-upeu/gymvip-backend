@@ -1,0 +1,1 @@
+ALTER TABLE organization_commercial_profiles ADD COLUMN draft_payload_json TEXT;

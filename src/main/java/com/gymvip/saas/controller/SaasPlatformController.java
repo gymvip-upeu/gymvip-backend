@@ -2,6 +2,7 @@ package com.gymvip.saas.controller;
 
 import com.gymvip.saas.domain.SaasCalculations;
 import com.gymvip.saas.repository.SaasPlatformRepository;
+import com.gymvip.saas.service.CompanyInvitationService;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
@@ -22,9 +23,11 @@ import java.util.UUID;
 public class SaasPlatformController {
 
     private final SaasPlatformRepository repository;
+    private final CompanyInvitationService invitations;
 
-    public SaasPlatformController(SaasPlatformRepository repository) {
+    public SaasPlatformController(SaasPlatformRepository repository, CompanyInvitationService invitations) {
         this.repository = repository;
+        this.invitations = invitations;
     }
 
     @GetMapping("/metrics")
@@ -199,7 +202,15 @@ public class SaasPlatformController {
     public ResponseEntity<Map<String, Object>> approveCompanyRequest(@PathVariable UUID id,
                                                                      @RequestParam(defaultValue = "true") boolean startTrial,
                                                                      Authentication auth) {
-        return ResponseEntity.ok(repository.approveAndProvisionCompanyRequest(id, auth.getName(), startTrial));
+        var approved = new java.util.LinkedHashMap<>(repository.approveAndProvisionCompanyRequest(id, auth.getName(), startTrial));
+        approved.put("emailStatus", invitations.send(id, auth.getName(), false));
+        return ResponseEntity.ok(approved);
+    }
+
+    @PostMapping("/company-requests/{id}/invitation")
+    @PreAuthorize("hasRole('SUPER_ADMIN')")
+    public ResponseEntity<Map<String, String>> resendInvitation(@PathVariable UUID id, Authentication auth) {
+        return ResponseEntity.accepted().body(Map.of("emailStatus", invitations.send(id, auth.getName(), true)));
     }
 
     @GetMapping("/export/organization/{organizationId}")

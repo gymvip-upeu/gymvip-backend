@@ -46,9 +46,9 @@ public class B2CExperienceRepository {
         List<Map<String, Object>> orgs = jdbc.queryForList(
                 "SELECT o.id, o.code, o.name, o.description, o.plan_tier, " +
                         "cp.slug, cp.headline, cp.tagline, cp.about_text, cp.amenities_json, cp.schedule_json, " +
-                        "cp.reference_plans_json, cp.contact_whatsapp, cp.instagram_handle, cp.website_url " +
+                        "cp.reference_plans_json, cp.gallery_urls_json, cp.contact_whatsapp, cp.instagram_handle, cp.website_url " +
                         "FROM organizations o " +
-                        "LEFT JOIN organization_commercial_profiles cp ON cp.organization_id = o.id AND cp.publish_status = 'PUBLICADO' " +
+                        "JOIN organization_commercial_profiles cp ON cp.organization_id = o.id AND cp.publish_status = 'PUBLICADO' " +
                         "WHERE UPPER(o.status) = 'ACTIVO' AND o.is_published = TRUE " +
                         "ORDER BY o.name ASC"
         );
@@ -70,7 +70,7 @@ public class B2CExperienceRepository {
         for (Map<String, Object> org : orgs) {
             UUID orgId = (UUID) org.get("id");
             List<Map<String, Object>> branches = jdbc.queryForList(
-                    "SELECT id, code, name, city, district, address, phone, schedule_summary, services_summary, capacity " +
+                    "SELECT id, organization_id, code, name, city, district, address, phone, schedule_summary, services_summary, capacity " +
                             "FROM branches WHERE organization_id = ? AND is_published = TRUE AND UPPER(status) = 'ACTIVO' ORDER BY name ASC",
                     orgId
             ).stream().filter(b ->
@@ -83,8 +83,7 @@ public class B2CExperienceRepository {
                             || String.valueOf(b.get("city")).toLowerCase(Locale.ROOT).contains(query))
             ).map(this::camelizeMap).toList();
 
-            boolean companyMatches = String.valueOf(org.get("name")).toLowerCase(Locale.ROOT).contains(query);
-            if (!branches.isEmpty() || (cityFilter.isEmpty() && districtFilter.isEmpty() && companyMatches)) {
+            if (!branches.isEmpty()) {
                 Map<String, Object> dto = camelizeMap(org);
                 List<BigDecimal> prices = publishedPrices(org.get("reference_plans_json"));
                 dto.put("minPricePen", prices.stream().min(BigDecimal::compareTo).orElse(null));
@@ -156,7 +155,17 @@ public class B2CExperienceRepository {
             blank.put("publishStatus", "BORRADOR");
             return blank;
         }
-        return camelizeMap(rows.get(0));
+        Map<String, Object> profile = camelizeMap(rows.getFirst());
+        Object draft = profile.remove("draftPayloadJson");
+        profile.put("hasPublishedVersion", "PUBLICADO".equals(profile.get("publishStatus")));
+        if (draft instanceof String payload && !payload.isBlank()) {
+            try {
+                profile.putAll(mapper.readValue(payload, new com.fasterxml.jackson.core.type.TypeReference<Map<String, Object>>() {}));
+            } catch (JsonProcessingException ex) {
+                throw new IllegalStateException("No se pudo leer el borrador comercial.", ex);
+            }
+        }
+        return profile;
     }
 
     @Transactional
@@ -169,12 +178,51 @@ public class B2CExperienceRepository {
         String normStatus = publishStatus != null && VALID_PUBLISH_STATES.contains(publishStatus.trim().toUpperCase(Locale.ROOT))
                 ? publishStatus.trim().toUpperCase(Locale.ROOT)
                 : "BORRADOR";
-        if ("PUBLICADO".equals(normStatus) && (headline == null || headline.isBlank())) {
-            throw new IllegalArgumentException("El titular comercial es obligatorio para publicar la ficha.");
+        if ("PUBLICADO".equals(normStatus)) {
+            if (headline == null || headline.isBlank()) {
+                throw new IllegalArgumentException("El titular comercial es obligatorio para publicar la ficha.");
+            }
+            if (!Boolean.TRUE.equals(jdbc.queryForObject("""
+                    SELECT EXISTS(SELECT 1 FROM branches WHERE organization_id = ? AND status = 'ACTIVO' AND is_published)
+                    """, Boolean.class, orgId))) {
+                throw new IllegalArgumentException("Publica al menos una sede activa antes de publicar la ficha comercial.");
+            }
         }
         String effSlug = slug != null && !slug.isBlank()
-                ? slug.trim().toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9-]+", "-")
+                ? slug.trim().toLowerCase(Locale.ROOT)
                 : "gym-" + orgId.toString().substring(0, 8);
+        if (!effSlug.matches("[a-z0-9]+(?:-[a-z0-9]+)*") || effSlug.length() > 100) {
+            throw new IllegalArgumentException("Usa un identificador público corto con letras minúsculas, números y guiones.");
+        }
+        if (Boolean.TRUE.equals(jdbc.queryForObject("""
+                SELECT EXISTS (SELECT 1 FROM organization_commercial_profiles WHERE slug = ? AND organization_id <> ?
+                    UNION ALL SELECT 1 FROM organizations WHERE code = ? AND id <> ?)
+                """, Boolean.class, effSlug, orgId, effSlug, orgId))) {
+            throw new ConflictException("El identificador público ya está en uso.");
+        }
+        validateProfileFields(amenitiesJson, scheduleJson, galleryUrlsJson, contactWhatsapp, instagramHandle, websiteUrl);
+        if ("BORRADOR".equals(normStatus)) {
+            Map<String, Object> draft = new LinkedHashMap<>();
+            draft.put("slug", effSlug);
+            draft.put("headline", headline);
+            draft.put("tagline", tagline);
+            draft.put("aboutText", aboutText);
+            draft.put("amenitiesJson", amenitiesJson);
+            draft.put("scheduleJson", scheduleJson);
+            draft.put("galleryUrlsJson", galleryUrlsJson);
+            draft.put("referencePlansJson", referencePlansJson);
+            draft.put("contactWhatsapp", contactWhatsapp);
+            draft.put("instagramHandle", instagramHandle);
+            draft.put("websiteUrl", websiteUrl);
+            draft.put("publishStatus", "BORRADOR");
+            try {
+                int updated = jdbc.update("UPDATE organization_commercial_profiles SET draft_payload_json = ?, updated_by = ?, updated_at_utc = NOW() WHERE organization_id = ? AND publish_status = 'PUBLICADO'",
+                        mapper.writeValueAsString(draft), actorEmail, orgId);
+                if (updated > 0) return getCommercialProfileForActor(actorEmail, orgId);
+            } catch (JsonProcessingException ex) {
+                throw new IllegalStateException("No se pudo guardar el borrador comercial.", ex);
+            }
+        }
 
         jdbc.update(
                 "INSERT INTO organization_commercial_profiles (organization_id, slug, headline, tagline, about_text, amenities_json, schedule_json, gallery_urls_json, reference_plans_json, contact_whatsapp, instagram_handle, website_url, publish_status, published_at_utc, updated_by, updated_at_utc) " +
@@ -185,13 +233,52 @@ public class B2CExperienceRepository {
                         "gallery_urls_json = EXCLUDED.gallery_urls_json, reference_plans_json = EXCLUDED.reference_plans_json, " +
                         "contact_whatsapp = EXCLUDED.contact_whatsapp, instagram_handle = EXCLUDED.instagram_handle, website_url = EXCLUDED.website_url, " +
                         "publish_status = EXCLUDED.publish_status, published_at_utc = CASE WHEN EXCLUDED.publish_status = 'PUBLICADO' THEN COALESCE(organization_commercial_profiles.published_at_utc, NOW()) ELSE organization_commercial_profiles.published_at_utc END, " +
-                        "updated_by = EXCLUDED.updated_by, updated_at_utc = NOW()",
+                        "updated_by = EXCLUDED.updated_by, updated_at_utc = NOW(), draft_payload_json = NULL",
                 orgId, effSlug, headline, tagline, aboutText, amenitiesJson, scheduleJson, galleryUrlsJson,
                 referencePlansJson, contactWhatsapp, instagramHandle, websiteUrl, normStatus, normStatus, actorEmail
         );
         jdbc.update("UPDATE organizations SET is_published = ? WHERE id = ?",
                 "PUBLICADO".equals(normStatus), orgId);
         return getCommercialProfileForActor(actorEmail, orgId);
+    }
+
+    private void validateProfileFields(String amenities, String schedule, String gallery, String whatsapp, String instagram, String website) {
+        try {
+            var services = mapper.readTree(amenities == null ? "[]" : amenities);
+            var hours = mapper.readTree(schedule == null ? "{}" : schedule);
+            var photos = mapper.readTree(gallery == null ? "[]" : gallery);
+            if (services == null || !services.isArray() || services.size() > 30
+                    || hours == null || !hours.isObject() || hours.size() > 7
+                    || photos == null || !photos.isArray() || photos.size() > 8) {
+                throw new IllegalArgumentException("Revisa los servicios, los horarios y el máximo de ocho fotos.");
+            }
+            for (var value : services) {
+                if (!value.isTextual() || value.textValue().length() > 120) throw new IllegalArgumentException("Los servicios deben ser textos cortos.");
+            }
+            for (var value : hours) {
+                if (!value.isTextual() || value.textValue().length() > 120) throw new IllegalArgumentException("Los horarios deben ser textos cortos.");
+            }
+            for (var photo : photos) {
+                if (!photo.isTextual()) throw new IllegalArgumentException("Indica enlaces HTTPS para las fotos.");
+                requireHttps(photo.textValue());
+            }
+        } catch (JsonProcessingException ex) {
+            throw new IllegalArgumentException("Revisa el formato de servicios, horarios o fotos.");
+        }
+        if (whatsapp != null && !whatsapp.isBlank() && !whatsapp.trim().matches("\\+?[0-9 ()-]{8,26}")) {
+            throw new IllegalArgumentException("Introduce un teléfono comercial válido con código de país.");
+        }
+        if (instagram != null && !instagram.isBlank() && !instagram.trim().matches("@?[A-Za-z0-9._]{1,30}")) {
+            throw new IllegalArgumentException("Introduce solo el nombre de usuario de Instagram.");
+        }
+        if (website != null && !website.isBlank()) requireHttps(website.trim());
+    }
+
+    private static void requireHttps(String url) {
+        var uri = java.net.URI.create(url);
+        if (!"https".equalsIgnoreCase(uri.getScheme()) || uri.getHost() == null || uri.getUserInfo() != null) {
+            throw new IllegalArgumentException("Los enlaces públicos deben usar HTTPS y corresponder a un sitio válido.");
+        }
     }
 
     public List<Map<String, Object>> listGroupPromotions(UUID organizationId, boolean onlyActive) {
@@ -204,10 +291,22 @@ public class B2CExperienceRepository {
             params.add(organizationId);
         }
         if (onlyActive) {
-            sql.append("AND gp.status = 'ACTIVA' AND gp.valid_until >= CURRENT_DATE ");
+            sql.append("AND o.status = 'ACTIVO' AND o.is_published " +
+                    "AND EXISTS (SELECT 1 FROM organization_commercial_profiles cp WHERE cp.organization_id = o.id AND cp.publish_status = 'PUBLICADO') " +
+                    "AND gp.status = 'ACTIVA' AND (NOW() AT TIME ZONE 'America/Lima')::date BETWEEN gp.valid_from AND gp.valid_until ");
         }
         sql.append("ORDER BY gp.created_at_utc DESC");
         return jdbc.queryForList(sql.toString(), params.toArray()).stream().map(this::camelizeMap).toList();
+    }
+
+    public List<Map<String, Object>> listManagedGroupPromotions(String actorEmail, UUID organizationId) {
+        Account actor = accountRepository.findByEmailIgnoreCase(actorEmail)
+                .orElseThrow(() -> new AccessDeniedException("Cuenta no autorizada."));
+        if (Collections.disjoint(actor.getRoles(),
+                Set.of("SUPER_ADMIN", "ADMIN", "ADMIN_EMPRESA", "GERENTE_GENERAL", "GERENTE_SEDE", "GERENTE"))) {
+            throw new AccessDeniedException("No tienes autorización para consultar promociones administrativas.");
+        }
+        return listGroupPromotions(resolveOrgIdForActor(actorEmail, organizationId), false);
     }
 
     @Transactional
@@ -398,7 +497,7 @@ public class B2CExperienceRepository {
         return jdbc.queryForList(
                 "SELECT r.id, r.organization_id, r.branch_id, r.rating_overall, r.rating_cleanliness, r.rating_equipment, " +
                         "r.rating_attention, r.rating_value, r.comment, r.verified_eligibility_source, r.status, " +
-                        "r.gym_reply, r.replied_by, r.replied_at_utc, r.created_at_utc " +
+                        "r.gym_reply, r.replied_at_utc, r.created_at_utc " +
                         "FROM gym_reviews r WHERE r.organization_id = ? AND r.status = 'PUBLICADA' ORDER BY r.created_at_utc DESC",
                 organizationId
         ).stream().map(this::camelizeMap).toList();
