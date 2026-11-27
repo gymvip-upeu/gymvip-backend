@@ -9,12 +9,13 @@ import org.apache.pdfbox.pdmodel.PDPageContentStream;
 import org.apache.pdfbox.pdmodel.font.PDType1Font;
 import org.apache.pdfbox.pdmodel.font.Standard14Fonts;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
+import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.stereotype.Service;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.math.BigDecimal;
-import java.sql.Timestamp;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
@@ -22,6 +23,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.UUID;
 
 @Service
 public class ReportService {
@@ -40,11 +42,15 @@ public class ReportService {
     private static final List<String> ORDER = List.of("memberRegistrations", "attendance", "plansAssigned",
             "expirations", "membershipPaymentsPen", "supplementOrders", "supplementUnits", "lowStock",
             "promotions", "announcements");
-    private final JdbcTemplate jdbc;
+    private static final String IN_SCOPE = """
+            b.organization_id = :organizationId AND (CAST(:branchId AS uuid) IS NULL OR b.id = :branchId)
+            """;
+    private final NamedParameterJdbcTemplate jdbc;
     public ReportService(JdbcTemplate jdbc) {
-        this.jdbc = jdbc;
+        this.jdbc = new NamedParameterJdbcTemplate(jdbc);
     }
 
+    public record Scope(UUID organizationId, UUID branchId) {}
     public record Snapshot(LocalDate from, LocalDate to, Map<String, BigDecimal> metrics,
                            Map<String, Long> memberRegistrationsByDay, Map<String, Long> memberRegistrationsByMonth) {}
 
@@ -56,46 +62,92 @@ public class ReportService {
         return ORDER.stream().filter(requested::contains).toList();
     }
 
-    public Snapshot snapshot(LocalDate from, LocalDate to, String csv) {
+    public Snapshot snapshot(LocalDate from, LocalDate to, String csv, Scope scope) {
         if (from == null || to == null || from.isAfter(to) || from.plusYears(1).isBefore(to))
             throw new IllegalArgumentException("Selecciona un rango valido de hasta un ano.");
         var selected = selectedMetrics(csv);
         LocalDateTime start = from.atStartOfDay(ZoneId.of("America/Lima")).withZoneSameInstant(ZoneId.of("UTC")).toLocalDateTime();
         LocalDateTime end = to.plusDays(1).atStartOfDay(ZoneId.of("America/Lima")).withZoneSameInstant(ZoneId.of("UTC")).toLocalDateTime();
+        var parameters = new MapSqlParameterSource()
+                .addValue("organizationId", scope.organizationId())
+                .addValue("branchId", scope.branchId())
+                .addValue("from", from)
+                .addValue("to", to)
+                .addValue("start", start)
+                .addValue("end", end)
+                .addValue("startInstant", start.atOffset(java.time.ZoneOffset.UTC))
+                .addValue("endInstant", end.atOffset(java.time.ZoneOffset.UTC));
         Map<String, BigDecimal> values = new LinkedHashMap<>();
         for (String key : selected) {
-            BigDecimal value = switch (key) {
-                case "memberRegistrations" -> scalar("SELECT count(*) FROM clients WHERE created_at>=? AND created_at<?", start, end);
-                case "attendance" -> scalar("SELECT count(*) FROM member_attendance WHERE checked_at_utc>=? AND checked_at_utc<?", start, end);
-                case "plansAssigned" -> scalar("SELECT count(*) FROM membership_periods WHERE created_at>=? AND created_at<?", start, end);
-                case "expirations" -> scalar("SELECT count(*) FROM memberships WHERE end_date>=? AND end_date<=? AND status='VIGENTE'", from, to);
-                case "membershipPaymentsPen" -> scalar("SELECT coalesce(sum(amount_pen),0) FROM payment_records WHERE payment_timestamp_utc>=? AND payment_timestamp_utc<?", start, end);
-                case "supplementOrders" -> scalar("SELECT count(*) FROM supplement_orders WHERE created_at_utc>=? AND created_at_utc<?", start, end);
-                case "supplementUnits" -> scalar("SELECT coalesce(sum(i.quantity),0) FROM supplement_order_items i JOIN supplement_orders o ON o.id=i.order_id WHERE o.verified_at_utc>=? AND o.verified_at_utc<? AND o.payment_status='VERIFICADO'", start, end);
-                case "lowStock" -> scalar("SELECT count(*) FROM supplements WHERE stock<=min_stock AND published=true");
-                case "promotions" -> scalar("SELECT count(*) FROM supplement_promotions WHERE created_at_utc>=? AND created_at_utc<?", start, end);
-                case "announcements" -> scalar("SELECT count(*) FROM gym_announcements WHERE created_at_utc>=? AND created_at_utc<? AND is_active=true", start, end);
+            String sql = switch (key) {
+                case "memberRegistrations" -> """
+                        SELECT count(*) FROM clients c JOIN branches b ON b.id=c.branch_id
+                        WHERE c.created_at>=:start AND c.created_at<:end
+                        """;
+                case "attendance" -> """
+                        SELECT count(*) FROM member_attendance a JOIN clients c ON c.id=a.client_id
+                        JOIN branches b ON b.id=c.branch_id
+                        WHERE a.checked_at_utc>=:start AND a.checked_at_utc<:end
+                        """;
+                case "plansAssigned" -> """
+                        SELECT count(*) FROM membership_periods p JOIN memberships m ON m.id=p.membership_id
+                        JOIN clients c ON c.id=m.client_id JOIN branches b ON b.id=c.branch_id
+                        WHERE p.created_at>=:start AND p.created_at<:end
+                        """;
+                case "expirations" -> """
+                        SELECT count(*) FROM memberships m JOIN clients c ON c.id=m.client_id
+                        JOIN branches b ON b.id=c.branch_id
+                        WHERE m.end_date>=:from AND m.end_date<=:to AND m.status='VIGENTE'
+                        """;
+                case "membershipPaymentsPen" -> """
+                        SELECT COALESCE(sum(p.amount_pen),0) FROM payment_records p
+                        JOIN memberships m ON m.id=p.membership_id JOIN clients c ON c.id=m.client_id
+                        JOIN branches b ON b.id=c.branch_id
+                        WHERE p.payment_timestamp_utc>=:start AND p.payment_timestamp_utc<:end
+                        """;
+                case "supplementOrders" -> """
+                        SELECT count(*) FROM supplement_orders o JOIN branches b ON b.id=o.branch_id
+                        WHERE o.created_at_utc>=:startInstant AND o.created_at_utc<:endInstant
+                        """;
+                case "supplementUnits" -> """
+                        SELECT COALESCE(sum(i.quantity),0) FROM supplement_order_items i
+                        JOIN supplement_orders o ON o.id=i.order_id JOIN branches b ON b.id=o.branch_id
+                        WHERE o.verified_at_utc>=:startInstant AND o.verified_at_utc<:endInstant AND o.payment_status='VERIFICADO'
+                        """;
+                case "lowStock" -> """
+                        SELECT count(*) FROM supplements s JOIN branches b ON b.id=s.branch_id
+                        WHERE s.stock<=s.min_stock AND s.published=true
+                        """;
+                case "promotions" -> """
+                        SELECT count(*) FROM supplement_promotions p JOIN supplements s ON s.id=p.supplement_id
+                        JOIN branches b ON b.id=s.branch_id
+                        WHERE p.created_at_utc>=:startInstant AND p.created_at_utc<:endInstant
+                        """;
+                case "announcements" -> """
+                        SELECT count(*) FROM gym_announcements a JOIN gym_services s ON s.id=a.facility_id
+                        JOIN branches b ON b.id=s.branch_id
+                        WHERE a.created_at_utc>=:startInstant AND a.created_at_utc<:endInstant AND a.is_active=true
+                        """;
                 default -> throw new IllegalArgumentException("Metrica no permitida.");
             };
-            values.put(key, value);
+            BigDecimal value = jdbc.queryForObject(sql + " AND " + IN_SCOPE, parameters, BigDecimal.class);
+            values.put(key, value == null ? BigDecimal.ZERO : value);
         }
         Map<String, Long> days = new LinkedHashMap<>();
         Map<String, Long> months = new LinkedHashMap<>();
         if (selected.contains("memberRegistrations")) {
-            jdbc.query("SELECT created_at FROM clients WHERE created_at>=? AND created_at<? ORDER BY created_at",
+            jdbc.query("""
+                    SELECT c.created_at FROM clients c JOIN branches b ON b.id=c.branch_id
+                    WHERE c.created_at>=:start AND c.created_at<:end AND
+                    """ + IN_SCOPE + " ORDER BY c.created_at", parameters,
                     rs -> {
                         LocalDate day = rs.getTimestamp(1).toLocalDateTime().atZone(ZoneId.of("UTC"))
                                 .withZoneSameInstant(ZoneId.of("America/Lima")).toLocalDate();
                         days.merge(day.toString(), 1L, Long::sum);
                         months.merge(day.getYear() + "-" + String.format("%02d", day.getMonthValue()), 1L, Long::sum);
-                    }, Timestamp.valueOf(start), Timestamp.valueOf(end));
+                    });
         }
         return new Snapshot(from, to, values, days, months);
-    }
-
-    private BigDecimal scalar(String sql, Object... args) {
-        BigDecimal value = jdbc.queryForObject(sql, BigDecimal.class, args);
-        return value == null ? BigDecimal.ZERO : value;
     }
 
     public byte[] xlsx(Snapshot snapshot) throws IOException {

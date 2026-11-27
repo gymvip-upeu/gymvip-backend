@@ -124,12 +124,19 @@ class MfaAndPrivilegedSecurityTest {
     @Test
     void tenantScopeResolverBlocksCrossOrganizationAndCrossBranchAccess() {
         AccountRepository accountRepo = mock(AccountRepository.class);
-        TenantScopeResolver resolver = new TenantScopeResolver(accountRepo);
+        var branchRepo = mock(com.gymvip.enterprise.BranchRepository.class);
+        TenantScopeResolver resolver = new TenantScopeResolver(accountRepo, branchRepo);
 
         UUID org1 = UUID.randomUUID();
         UUID org2 = UUID.randomUUID();
         UUID branch1 = UUID.randomUUID();
         UUID branch2 = UUID.randomUUID();
+        var first = new com.gymvip.enterprise.BranchEntity();
+        first.setOrganizationId(org1);
+        var second = new com.gymvip.enterprise.BranchEntity();
+        second.setOrganizationId(org2);
+        when(branchRepo.findById(branch1)).thenReturn(java.util.Optional.of(first));
+        when(branchRepo.findById(branch2)).thenReturn(java.util.Optional.of(second));
 
         Account branchManager = new Account();
         branchManager.setEmail("sede1@vipcenterfit.pe");
@@ -140,6 +147,13 @@ class MfaAndPrivilegedSecurityTest {
         assertEquals(branch1, resolver.effectiveBranchId(branchManager, null));
         assertThrows(AccessDeniedException.class, () -> resolver.effectiveOrganizationId(branchManager, org2));
         assertThrows(AccessDeniedException.class, () -> resolver.effectiveBranchId(branchManager, branch2));
+
+        Account legacyAdmin = new Account();
+        legacyAdmin.setRoles(Set.of("ADMIN"));
+        legacyAdmin.setOrganizationId(org1);
+        legacyAdmin.setPrimaryBranchId(branch1);
+        assertThrows(AccessDeniedException.class, () -> resolver.effectiveOrganizationId(legacyAdmin, org2));
+        assertThrows(AccessDeniedException.class, () -> resolver.effectiveBranchId(legacyAdmin, branch2));
 
         Account superAdmin = new Account();
         superAdmin.setRoles(Set.of("SUPER_ADMIN"));
