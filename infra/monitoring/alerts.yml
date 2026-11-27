@@ -1,0 +1,26 @@
+groups:
+  - name: gymvip
+    rules:
+      - alert: GymVipServiceUnavailable
+        expr: up{job=~"gymvip-api|gymvip-comunicaciones"} == 0
+        for: 3m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Prometheus no puede consultar {{ $labels.job }}"
+      - alert: GymVipExcessiveServerErrors
+        expr: |
+          sum by (job) (rate(http_server_requests_seconds_count{status=~"5.."}[5m]))
+          / clamp_min(sum by (job) (rate(http_server_requests_seconds_count[5m])), 0.001) > 0.05
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Errores HTTP 5xx superiores al 5% en {{ $labels.job }}"
+      - alert: GymVipPushPending
+        expr: max(gymvip_push_oldest_pending_seconds) > 600
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Hay notificaciones push pendientes desde hace más de diez minutos"
