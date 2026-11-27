@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.gymvip.dto.request.LoginRequest;
 import com.gymvip.entity.Account;
 import com.gymvip.repository.AccountRepository;
+import com.gymvip.security.TotpService;
 import com.gymvip.service.AuthService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -18,6 +19,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 
+import java.time.Instant;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
@@ -55,7 +57,16 @@ public class SaasB2B2CIntegrationTest {
 
     @BeforeEach
     void setUp() {
-        superAdminToken = authService.login(new LoginRequest("superadmin@gymvip.pe", "SuperAdmin123!"), "127.0.0.1", "test").token();
+        var totp = new TotpService();
+        var operator = new Account(UUID.randomUUID(), "platform-" + UUID.randomUUID() + "@example.test",
+                passwordEncoder.encode("TestPlatformPassword123!"), Set.of("SUPER_ADMIN"), "ACTIVO", false);
+        operator.setMfaEnabled(true);
+        operator.setTotpSecret(totp.generateSecret());
+        accountRepository.save(operator);
+        var challenge = authService.login(new LoginRequest(operator.getEmail(), "TestPlatformPassword123!"),
+                "127.0.0.1", "test");
+        String code = totp.generateCodeForStep(operator.getTotpSecret(), Instant.now().getEpochSecond() / 30);
+        superAdminToken = authService.verifyMfaLogin(challenge.challengeToken(), code, "127.0.0.1", "test").token();
         adminToken = authService.login(new LoginRequest("admin@vipcenterfit.pe", "Admin123!"), "127.0.0.1", "test").token();
         gerenteToken = authService.login(new LoginRequest("gerente@vipcenterfit.pe", "Gerente123!"), "127.0.0.1", "test").token();
 
@@ -77,6 +88,11 @@ public class SaasB2B2CIntegrationTest {
                 .andExpect(status().isForbidden());
         mockMvc.perform(get("/api/v1/platform/metrics").header("Authorization", "Bearer " + memberToken))
                 .andExpect(status().isForbidden());
+
+        var unenrolled = authService.login(new LoginRequest("superadmin@gymvip.pe", "SuperAdmin123!"),
+                "127.0.0.1", "test");
+        mockMvc.perform(get("/api/v1/platform/metrics").header("Authorization", "Bearer " + unenrolled.token()))
+                .andExpect(status().isForbidden()).andExpect(jsonPath("$.code").value("MFA_ENROLLMENT_REQUIRED"));
 
         mockMvc.perform(get("/api/v1/platform/metrics").header("Authorization", "Bearer " + superAdminToken))
                 .andExpect(status().isOk())
@@ -112,9 +128,19 @@ public class SaasB2B2CIntegrationTest {
                 .andExpect(jsonPath("$.updateAvailable").doesNotExist());
     }
 
+    private void verifyCompany(UUID requestId, String legalName) throws Exception {
+        mockMvc.perform(put("/api/v1/platform/company-requests/{id}/verification", requestId)
+                        .header("Authorization", "Bearer " + superAdminToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsBytes(Map.of(
+                                "fiscalStatus", "ACTIVO", "fiscalCondition", "HABIDO",
+                                "verifiedBusinessName", legalName, "representativeEvidence", "Referencia QA de representación",
+                                "contactConfirmed", true))))
+                .andExpect(status().isOk());
+    }
+
     @Test
-    @Transactional
-    void approvedCompanyRemainsPrivateAndActivationExpiresAndIsSingleUse() throws Exception {
+    void approvedCompanyRemainsPrivateAndTemporaryPasswordExpiresAndIsSingleUse() throws Exception {
         String email = "empresa-" + UUID.randomUUID() + "@example.test";
         String ruc = String.valueOf(20_000_000_000L + new java.security.SecureRandom().nextInt(100_000_000));
         var submitted = mockMvc.perform(post("/api/v1/public/company-requests")
@@ -127,6 +153,10 @@ public class SaasB2B2CIntegrationTest {
         UUID requestId = UUID.fromString(objectMapper.readTree(submitted.getResponse().getContentAsByteArray()).get("id").asText());
         mockMvc.perform(post("/api/v1/platform/company-requests/{id}/approve", requestId)
                         .header("Authorization", "Bearer " + superAdminToken))
+                .andExpect(status().isConflict());
+        verifyCompany(requestId, "Gimnasio QA");
+        mockMvc.perform(post("/api/v1/platform/company-requests/{id}/approve", requestId)
+                        .header("Authorization", "Bearer " + superAdminToken))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("APROBADA"))
                 .andExpect(jsonPath("$.invitationCode").doesNotExist());
@@ -137,24 +167,40 @@ public class SaasB2B2CIntegrationTest {
                 """, Integer.class, requestId);
         org.junit.jupiter.api.Assertions.assertEquals(0, branches);
 
-        String token = "a".repeat(64);
-        String fingerprint = java.util.HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256")
-                .digest(token.getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+        String temporaryPassword = "ClaveTemporalPruebas727!";
         jdbc.update("""
-                INSERT INTO company_activation_invitations (id, request_id, account_id, token_hash, expires_at, sent_by)
-                VALUES (?, ?, ?, ?, NOW() - INTERVAL '1 minute', 'qa@example.test')
-                ON CONFLICT (request_id) DO UPDATE SET token_hash=EXCLUDED.token_hash, expires_at=EXCLUDED.expires_at
-                """, UUID.randomUUID(), requestId, accountId, fingerprint);
-        byte[] activation = objectMapper.writeValueAsBytes(Map.of("token", token, "password", "AccesoEmpresa123!"));
-        mockMvc.perform(post("/api/v1/public/company-activation").contentType(MediaType.APPLICATION_JSON).content(activation))
-                .andExpect(status().isNotFound());
-        jdbc.update("UPDATE company_activation_invitations SET expires_at = NOW() + INTERVAL '24 hours' WHERE request_id = ?", requestId);
-        mockMvc.perform(post("/api/v1/public/company-activation").contentType(MediaType.APPLICATION_JSON).content(activation))
+                UPDATE accounts SET password_hash=?, temporary_password_expires_at=(NOW() AT TIME ZONE 'UTC') - INTERVAL '1 minute'
+                WHERE id=?
+                """, passwordEncoder.encode(temporaryPassword), accountId);
+        byte[] login = objectMapper.writeValueAsBytes(Map.of("email", email, "password", temporaryPassword));
+        mockMvc.perform(post("/api/v1/auth/login").contentType(MediaType.APPLICATION_JSON).content(login))
+                .andExpect(status().isUnauthorized());
+
+        jdbc.update("""
+                UPDATE accounts SET temporary_password_expires_at=(NOW() AT TIME ZONE 'UTC') + INTERVAL '1 hour'
+                WHERE id=?
+                """, accountId);
+        var auth = mockMvc.perform(post("/api/v1/auth/login").contentType(MediaType.APPLICATION_JSON).content(login))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.firstAccessPasswordRequired").value(true)).andReturn();
+        String accessToken = objectMapper.readTree(auth.getResponse().getContentAsByteArray()).get("token").asText();
+        mockMvc.perform(get("/api/v1/organization/commercial-profile").header("Authorization", "Bearer " + accessToken))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(post("/api/v1/auth/login").contentType(MediaType.APPLICATION_JSON).content(login))
+                .andExpect(status().isUnauthorized());
+
+        mockMvc.perform(post("/api/v1/auth/first-password").header("Authorization", "Bearer " + accessToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsBytes(Map.of("newPassword", "AccesoEmpresa123!"))))
                 .andExpect(status().isNoContent());
-        mockMvc.perform(post("/api/v1/public/company-activation").contentType(MediaType.APPLICATION_JSON).content(activation))
-                .andExpect(status().isNotFound());
+        mockMvc.perform(get("/api/v1/auth/me").header("Authorization", "Bearer " + accessToken))
+                .andExpect(status().isUnauthorized());
         org.junit.jupiter.api.Assertions.assertEquals("ACTIVADA",
                 jdbc.queryForObject("SELECT status FROM organization_requests WHERE id = ?", String.class, requestId));
+        mockMvc.perform(post("/api/v1/auth/login").contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsBytes(Map.of("email", email, "password", "AccesoEmpresa123!"))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.firstAccessPasswordRequired").value(false))
+                .andExpect(jsonPath("$.roles[0]").value("ADMIN_EMPRESA"));
     }
 
     @Test
@@ -225,6 +271,7 @@ public class SaasB2B2CIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("RECIBIDA"));
 
+        verifyCompany(UUID.fromString(requestId), "Power Zone Fitness SAC");
         MvcResult approved = mockMvc.perform(post("/api/v1/platform/company-requests/" + requestId + "/approve?startTrial=true")
                         .header("Authorization", "Bearer " + superAdminToken))
                 .andExpect(status().isOk())

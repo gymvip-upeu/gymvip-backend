@@ -286,13 +286,16 @@ class LoginSecurityAndRateLimitTest {
     void testUpdateRoleRevokesExistingSessions() {
         UUID accountId = UUID.randomUUID();
         Account account = new Account(accountId, "staff@gymvip.com", "hash", Set.of("RECEPCION"), "ACTIVO", false);
+        var operator = new Account(UUID.randomUUID(), "admin@gymvip.com", "hash",
+                Set.of("ADMIN_EMPRESA"), "ACTIVO", false);
+        when(accountRepository.findByEmailIgnoreCase(operator.getEmail())).thenReturn(Optional.of(operator));
         when(accountRepository.findById(accountId)).thenReturn(Optional.of(account));
         when(accountRepository.save(any(Account.class))).thenReturn(account);
         when(accountMapper.toResponse(any(Account.class))).thenReturn(
-                new StaffAccountResponse(accountId, "staff@gymvip.com", Set.of("ADMIN"), "ACTIVO", false, LocalDateTime.now(), LocalDateTime.now())
+                new StaffAccountResponse(accountId, "staff@gymvip.com", Set.of("CAJERO"), "ACTIVO", false, LocalDateTime.now(), LocalDateTime.now())
         );
 
-        UpdateStaffRoleRequest request = new UpdateStaffRoleRequest("ADMIN");
+        UpdateStaffRoleRequest request = new UpdateStaffRoleRequest("CAJERO");
         accountService.updateRole(accountId, request, "admin@gymvip.com");
 
         verify(sessionRepository, times(1)).deleteByAccountId(accountId);
