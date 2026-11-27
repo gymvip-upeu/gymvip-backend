@@ -4,14 +4,14 @@ La infraestructura se aplica por ambiente. El workflow manual en `develop` ejecu
 
 ## Prerrequisitos del ambiente
 
-- Grupo de recursos y región con cuota. Usar una VNet con subredes separadas para Container Apps, PostgreSQL y monitorización, y DNS privado vinculado. El entorno Container Apps debe estar configurado como interno. Validar esta propiedad antes de ejecutar la plantilla de aplicaciones.
+- Grupo de recursos y región con cuota. El entorno existente `env-gymvip` carece de VNet. La plantilla `network.bicep` crea las subredes privadas separadas, sus enlaces DNS y un entorno Container Apps interno. El workflow valida que se le indique un entorno interno.
 - Azure Container Registry y una identidad administrada con permiso de lectura de imágenes y secretos. Las imágenes de los dos servicios Java se construyen desde los commits aprobados y se referencian mediante digest.
 - Key Vault con secretos diferentes por ambiente. `coreSecretUrls` y `commsSecretUrls` reciben objetos con nombres de variables y URI de secretos. Los valores de los secretos se inyectan en ejecución y se excluyen del repositorio y de los parámetros del workflow.
 - Las entradas públicas llegan por un gateway HTTPS que expone solo rutas de negocio de la API y el webhook de comunicaciones. Restringir `/actuator/**` a la red interna y comprobarlo desde fuera. Configurar CORS con los orígenes exactos del portal y la landing.
 
 ## Secuencia de staging
 
-1. Revisar el costo, verificar las subredes existentes y compilar `database.bicep`, `monitoring.bicep` y `main.bicep`. Ejecutar `az deployment group what-if` sobre cada plantilla con los parámetros del ambiente.
+1. Revisar costos y rangos de red con el operador. Compilar `network.bicep`, `database.bicep`, `monitoring.bicep` y `main.bicep`. Ejecutar `az deployment group what-if` sobre cada plantilla con los parámetros del ambiente. Usar los IDs de salida de la red como entrada de las otras plantillas y configurar el ingreso público mediante un gateway.
 2. Aprovisionar PostgreSQL privado. Crear un rol propietario y una credencial distinta por cada base. Core usa `gymvip_core` y comunicaciones `gymvip_comms`. Dar a cada servicio acceso solo a su base. Revocar accesos públicos de conexión, habilitar TLS y guardar las credenciales en Key Vault.
 3. Desplegar ambos servicios en modo de prueba. Para el backend configurar JWT, la URL JDBC, el usuario y el secreto de conexión, token de comunicaciones y token del scrape. Para comunicaciones configurar JDBC y token de servicio, y otro token de scrape. Validar readiness y Flyway. Mantener Culqi live desactivado y comunicaciones en simulación durante este paso.
 4. Publicar los builds estáticos desde `develop` en los dos recursos Static Web Apps. El portal necesita `VITE_API_BASE_URL` y la URL HTTPS de Grafana si está accesible por operadores. La landing necesita `PUBLIC_API_BASE_URL`, `PUBLIC_SITE_URL` y `PUBLIC_ADMIN_URL`. Configurar fallback a `/index.html` exclusivamente en el portal SPA.

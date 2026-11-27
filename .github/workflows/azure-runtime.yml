@@ -34,6 +34,12 @@ jobs:
           PARAMETERS: ${{ vars.AZURE_RUNTIME_PARAMETERS }}
         run: |
           printf '%s' "$PARAMETERS" > "$RUNNER_TEMP/azure-runtime.json"
+          environment_id="$(jq -er '.parameters.containerEnvironmentId.value' "$RUNNER_TEMP/azure-runtime.json")"
+          internal="$(az resource show --ids "$environment_id" --query 'properties.vnetConfiguration.internal' -o tsv)"
+          if [ "$internal" != "true" ]; then
+            echo 'Container Apps must use an internal VNet environment.' >&2
+            exit 1
+          fi
           az deployment group what-if --resource-group "$RESOURCE_GROUP" \
             --template-file infra/azure/main.bicep --parameters "@$RUNNER_TEMP/azure-runtime.json"
       - name: Apply reviewed changes
