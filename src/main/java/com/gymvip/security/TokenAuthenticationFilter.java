@@ -69,6 +69,13 @@ public class TokenAuthenticationFilter extends OncePerRequestFilter {
                                         "/api/v1/auth/me",
                                         "/api/v1/auth/logout"
                                 ).contains(request.getRequestURI());
+                                if (account.isFirstAccessPassword()) {
+                                    String path = request.getRequestURI();
+                                    allowed = ("GET".equals(request.getMethod()) &&
+                                            java.util.Set.of("/api/v1/auth/me", "/api/v1/member-app/session").contains(path))
+                                            || ("POST".equals(request.getMethod()) &&
+                                            java.util.Set.of("/api/v1/auth/first-password", "/api/v1/auth/logout").contains(path));
+                                }
                                 if (expired || !allowed) {
                                     response.setStatus(expired ? 401 : 403);
                                     response.setContentType("application/json");
@@ -76,8 +83,16 @@ public class TokenAuthenticationFilter extends OncePerRequestFilter {
                                     return;
                                 }
                             }
+                            if (PermissionCatalog.isSuperAdmin(account.getRoles()) && !account.isMfaEnabled() &&
+                                    !java.util.Set.of("/api/v1/auth/me", "/api/v1/auth/logout",
+                                            "/api/v1/security/mfa/enroll", "/api/v1/security/mfa/verify").contains(request.getRequestURI())) {
+                                response.setStatus(403);
+                                response.setContentType("application/json");
+                                response.getWriter().write("{\"code\":\"MFA_ENROLLMENT_REQUIRED\",\"message\":\"Configura MFA para continuar.\"}");
+                                return;
+                            }
                             java.util.List<SimpleGrantedAuthority> authorities = new java.util.ArrayList<>();
-                            account.getRoles().stream()
+                            PermissionCatalog.compatibleRoles(account.getRoles()).stream()
                                     .map(role -> new SimpleGrantedAuthority("ROLE_" + role.toUpperCase()))
                                     .forEach(authorities::add);
                             PermissionCatalog.resolvePermissions(account.getRoles()).stream()

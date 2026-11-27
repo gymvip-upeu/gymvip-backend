@@ -91,6 +91,11 @@ public class AuthServiceImpl implements AuthService {
             throw new InvalidCredentialsException("La contraseña temporal venció. Solicita una nueva invitación a Recepción.");
         }
 
+        if (account.isFirstAccessPassword() &&
+                accountRepository.consumeFirstAccessPassword(account.getId(), account.getPasswordHash(),
+                        passwordEncoder.encode(UUID.randomUUID().toString())) != 1) {
+            throw new InvalidCredentialsException(GENERIC_AUTH_ERROR);
+        }
         loginAttemptService.loginSucceeded(attemptKey);
 
         // TEC-09: Exigir segundo factor TOTP antes de emitir sesión JWT cuando MFA está habilitado
@@ -167,7 +172,9 @@ public class AuthServiceImpl implements AuthService {
         sessionRepository.save(session);
 
         String jwtToken = jwtService.generateToken(account, sessionId, expiresAt);
-        return new AuthResponse(jwtToken, account.getId(), account.getEmail(), account.getRoles());
+        return new AuthResponse(jwtToken, account.getId(), account.getEmail(), account.getRoles(), false, null, null,
+                com.gymvip.security.PermissionCatalog.isSuperAdmin(account.getRoles()) && !account.isMfaEnabled(),
+                account.isFirstAccessPassword());
     }
 
     @Override

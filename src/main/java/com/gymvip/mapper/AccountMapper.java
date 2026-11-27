@@ -2,9 +2,11 @@ package com.gymvip.mapper;
 
 import com.gymvip.dto.response.StaffAccountResponse;
 import com.gymvip.entity.Account;
+import com.gymvip.security.PermissionCatalog;
 import org.springframework.stereotype.Component;
 
-import java.util.HashSet;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 @Component
 public class AccountMapper {
@@ -13,7 +15,8 @@ public class AccountMapper {
         return new StaffAccountResponse(
                 account.getId(),
                 account.getEmail(),
-                account.getRoles() != null ? new HashSet<>(account.getRoles()) : new HashSet<>(),
+                account.getRoles() == null ? Set.of() : account.getRoles().stream()
+                        .map(PermissionCatalog::canonicalRole).collect(Collectors.toSet()),
                 account.getStatus(),
                 account.isMfaEnabled(),
                 account.getCreatedAt(),

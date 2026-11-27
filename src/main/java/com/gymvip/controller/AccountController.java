@@ -18,7 +18,7 @@ import java.util.UUID;
 
 @RestController
 @RequestMapping("/api/v1/accounts")
-@PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'ADMIN_EMPRESA', 'GERENTE', 'GERENTE_GENERAL', 'RECURSOS_HUMANOS')")
+@PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'ADMIN_EMPRESA', 'GERENTE', 'GERENTE_GENERAL', 'GERENTE_SEDE', 'RECURSOS_HUMANOS')")
 public class AccountController {
 
     private final AccountService accountService;
@@ -28,13 +28,13 @@ public class AccountController {
     }
 
     @GetMapping
-    public ResponseEntity<List<StaffAccountResponse>> listAccounts() {
-        return ResponseEntity.ok(accountService.listStaffAccounts());
+    public ResponseEntity<List<StaffAccountResponse>> listAccounts(Authentication authentication) {
+        return ResponseEntity.ok(accountService.listStaffAccounts(authentication.getName()));
     }
 
     @GetMapping("/{id}")
-    public ResponseEntity<StaffAccountResponse> getAccount(@PathVariable UUID id) {
-        return ResponseEntity.ok(accountService.getById(id));
+    public ResponseEntity<StaffAccountResponse> getAccount(@PathVariable UUID id, Authentication authentication) {
+        return ResponseEntity.ok(accountService.getById(id, authentication.getName()));
     }
 
     @PostMapping
@@ -42,7 +42,7 @@ public class AccountController {
             @Valid @RequestBody CreateStaffAccountRequest request,
             Authentication authentication
     ) {
-        String actor = authentication != null ? authentication.getName() : "admin_sistema";
+        String actor = authentication == null ? null : authentication.getName();
         StaffAccountResponse created = accountService.createStaffAccount(request, actor);
         return ResponseEntity.status(HttpStatus.CREATED).body(created);
     }
@@ -53,7 +53,7 @@ public class AccountController {
             @Valid @RequestBody UpdateStaffRoleRequest request,
             Authentication authentication
     ) {
-        String actor = authentication != null ? authentication.getName() : "admin_sistema";
+        String actor = authentication == null ? null : authentication.getName();
         StaffAccountResponse updated = accountService.updateRole(id, request, actor);
         return ResponseEntity.ok(updated);
     }
@@ -64,7 +64,7 @@ public class AccountController {
             @Valid @RequestBody UpdateStaffStatusRequest request,
             Authentication authentication
     ) {
-        String actor = authentication != null ? authentication.getName() : "admin_sistema";
+        String actor = authentication == null ? null : authentication.getName();
         StaffAccountResponse updated = accountService.updateStatus(id, request, actor);
         return ResponseEntity.ok(updated);
     }
@@ -75,7 +75,7 @@ public class AccountController {
             @Valid @RequestBody UpdateStaffProfileRequest request,
             Authentication authentication
     ) {
-        String actor = authentication != null ? authentication.getName() : "admin_sistema";
+        String actor = authentication == null ? null : authentication.getName();
         return ResponseEntity.ok(accountService.updateProfile(id, request, actor));
     }
 
@@ -84,18 +84,18 @@ public class AccountController {
             @PathVariable UUID id,
             Authentication authentication
     ) {
-        String actor = authentication != null ? authentication.getName() : "admin_sistema";
+        String actor = authentication == null ? null : authentication.getName();
         accountService.revokeSessions(id, actor);
         return ResponseEntity.noContent().build();
     }
 
     @GetMapping("/{id}/audit")
-    public ResponseEntity<List<com.gymvip.entity.AuditEvent>> accountAudit(@PathVariable UUID id) {
-        return ResponseEntity.ok(accountService.listAccountAuditHistory(id));
+    public ResponseEntity<List<com.gymvip.entity.AuditEvent>> accountAudit(@PathVariable UUID id, Authentication authentication) {
+        return ResponseEntity.ok(accountService.listAccountAuditHistory(id, authentication.getName()));
     }
 
     @GetMapping("/audit")
-    public ResponseEntity<List<com.gymvip.entity.AuditEvent>> recentStaffAudit() {
-        return ResponseEntity.ok(accountService.listRecentStaffAuditEvents());
+    public ResponseEntity<List<com.gymvip.entity.AuditEvent>> recentStaffAudit(Authentication authentication) {
+        return ResponseEntity.ok(accountService.listRecentStaffAuditEvents(authentication.getName()));
     }
 }

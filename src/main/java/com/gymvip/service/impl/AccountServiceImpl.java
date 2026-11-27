@@ -15,6 +15,8 @@ import com.gymvip.repository.AccountRepository;
 import com.gymvip.repository.AuditEventRepository;
 import com.gymvip.repository.SessionRepository;
 import com.gymvip.security.PermissionCatalog;
+import com.gymvip.security.StaffAccessPolicy;
+import com.gymvip.security.TenantScopeResolver;
 import com.gymvip.service.AccountService;
 import com.gymvip.service.AuditService;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -61,17 +63,23 @@ public class AccountServiceImpl implements AccountService {
 
     @Override
     @Transactional(readOnly = true)
-    public List<StaffAccountResponse> listStaffAccounts() {
+    public List<StaffAccountResponse> listStaffAccounts(String actorEmail) {
+        Account actor = StaffAccessPolicy.actor(accountRepository, actorEmail);
+        StaffAccessPolicy.requirePermission(actor, "employees.read");
         return accountRepository.findStaffAccounts().stream()
+                .filter(target -> StaffAccessPolicy.canSee(actor, target))
                 .map(accountMapper::toResponse)
                 .collect(Collectors.toList());
     }
 
     @Override
     @Transactional(readOnly = true)
-    public StaffAccountResponse getById(UUID id) {
+    public StaffAccountResponse getById(UUID id, String actorEmail) {
+        Account actor = StaffAccessPolicy.actor(accountRepository, actorEmail);
+        StaffAccessPolicy.requirePermission(actor, "employees.read");
         return accountRepository.findById(id)
                 .filter(this::isStaff)
+                .filter(target -> StaffAccessPolicy.canSee(actor, target))
                 .map(accountMapper::toResponse)
                 .orElseThrow(() -> new AccountNotFoundException("Cuenta no encontrada con ID: " + id));
     }
@@ -79,17 +87,16 @@ public class AccountServiceImpl implements AccountService {
     @Override
     @Transactional
     public StaffAccountResponse createStaffAccount(CreateStaffAccountRequest request, String actorEmail) {
-        String normalizedEmail = request.email() != null ? request.email().trim().toLowerCase(Locale.ROOT) : "";
+        accountRepository.lockStaffRoleChanges();
+        Account actor = StaffAccessPolicy.actor(accountRepository, actorEmail);
+        StaffAccessPolicy.requirePermission(actor, "employees.create");
+        String targetRole = requestedRole(request.role());
+        if (!StaffAccessPolicy.canDelegate(actor, targetRole)) throw StaffAccessPolicy.denied();
+
+        String normalizedEmail = request.email().trim().toLowerCase(Locale.ROOT);
         if (accountRepository.existsByEmailIgnoreCase(normalizedEmail)) {
-            throw new ConflictException("Ya existe una cuenta de personal con el correo: " + normalizedEmail);
+            throw new ConflictException("Ya existe una cuenta de personal con ese correo.");
         }
-
-        String targetRole = PermissionCatalog.normalizeRole(request.role());
-        if (!PermissionCatalog.isAssignableStaffRole(targetRole)) {
-            throw new IllegalArgumentException("Rol no autorizado para personal del gimnasio: " + targetRole);
-        }
-
-        ensureActorCanAssignRole(actorEmail, targetRole);
 
         Account account = new Account(
                 UUID.randomUUID(),
@@ -102,6 +109,16 @@ public class AccountServiceImpl implements AccountService {
         account.setFirstName(request.firstName() == null ? null : request.firstName().trim());
         account.setLastName(request.lastName() == null ? null : request.lastName().trim());
         account.setPhone(request.phone() == null ? null : request.phone().trim());
+
+        account.setOrganizationId(StaffAccessPolicy.organization(actor));
+        UUID branch = actor.getPrimaryBranchId();
+        if (branch == null && TenantScopeResolver.DEFAULT_ORG_ID.equals(account.getOrganizationId())) {
+            branch = TenantScopeResolver.DEFAULT_BRANCH_ID;
+        }
+        if ("BRANCH".equals(PermissionCatalog.resolveRoleDefinition(targetRole).level()) && branch == null) {
+            throw new IllegalArgumentException("Selecciona una cuenta administradora con sede operativa asignada.");
+        }
+        account.setPrimaryBranchId(branch);
 
         Account saved = accountRepository.save(account);
 
@@ -119,38 +136,32 @@ public class AccountServiceImpl implements AccountService {
     @Override
     @Transactional
     public StaffAccountResponse updateRole(UUID id, UpdateStaffRoleRequest request, String actorEmail) {
+        return changeRole(id, request, actorEmail, false);
+    }
+
+    @Override
+    @Transactional
+    public StaffAccountResponse updatePrivilegedRole(UUID id, UpdateStaffRoleRequest request, String actorEmail) {
+        return changeRole(id, request, actorEmail, true);
+    }
+
+    private StaffAccountResponse changeRole(UUID id, UpdateStaffRoleRequest request, String actorEmail, boolean privileged) {
+        accountRepository.lockStaffRoleChanges();
+        Account actor = StaffAccessPolicy.actor(accountRepository, actorEmail);
+        if (privileged && (!PermissionCatalog.isSuperAdmin(actor.getRoles()) || !actor.isMfaEnabled())) {
+            throw StaffAccessPolicy.denied();
+        }
+        StaffAccessPolicy.requirePermission(actor, "employees.assign_role");
         Account account = requireStaff(id);
-
-        String targetRole = PermissionCatalog.normalizeRole(request.role());
-        if (!PermissionCatalog.isAssignableStaffRole(targetRole)) {
-            throw new IllegalArgumentException("Rol no autorizado para personal: " + targetRole);
-        }
-
-        boolean sameAccount = actorEmail != null && actorEmail.trim().equalsIgnoreCase(account.getEmail());
-        boolean currentlyPrivileged = PermissionCatalog.isPlatformOrLegacyAdmin(account.getRoles());
-        boolean willRemainPrivileged = "ADMIN".equals(targetRole) || "SUPER_ADMIN".equals(targetRole);
-
-        if (sameAccount && currentlyPrivileged && !willRemainPrivileged) {
-            throw new LastAdminProtectionException("Operación denegada: no puedes autodegradar tu propia cuenta privilegiada.");
-        }
-        if (sameAccount && !currentlyPrivileged && ("SUPER_ADMIN".equals(targetRole) || "ADMIN".equals(targetRole))) {
-            throw new LastAdminProtectionException("Operación denegada: autoelevación de privilegios prohibida.");
-        }
-
-        ensureActorCanModifyTargetAccount(actorEmail, account);
-        ensureActorCanAssignRole(actorEmail, targetRole);
-
-        if (currentlyPrivileged && !willRemainPrivileged) {
-            long activeAdmins = accountRepository.countActiveAdmins();
-            if (activeAdmins <= 1) {
-                throw new LastAdminProtectionException("Operación denegada: no es posible revocar los privilegios del único Administrador activo.");
-            }
-        }
-        if (PermissionCatalog.isSuperAdmin(account.getRoles()) && !"SUPER_ADMIN".equals(targetRole)) {
-            long activeSuperAdmins = accountRepository.countActiveSuperAdmins();
-            if (activeSuperAdmins <= 1 && accountRepository.countActiveAdmins() <= 1) {
-                throw new LastAdminProtectionException("Operación denegada: no es posible degradar al único Super Administrador autorizado.");
-            }
+        String targetRole = requestedRole(request.role());
+        StaffAccessPolicy.requireTarget(actor, account, privileged);
+        if (!privileged && !StaffAccessPolicy.canDelegate(actor, targetRole)) throw StaffAccessPolicy.denied();
+        if (privileged && account.isMustChangePassword()) throw StaffAccessPolicy.denied();
+        protectLastAdministrator(account, targetRole);
+        if ("BRANCH".equals(PermissionCatalog.resolveRoleDefinition(targetRole).level()) &&
+                account.getPrimaryBranchId() == null &&
+                !TenantScopeResolver.DEFAULT_ORG_ID.equals(StaffAccessPolicy.organization(account))) {
+            throw new IllegalArgumentException("El colaborador necesita una sede operativa.");
         }
 
         account.setRoles(new HashSet<>(Set.of(targetRole)));
@@ -173,6 +184,9 @@ public class AccountServiceImpl implements AccountService {
     @Override
     @Transactional
     public StaffAccountResponse updateStatus(UUID id, UpdateStaffStatusRequest request, String actorEmail) {
+        accountRepository.lockStaffRoleChanges();
+        Account actor = StaffAccessPolicy.actor(accountRepository, actorEmail);
+        StaffAccessPolicy.requirePermission(actor, "employees.inactivate");
         Account account = requireStaff(id);
 
         String targetStatus = request.status() != null ? request.status().trim().toUpperCase(Locale.ROOT) : "";
@@ -184,15 +198,8 @@ public class AccountServiceImpl implements AccountService {
             throw new LastAdminProtectionException("Operación denegada: no puedes autoinactivar ni autoeliminar tu propia cuenta.");
         }
 
-        ensureActorCanModifyTargetAccount(actorEmail, account);
-
-        boolean currentlyAdmin = PermissionCatalog.isPlatformOrLegacyAdmin(account.getRoles());
-        if (currentlyAdmin && "INACTIVO".equals(targetStatus) && "ACTIVO".equalsIgnoreCase(account.getStatus())) {
-            long activeAdmins = accountRepository.countActiveAdmins();
-            if (activeAdmins <= 1) {
-                throw new LastAdminProtectionException("Operación denegada: no es posible desactivar al único Administrador activo del sistema.");
-            }
-        }
+        StaffAccessPolicy.requireTarget(actor, account, false);
+        if ("INACTIVO".equals(targetStatus)) protectLastAdministrator(account, "");
 
         account.setStatus(targetStatus);
         account.setUpdatedAt(LocalDateTime.now());
@@ -216,8 +223,11 @@ public class AccountServiceImpl implements AccountService {
     @Override
     @Transactional
     public StaffAccountResponse updateProfile(UUID id, UpdateStaffProfileRequest request, String actorEmail) {
+        accountRepository.lockStaffRoleChanges();
+        Account actor = StaffAccessPolicy.actor(accountRepository, actorEmail);
+        StaffAccessPolicy.requirePermission(actor, "employees.create");
         Account account = requireStaff(id);
-        ensureActorCanModifyTargetAccount(actorEmail, account);
+        StaffAccessPolicy.requireTarget(actor, account, false);
 
         String email = request.email().trim().toLowerCase(Locale.ROOT);
         boolean emailChanged = !account.getEmail().equalsIgnoreCase(email);
@@ -241,8 +251,10 @@ public class AccountServiceImpl implements AccountService {
     @Override
     @Transactional
     public void revokeSessions(UUID id, String actorEmail) {
+        Account actor = StaffAccessPolicy.actor(accountRepository, actorEmail);
+        StaffAccessPolicy.requirePermission(actor, "employees.inactivate");
         Account account = requireStaff(id);
-        ensureActorCanModifyTargetAccount(actorEmail, account);
+        StaffAccessPolicy.requireTarget(actor, account, false);
 
         sessionRepository.deleteByAccountId(id);
 
@@ -257,7 +269,8 @@ public class AccountServiceImpl implements AccountService {
 
     @Override
     @Transactional(readOnly = true)
-    public List<AuditEvent> listAccountAuditHistory(UUID accountId) {
+    public List<AuditEvent> listAccountAuditHistory(UUID accountId, String actorEmail) {
+        getById(accountId, actorEmail);
         if (auditEventRepository == null) {
             return List.of();
         }
@@ -266,47 +279,36 @@ public class AccountServiceImpl implements AccountService {
 
     @Override
     @Transactional(readOnly = true)
-    public List<AuditEvent> listRecentStaffAuditEvents() {
+    public List<AuditEvent> listRecentStaffAuditEvents(String actorEmail) {
+        Account actor = StaffAccessPolicy.actor(accountRepository, actorEmail);
+        StaffAccessPolicy.requirePermission(actor, "employees.read");
         if (auditEventRepository == null) {
             return List.of();
         }
-        return auditEventRepository.findTop100ByEntityNameOrderByTimestampUtcDesc("Account");
+        var visibleIds = listStaffAccounts(actorEmail).stream()
+                .map(account -> account.id().toString()).collect(Collectors.toSet());
+        return auditEventRepository.findTop100ByEntityNameOrderByTimestampUtcDesc("Account").stream()
+                .filter(event -> visibleIds.contains(event.getEntityId())).toList();
     }
 
-    private void ensureActorCanAssignRole(String actorEmail, String targetRole) {
-        if (actorEmail == null || actorEmail.isBlank()) {
-            return;
+    private String requestedRole(String raw) {
+        String role = PermissionCatalog.normalizeRole(raw);
+        if (!PermissionCatalog.isAssignableStaffRole(role)) {
+            throw new IllegalArgumentException("Rol de personal inválido.");
         }
-        Account actor = accountRepository.findByEmailIgnoreCase(actorEmail.trim()).orElse(null);
-        if (actor == null) {
-            return;
-        }
-        Set<String> actorRoles = actor.getRoles();
-        if ("SUPER_ADMIN".equals(targetRole) && !PermissionCatalog.isSuperAdmin(actorRoles)) {
-            throw new LastAdminProtectionException("Operación denegada: solo SUPER_ADMIN autorizado puede otorgar el rol SUPER_ADMIN.");
-        }
-        boolean actorIsAdmin = PermissionCatalog.isPlatformOrLegacyAdmin(actorRoles);
-        if (!actorIsAdmin && ("SUPER_ADMIN".equals(targetRole) || "ADMIN".equals(targetRole) || "ADMIN_EMPRESA".equals(targetRole))) {
-            throw new LastAdminProtectionException("Operación denegada: un rol gerencial no puede crear ni asignar cuentas administrativas privilegiadas.");
-        }
+        if (!role.equals(PermissionCatalog.canonicalRole(role))) throw StaffAccessPolicy.denied();
+        return role;
     }
 
-    private void ensureActorCanModifyTargetAccount(String actorEmail, Account target) {
-        if (actorEmail == null || actorEmail.isBlank()) {
-            return;
+    private void protectLastAdministrator(Account account, String replacementRole) {
+        if (!"ACTIVO".equalsIgnoreCase(account.getStatus())) return;
+        if (PermissionCatalog.isSuperAdmin(account.getRoles()) && !"SUPER_ADMIN".equals(replacementRole)
+                && accountRepository.countActiveSuperAdmins() <= 1) {
+            throw new LastAdminProtectionException("Se requiere otro administrador activo de plataforma.");
         }
-        Account actor = accountRepository.findByEmailIgnoreCase(actorEmail.trim()).orElse(null);
-        if (actor == null) {
-            return;
-        }
-        boolean actorIsAdmin = PermissionCatalog.isPlatformOrLegacyAdmin(actor.getRoles());
-        boolean targetIsAdmin = PermissionCatalog.isPlatformOrLegacyAdmin(target.getRoles());
-        boolean targetIsSuper = PermissionCatalog.isSuperAdmin(target.getRoles());
-        if (targetIsSuper && !PermissionCatalog.isSuperAdmin(actor.getRoles())) {
-            throw new LastAdminProtectionException("Operación denegada: una cuenta SUPER_ADMIN solo puede gestionarse por plataforma autorizada.");
-        }
-        if (targetIsAdmin && !actorIsAdmin) {
-            throw new LastAdminProtectionException("Operación denegada: no tienes autorización para modificar ni desactivar administradores.");
+        if (StaffAccessPolicy.isCompanyAdmin(account) && !"ADMIN_EMPRESA".equals(replacementRole)
+                && accountRepository.countActiveCompanyAdmins(StaffAccessPolicy.organization(account)) <= 1) {
+            throw new LastAdminProtectionException("Se requiere otro administrador activo en la empresa.");
         }
     }
 

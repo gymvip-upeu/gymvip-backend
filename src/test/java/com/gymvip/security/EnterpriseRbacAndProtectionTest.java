@@ -82,11 +82,12 @@ class EnterpriseRbacAndProtectionTest {
         UUID adminId = UUID.randomUUID();
         Account admin = new Account(adminId, "super@vipcenterfit.pe", "hash", Set.of("SUPER_ADMIN"), "ACTIVO", true);
         when(accountRepository.findById(adminId)).thenReturn(Optional.of(admin));
+        when(accountRepository.findByEmailIgnoreCase(admin.getEmail())).thenReturn(Optional.of(admin));
 
         assertThrows(LastAdminProtectionException.class, () ->
                 accountService.updateStatus(adminId, new UpdateStaffStatusRequest("INACTIVO"), "super@vipcenterfit.pe"));
 
-        assertThrows(LastAdminProtectionException.class, () ->
+        assertThrows(org.springframework.security.access.AccessDeniedException.class, () ->
                 accountService.updateRole(adminId, new UpdateStaffRoleRequest("RECEPCION"), "super@vipcenterfit.pe"));
     }
 
@@ -95,15 +96,14 @@ class EnterpriseRbacAndProtectionTest {
     void preventsPrivilegeEscalationFromNonAdmin() {
         Account gerenteActor = new Account(UUID.randomUUID(), "gerente@vipcenterfit.pe", "h", Set.of("GERENTE"), "ACTIVO", false);
         when(accountRepository.findByEmailIgnoreCase("gerente@vipcenterfit.pe")).thenReturn(Optional.of(gerenteActor));
-        when(accountRepository.existsByEmailIgnoreCase("nuevo@vipcenterfit.pe")).thenReturn(false);
 
-        assertThrows(LastAdminProtectionException.class, () ->
+        assertThrows(org.springframework.security.access.AccessDeniedException.class, () ->
                 accountService.createStaffAccount(
                         new CreateStaffAccountRequest("nuevo@vipcenterfit.pe", "StrongPass123!", "SUPER_ADMIN"),
                         "gerente@vipcenterfit.pe"
                 ));
 
-        assertThrows(LastAdminProtectionException.class, () ->
+        assertThrows(org.springframework.security.access.AccessDeniedException.class, () ->
                 accountService.createStaffAccount(
                         new CreateStaffAccountRequest("nuevo@vipcenterfit.pe", "StrongPass123!", "ADMIN"),
                         "gerente@vipcenterfit.pe"
@@ -134,6 +134,23 @@ class EnterpriseRbacAndProtectionTest {
     }
 
     @Test
+    void companyAdministratorCannotCreatePlatformAdministratorOrGrantPlatformRole() {
+        var actor = new Account(UUID.randomUUID(), "admin@company.test", "h", Set.of("ADMIN_EMPRESA"), "ACTIVO", false);
+        var target = new Account(UUID.randomUUID(), "recepcion@company.test", "h", Set.of("RECEPCION"), "ACTIVO", false);
+        when(accountRepository.findByEmailIgnoreCase(actor.getEmail())).thenReturn(Optional.of(actor));
+        when(accountRepository.findById(target.getId())).thenReturn(Optional.of(target));
+
+        assertThrows(org.springframework.security.access.AccessDeniedException.class, () ->
+                accountService.createStaffAccount(new CreateStaffAccountRequest(
+                        "nuevo@company.test", "ClaveSegura123!", "SUPER_ADMIN"), actor.getEmail()));
+        assertThrows(org.springframework.security.access.AccessDeniedException.class, () ->
+                accountService.updateRole(target.getId(), new UpdateStaffRoleRequest("SUPER_ADMIN"), actor.getEmail()));
+        assertThrows(org.springframework.security.access.AccessDeniedException.class, () ->
+                accountService.updatePrivilegedRole(target.getId(), new UpdateStaffRoleRequest("SUPER_ADMIN"), actor.getEmail()));
+        verify(accountRepository, never()).save(any());
+    }
+
+    @Test
     @DisplayName("TotpService genera y verifica códigos RFC 6238 y recovery hashes válidos")
     void totpServiceGeneratesAndVerifiesCodes() {
         TotpService totp = new TotpService();
@@ -158,7 +175,7 @@ class EnterpriseRbacAndProtectionTest {
 
         Account superAdmin = new Account(UUID.randomUUID(), "root@vipcenterfit.pe", "h", Set.of("SUPER_ADMIN"), "ACTIVO", true);
         when(accountRepository.findByEmailIgnoreCase("root@vipcenterfit.pe")).thenReturn(Optional.of(superAdmin));
-        RbacController controller = new RbacController(accountRepository, branchAssignmentRepository, preferenceRepository, branchRepository);
+        RbacController controller = new RbacController(accountRepository, branchAssignmentRepository, preferenceRepository, branchRepository, sessionRepository, auditService);
         Authentication auth = mock(Authentication.class);
         when(auth.getName()).thenReturn("root@vipcenterfit.pe");
 

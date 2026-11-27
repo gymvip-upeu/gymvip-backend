@@ -345,6 +345,33 @@ public class SaasPlatformRepository {
     }
 
     @Transactional
+    public Map<String, Object> recordCompanyVerification(UUID requestId, String fiscalStatus, String fiscalCondition,
+            String businessName, String representativeEvidence, boolean contactConfirmed, String reviewer) {
+        if (jdbc.update("""
+                UPDATE organization_requests SET fiscal_status=?, fiscal_condition=?, verified_business_name=?,
+                    representative_evidence=?, verified_contact_at=CASE WHEN ? THEN NOW() ELSE NULL END,
+                    fiscal_reviewed_at=NOW(), fiscal_reviewed_by=?, updated_at_utc=NOW()
+                WHERE id=? AND approved_organization_id IS NULL AND status IN ('RECIBIDA','EN_REVISION','OBSERVADA')
+                """, fiscalStatus, fiscalCondition, businessName.trim(), representativeEvidence.trim(), contactConfirmed,
+                reviewer, requestId) != 1) {
+            throw new ConflictException("La solicitud no admite registrar una nueva validación.");
+        }
+        audit.recordEvent(reviewer, "REVIEW_COMPANY_IDENTITY", "OrganizationRequest", requestId.toString(),
+                "Consulta SUNAT registrada y representación revisada.");
+        return camelizeMap(jdbc.queryForMap("SELECT * FROM organization_requests WHERE id=?", requestId));
+    }
+
+    private boolean canApproveVerifiedCompany(Map<String, Object> request) {
+        if (!"ACTIVO".equals(request.get("fiscal_status")) || !"HABIDO".equals(request.get("fiscal_condition"))
+                || request.get("verified_contact_at") == null || request.get("fiscal_reviewed_at") == null
+                || request.get("representative_evidence") == null || request.get("verified_business_name") == null) {
+            return false;
+        }
+        return String.valueOf(request.get("business_name")).trim().replaceAll("\\s+", " ")
+                .equalsIgnoreCase(String.valueOf(request.get("verified_business_name")).trim().replaceAll("\\s+", " "));
+    }
+
+    @Transactional
     public Map<String, Object> approveAndProvisionCompanyRequest(UUID requestId, String reviewerEmail, boolean startTrial) {
         Map<String, Object> req = jdbc.queryForList("SELECT * FROM organization_requests WHERE id = ? FOR UPDATE", requestId)
                 .stream().findFirst().orElseThrow(() -> new ResourceNotFoundException("Solicitud no encontrada."));
@@ -353,6 +380,9 @@ public class SaasPlatformRepository {
         }
         if (!Set.of("RECIBIDA", "EN_REVISION", "OBSERVADA").contains(req.get("status"))) {
             throw new ConflictException("La solicitud debe estar en revisión para ser aprobada.");
+        }
+        if (!canApproveVerifiedCompany(req)) {
+            throw new ConflictException("Registra el RUC activo y habido, la razón social coincidente, la representación y el contacto verificado.");
         }
         String contactEmail = String.valueOf(req.get("contact_email")).trim().toLowerCase(Locale.ROOT);
         if (accountRepository.existsByEmailIgnoreCase(contactEmail)) {
@@ -394,7 +424,7 @@ public class SaasPlatformRepository {
 
         Account managerAccount = new Account(UUID.randomUUID(), contactEmail,
                 passwordEncoder.encode(UUID.randomUUID().toString()),
-                Set.of("ADMIN_EMPRESA", "GERENTE_GENERAL"), "PENDIENTE_ACTIVACION", false);
+                Set.of("ADMIN_EMPRESA"), "PENDIENTE_ACTIVACION", false);
         managerAccount.setOrganizationId(orgId);
         accountRepository.saveAndFlush(managerAccount);
 

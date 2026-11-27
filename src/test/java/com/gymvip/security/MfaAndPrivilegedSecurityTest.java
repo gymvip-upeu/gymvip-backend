@@ -102,7 +102,7 @@ class MfaAndPrivilegedSecurityTest {
         var selfReq = new AccountSecurityController.PrivilegedRevocationRequest(
                 actorId, "RECEPCION", "ClaveRoot2026!", validOtp, "Prueba de auto revocacion"
         );
-        assertEquals(400, controller.revokePrivilegedRole(selfReq, auth).getStatusCode().value());
+        assertThrows(AccessDeniedException.class, () -> controller.revokePrivilegedRole(selfReq, auth));
 
         // Exigir TOTP válido si actor tiene MFA habilitado
         var badOtpReq = new AccountSecurityController.PrivilegedRevocationRequest(
@@ -116,9 +116,8 @@ class MfaAndPrivilegedSecurityTest {
         );
         var resp = controller.revokePrivilegedRole(validReq, auth);
         assertEquals(200, resp.getStatusCode().value());
-        verify(accountService).updateRole(eq(targetId), any(UpdateStaffRoleRequest.class), eq("root@vipcenterfit.pe"));
-        verify(sessionRepo).deleteByAccountId(targetId);
-        verify(auditService).recordEvent(eq("root@vipcenterfit.pe"), eq("PRIVILEGED_ROLE_REVOKED"), eq("Account"), eq(targetId.toString()), anyString());
+        verify(accountService).updatePrivilegedRole(eq(targetId), any(UpdateStaffRoleRequest.class), eq("root@vipcenterfit.pe"));
+        verify(auditService).recordEvent(eq("root@vipcenterfit.pe"), eq("CHANGE_PRIVILEGED_ROLE"), eq("Account"), eq(targetId.toString()), anyString());
     }
 
     @Test

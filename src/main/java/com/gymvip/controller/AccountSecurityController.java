@@ -7,6 +7,7 @@ import com.gymvip.repository.AccountRepository;
 import com.gymvip.repository.SessionRepository;
 import com.gymvip.security.PermissionCatalog;
 import com.gymvip.security.TotpService;
+import com.gymvip.security.StaffAccessPolicy;
 import com.gymvip.service.AccountService;
 import com.gymvip.service.AuditService;
 import org.springframework.http.ResponseEntity;
@@ -49,6 +50,7 @@ public class AccountSecurityController {
         Account account = accountRepository.findByEmailIgnoreCase(authentication.getName()).orElse(null);
         if (account == null) return ResponseEntity.status(404).build();
 
+        if (account.isMfaEnabled()) throw StaffAccessPolicy.denied();
         String secret = totpService.generateSecret();
         List<String> recoveryCodes = totpService.generateRecoveryCodes(6);
         String hashedCodes = recoveryCodes.stream()
@@ -82,6 +84,7 @@ public class AccountSecurityController {
         account.setMfaEnabled(true);
         account.setMfaVerifiedAt(LocalDateTime.now());
         accountRepository.save(account);
+        if (PermissionCatalog.isSuperAdmin(account.getRoles())) sessionRepository.deleteByAccountId(account.getId());
         auditService.recordEvent(account.getEmail(), "MFA_TOTP_ENABLED", "Account", account.getId().toString(),
                 "Autenticación multifactor TOTP activada correctamente");
         return ResponseEntity.ok(Map.of("mfaEnabled", true, "verifiedAt", account.getMfaVerifiedAt()));
@@ -92,6 +95,7 @@ public class AccountSecurityController {
         if (authentication == null) return ResponseEntity.status(401).build();
         Account account = accountRepository.findByEmailIgnoreCase(authentication.getName()).orElse(null);
         if (account == null) return ResponseEntity.status(404).build();
+        if (PermissionCatalog.isSuperAdmin(account.getRoles())) throw StaffAccessPolicy.denied();
         if (request == null || request.password() == null || !passwordEncoder.matches(request.password(), account.getPasswordHash())) {
             throw new InvalidCredentialsException("Reautenticación obligatoria fallida.");
         }
@@ -116,72 +120,53 @@ public class AccountSecurityController {
         return ResponseEntity.ok(Map.of("mfaEnabled", false));
     }
 
-    public record PrivilegedMigrationRequest(UUID accountId, String targetRole, String currentPassword, String reason) {}
+    public record PrivilegedMigrationRequest(UUID accountId, String targetRole, String currentPassword,
+                                             String reason, String mfaCode) {}
 
-    /**
-     * Migración controlada ADMIN -> SUPER_ADMIN o ADMIN_EMPRESA con reautenticación y revocación de sesiones.
-     */
     @PostMapping("/privileged/migrate-admin-role")
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN')")
+    @PreAuthorize("hasRole('SUPER_ADMIN')")
     public ResponseEntity<?> controlledAdminMigration(@RequestBody PrivilegedMigrationRequest request,
-                                                      Authentication authentication) {
-        Account actor = accountRepository.findByEmailIgnoreCase(authentication.getName()).orElse(null);
-        if (actor == null || request.currentPassword() == null || !passwordEncoder.matches(request.currentPassword(), actor.getPasswordHash())) {
-            throw new InvalidCredentialsException("Reautenticación obligatoria fallida para migración de rol privilegiado.");
-        }
+                                                       Authentication authentication) {
+        Account actor = verifyPlatformOperator(authentication, request.currentPassword(), request.mfaCode());
         String target = PermissionCatalog.normalizeRole(request.targetRole());
-        if (!Set.of("SUPER_ADMIN", "ADMIN_EMPRESA", "GERENTE_GENERAL").contains(target)) {
-            return ResponseEntity.badRequest().body(Map.of("message", "Destino de migración no permitido: " + target));
+        if (!Set.of("SUPER_ADMIN", "SOPORTE_PLATAFORMA", "ADMIN_EMPRESA").contains(target)) {
+            throw new IllegalArgumentException("El destino requiere un rol de plataforma o un administrador de empresa.");
         }
-        var updated = accountService.updateRole(request.accountId(), new UpdateStaffRoleRequest(target), actor.getEmail());
-        sessionRepository.deleteByAccountId(request.accountId());
-        auditService.recordEvent(actor.getEmail(), "CONTROLLED_ADMIN_MIGRATION", "Account",
-                request.accountId().toString(),
-                "Migración hacia " + target + " | Motivo: " + (request.reason() != null ? request.reason() : "N/A"));
-        return ResponseEntity.ok(updated);
+        return ResponseEntity.ok(changePrivilegedRole(actor, request.accountId(), target, request.reason()));
     }
 
-    public record PrivilegedRevocationRequest(
-            UUID accountId,
-            String replacementRole,
-            String currentPassword,
-            String mfaCode,
-            String reason
-    ) {}
+    public record PrivilegedRevocationRequest(UUID accountId, String replacementRole, String currentPassword,
+                                              String mfaCode, String reason) {}
 
-    /**
-     * TEC-10: Revocación excepcional y auditada de privilegios administrativos con doble factor
-     * (contraseña + TOTP si el actor tiene MFA activo) y bloqueo estricto de auto-revocación.
-     */
     @PostMapping("/privileged/revoke-role")
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN')")
-    public ResponseEntity<?> revokePrivilegedRole(@RequestBody PrivilegedRevocationRequest request,
-                                                  Authentication authentication) {
-        Account actor = accountRepository.findByEmailIgnoreCase(authentication.getName()).orElse(null);
-        if (actor == null || request == null || request.currentPassword() == null
-                || !passwordEncoder.matches(request.currentPassword(), actor.getPasswordHash())) {
-            throw new InvalidCredentialsException("Reautenticación obligatoria fallida para revocar privilegios.");
+    @PreAuthorize("hasRole('SUPER_ADMIN')")
+    public ResponseEntity<?> revokePrivilegedRole(@RequestBody PrivilegedRevocationRequest request, Authentication authentication) {
+        Account actor = verifyPlatformOperator(authentication, request.currentPassword(), request.mfaCode());
+        String target = PermissionCatalog.normalizeRole(request.replacementRole());
+        if (!PermissionCatalog.isAssignableStaffRole(target) ||
+                Set.of("SUPER_ADMIN", "SOPORTE_PLATAFORMA", "ADMIN_EMPRESA").contains(PermissionCatalog.canonicalRole(target))) {
+            throw new IllegalArgumentException("Selecciona un rol operativo para revocar estos privilegios.");
         }
-        if (actor.isMfaEnabled() && !totpService.verifyCode(actor.getTotpSecret(), request.mfaCode())) {
-            throw new InvalidCredentialsException("Se requiere código TOTP vigente del administrador para confirmar la revocación.");
+        return ResponseEntity.ok(changePrivilegedRole(actor, request.accountId(), target, request.reason()));
+    }
+
+    private Account verifyPlatformOperator(Authentication authentication, String password, String code) {
+        Account actor = StaffAccessPolicy.actor(accountRepository, authentication == null ? null : authentication.getName());
+        if (!PermissionCatalog.isSuperAdmin(actor.getRoles()) || !actor.isMfaEnabled()) throw StaffAccessPolicy.denied();
+        if (password == null || !passwordEncoder.matches(password, actor.getPasswordHash()) ||
+                !totpService.verifyCode(actor.getTotpSecret(), code)) {
+            throw new InvalidCredentialsException("Se requieren contraseña y TOTP válidos.");
         }
-        if (request.accountId() == null || actor.getId().equals(request.accountId())) {
-            return ResponseEntity.badRequest().body(Map.of("message", "No está permitido revocar sus propios privilegios ni dejar la plataforma sin responsable."));
+        return actor;
+    }
+
+    private Object changePrivilegedRole(Account actor, UUID accountId, String target, String reason) {
+        if (accountId == null || reason == null || reason.trim().length() < 8 || reason.length() > 400) {
+            throw new IllegalArgumentException("Indica una cuenta y un motivo de 8 a 400 caracteres.");
         }
-        if (request.reason() == null || request.reason().trim().length() < 8) {
-            return ResponseEntity.badRequest().body(Map.of("message", "Debe consignar un motivo explícito (mínimo 8 caracteres)."));
-        }
-        String nextRole = PermissionCatalog.normalizeRole(
-                request.replacementRole() != null ? request.replacementRole() : "RECEPCION"
-        );
-        if (Set.of("SUPER_ADMIN", "ADMIN").contains(nextRole)) {
-            return ResponseEntity.badRequest().body(Map.of("message", "La revocación debe asignar un rol operativo de menor privilegio."));
-        }
-        var updated = accountService.updateRole(request.accountId(), new UpdateStaffRoleRequest(nextRole), actor.getEmail());
-        sessionRepository.deleteByAccountId(request.accountId());
-        auditService.recordEvent(actor.getEmail(), "PRIVILEGED_ROLE_REVOKED", "Account",
-                request.accountId().toString(),
-                "Privilegio degradado a " + nextRole + " | Motivo: " + request.reason().trim());
-        return ResponseEntity.ok(updated);
+        if (accountId.equals(actor.getId())) throw StaffAccessPolicy.denied();
+        var result = accountService.updatePrivilegedRole(accountId, new UpdateStaffRoleRequest(target), actor.getEmail());
+        auditService.recordEvent(actor.getEmail(), "CHANGE_PRIVILEGED_ROLE", "Account", accountId.toString(), reason.trim());
+        return result;
     }
 }
