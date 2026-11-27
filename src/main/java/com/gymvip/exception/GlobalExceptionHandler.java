@@ -59,11 +59,14 @@ public class GlobalExceptionHandler {
         ErrorResponse error = new ErrorResponse(
                 HttpStatus.CONFLICT.value(),
                 HttpStatus.CONFLICT.getReasonPhrase(),
-                "RESOURCE_CONFLICT",
+                ex instanceof InsufficientSupplementStockException ? "STOCK_INSUFFICIENT" : "RESOURCE_CONFLICT",
                 ex.getMessage(),
                 request.getRequestURI(),
                 getCorrelationId(request)
         );
+        if (ex instanceof InsufficientSupplementStockException insufficient) {
+            error.setStock(insufficient.getStock());
+        }
         return ResponseEntity.status(HttpStatus.CONFLICT).body(error);
     }
 
@@ -176,7 +179,7 @@ public class GlobalExceptionHandler {
         ErrorResponse error = new ErrorResponse(
                 HttpStatus.NOT_FOUND.value(),
                 HttpStatus.NOT_FOUND.getReasonPhrase(),
-                "RESOURCE_NOT_FOUND",
+                "ENDPOINT_NOT_FOUND",
                 "Recurso no encontrado: " + request.getRequestURI(),
                 request.getRequestURI(),
                 getCorrelationId(request)
@@ -212,6 +215,7 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ErrorResponse> handleGeneral(Exception ex, HttpServletRequest request) {
+        com.gymvip.config.BackendErrorTelemetry.report(ex);
         org.slf4j.LoggerFactory.getLogger(GlobalExceptionHandler.class).error("ERROR 500 en " + request.getRequestURI() + ": " + ex.getMessage(), ex);
         ErrorResponse error = new ErrorResponse(
                 HttpStatus.INTERNAL_SERVER_ERROR.value(),

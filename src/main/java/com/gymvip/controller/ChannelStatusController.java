@@ -26,28 +26,22 @@ public class ChannelStatusController {
     private final boolean emailEnabled;
     private final boolean pushEnabled;
     private final boolean firebaseBeanAvailable;
-    private final String firebaseServiceAccount;
-    private final String resendApiKey;
 
     @Autowired
     public ChannelStatusController(
             CommsServiceClient communications,
             @Value("${comms.email.enabled:true}") boolean emailEnabled,
             @Value("${comms.push.enabled:true}") boolean pushEnabled,
-            ObjectProvider<FirebaseMessaging> firebase,
-            @Value("${FIREBASE_SERVICE_ACCOUNT_BASE64:}") String firebaseServiceAccount,
-            @Value("${resend.api.key:}") String resendApiKey
+            ObjectProvider<FirebaseMessaging> firebase
     ) {
         this.communications = communications;
         this.emailEnabled = emailEnabled;
         this.pushEnabled = pushEnabled;
         this.firebaseBeanAvailable = firebase != null && firebase.getIfAvailable() != null;
-        this.firebaseServiceAccount = firebaseServiceAccount != null ? firebaseServiceAccount : "";
-        this.resendApiKey = resendApiKey != null ? resendApiKey : "";
     }
 
     public ChannelStatusController(CommsServiceClient communications, boolean pushEnabled) {
-        this(communications, true, pushEnabled, null, "", "");
+        this(communications, true, pushEnabled, null);
     }
 
     @GetMapping("/status")
@@ -57,18 +51,10 @@ public class ChannelStatusController {
         // 1. Canal WhatsApp (verificación en vivo contra gymvip-comunicaciones)
         channels.put("whatsapp", communications.getWhatsAppChannelStatus());
 
-        // 2. Canal Email
-        String emailStatus = !emailEnabled ? "DISABLED"
-                : (!resendApiKey.isBlank() && !resendApiKey.contains("placeholder")) ? "CONFIGURED_REAL" : "SIMULATION";
-        channels.put("email", Map.of(
-                "channel", "EMAIL",
-                "status", emailStatus,
-                "provider", "Resend API / Fallback Simulation",
-                "supportsTemplates", true
-        ));
+        channels.put("email", emailEnabled ? communications.getEmailChannelStatus() :
+                Map.of("channel", "EMAIL", "status", "DISABLED", "connectionVerified", false));
 
-        // 3. Canal Push (FCM / Firebase Cloud Messaging) y Bandeja App
-        boolean firebaseConfigured = firebaseBeanAvailable || !firebaseServiceAccount.isBlank();
+        boolean firebaseConfigured = firebaseBeanAvailable;
         String pushStatus = !pushEnabled ? "DISABLED" : firebaseConfigured ? "CONFIGURED_REAL" : "UNCONFIGURED";
         String pushMessage = !pushEnabled
                 ? "Desactivado"

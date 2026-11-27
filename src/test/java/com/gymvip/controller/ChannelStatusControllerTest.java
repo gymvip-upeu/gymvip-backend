@@ -19,11 +19,14 @@ class ChannelStatusControllerTest {
     void inboxDoesNotDependOnUnverifiedWhatsappOrUnconfiguredPush() throws Exception {
         var client = mock(CommsServiceClient.class);
         when(client.getWhatsAppChannelStatus()).thenReturn(Map.of("status", "UNVERIFIED"));
+        when(client.getEmailChannelStatus()).thenReturn(Map.of("channel", "EMAIL", "status", "CONFIGURED_REAL", "connectionVerified", false));
         var mvc = MockMvcBuilders.standaloneSetup(new ChannelStatusController(client, true)).build();
         mvc.perform(get("/api/v1/channels/status").accept(MediaType.APPLICATION_JSON))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.channels.whatsapp.status").value("UNVERIFIED"))
                 .andExpect(jsonPath("$.channels.email.channel").value("EMAIL"))
+                .andExpect(jsonPath("$.channels.email.status").value("CONFIGURED_REAL"))
+                .andExpect(jsonPath("$.channels.email.connectionVerified").value(false))
                 .andExpect(jsonPath("$.channels.push.status").value("UNCONFIGURED"))
                 .andExpect(jsonPath("$.channels.app.inbox.status").value("AVAILABLE"))
                 .andExpect(jsonPath("$.channels.app.inbox.requiresFirebase").value(false))

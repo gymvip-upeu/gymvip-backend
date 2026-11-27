@@ -29,6 +29,11 @@ public class HttpCulqiClient implements CulqiClient {
         return secret.startsWith("sk_test_") || (liveEnabled && secret.startsWith("sk_live_"));
     }
 
+    @Override public String mode() {
+        if (secret.startsWith("sk_test_")) return "TEST";
+        return configured() ? "CONFIGURED_REAL" : "UNCONFIGURED";
+    }
+
     private void requireConfigured() {
         if (!configured()) throw new IllegalStateException("Culqi no está configurado en el backend.");
     }

@@ -32,7 +32,8 @@ public class CatalogController {
     @GetMapping("/products")
     public List<MobileProduct> products(@RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "50") int size, Authentication auth) {
-        return service.mobileProducts(page, size, isCustomer(auth));
+        boolean customer = isCustomer(auth);
+        return service.mobileProducts(page, size, customer, customer ? auth.getName() : null);
     }
 
     @GetMapping("/supplements") public Page<Supplement> list(@RequestParam(defaultValue="") String query,@RequestParam(defaultValue="") String category,
