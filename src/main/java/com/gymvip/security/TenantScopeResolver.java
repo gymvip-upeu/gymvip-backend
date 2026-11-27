@@ -33,7 +33,11 @@ public class TenantScopeResolver {
         if (authentication == null || authentication.getName() == null) {
             throw new AccessDeniedException("Sesión no autenticada.");
         }
-        return accountRepository.findByEmailIgnoreCase(authentication.getName())
+        return resolveActorByEmail(authentication.getName());
+    }
+
+    public Account resolveActorByEmail(String email) {
+        return accountRepository.findByEmailIgnoreCase(email)
                 .orElseThrow(() -> new AccessDeniedException("Cuenta operativa no localizada."));
     }
 
@@ -52,6 +56,7 @@ public class TenantScopeResolver {
                 || roles.contains("GERENTE_GENERAL")
                 || roles.contains("GERENTE")
                 || roles.contains("AUDITOR_EMPRESA")
+                || roles.contains("AUDITOR")
                 || roles.contains("CONTADOR")
                 || roles.contains("RECURSOS_HUMANOS");
     }
@@ -70,7 +75,7 @@ public class TenantScopeResolver {
     public UUID effectiveBranchId(Account actor, UUID requestedBranchId) {
         UUID organizationId = effectiveOrganizationId(actor, null);
         UUID primary = actor.getPrimaryBranchId();
-        if (primary == null && actor.getOrganizationId() == null) primary = DEFAULT_BRANCH_ID;
+        if (primary == null && DEFAULT_ORG_ID.equals(organizationId) && !isCompanyWideRole(actor)) primary = DEFAULT_BRANCH_ID;
 
         UUID branch = requestedBranchId != null ? requestedBranchId : primary;
         if (branch == null && isCompanyWideRole(actor)) {
@@ -83,9 +88,19 @@ public class TenantScopeResolver {
         }
         BranchEntity assigned = branchRepository.findById(branch)
                 .orElseThrow(() -> new AccessDeniedException("Sede operativa no asignada."));
-        if (!isGlobalPlatformRole(actor) && !organizationId.equals(assigned.getOrganizationId())) {
+        if (!"ACTIVO".equalsIgnoreCase(assigned.getStatus()) || (!isGlobalPlatformRole(actor) && !organizationId.equals(assigned.getOrganizationId()))) {
             throw new AccessDeniedException("Acceso denegado: la sede pertenece a otra empresa.");
         }
         return branch;
     }
+    public UUID memberBranch(Account actor, UUID registeredBranch) {
+        UUID effective = registeredBranch == null ? actor.getPrimaryBranchId() : registeredBranch;
+        UUID organization = effectiveOrganizationId(actor, null);
+        if (effective == null && DEFAULT_ORG_ID.equals(organization)) effective = DEFAULT_BRANCH_ID;
+        if (effective == null) return null;
+        return branchRepository.findById(effective)
+                .filter(branch -> organization.equals(branch.getOrganizationId()) && "ACTIVO".equalsIgnoreCase(branch.getStatus()))
+                .map(BranchEntity::getId).orElse(null);
+    }
+
 }
