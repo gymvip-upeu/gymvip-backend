@@ -36,7 +36,7 @@ public class MemberAccessEmailDispatcher {
             provider = result.deliveryId();
         }
         if (mail.invitationId() != null) {
-            if (com.gymvip.saas.service.CompanyInvitationService.TEMPLATE.equals(mail.template())) {
+            if (com.gymvip.saas.service.CompanyInvitationService.TEMPLATE.equals(mail.template()) || "company_activation".equals(mail.template())) {
                 jdbc.update("UPDATE company_activation_invitations SET email_status=?,provider_id=? WHERE id=?", status, provider, mail.invitationId());
                 if ("ACCEPTED".equals(status)) {
                     jdbc.update("""

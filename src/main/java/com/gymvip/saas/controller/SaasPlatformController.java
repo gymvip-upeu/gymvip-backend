@@ -197,6 +197,21 @@ public class SaasPlatformController {
         return ResponseEntity.ok(repository.reviewCompanyRequest(id, request.status(), request.notes(), auth.getName()));
     }
 
+    public record CompanyVerificationRequest(
+            @NotBlank @jakarta.validation.constraints.Pattern(regexp = "ACTIVO|OBSERVADO") String fiscalStatus,
+            @NotBlank @jakarta.validation.constraints.Pattern(regexp = "HABIDO|OBSERVADO") String fiscalCondition,
+            @NotBlank @jakarta.validation.constraints.Size(max = 200) String verifiedBusinessName,
+            @NotBlank @jakarta.validation.constraints.Size(max = 240) String representativeEvidence,
+            boolean contactConfirmed) {}
+
+    @PutMapping("/company-requests/{id}/verification")
+    @PreAuthorize("hasRole('SUPER_ADMIN')")
+    public ResponseEntity<Map<String, Object>> verifyCompanyRequest(@PathVariable UUID id,
+            @Valid @RequestBody CompanyVerificationRequest request, Authentication auth) {
+        return ResponseEntity.ok(repository.recordCompanyVerification(id, request.fiscalStatus(), request.fiscalCondition(),
+                request.verifiedBusinessName(), request.representativeEvidence(), request.contactConfirmed(), auth.getName()));
+    }
+
     @PostMapping("/company-requests/{id}/approve")
     @PreAuthorize("hasRole('SUPER_ADMIN')")
     public ResponseEntity<Map<String, Object>> approveCompanyRequest(@PathVariable UUID id,

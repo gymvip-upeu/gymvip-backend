@@ -30,7 +30,9 @@ class AccountStaffIsolationTest {
         when(member.getRoles()).thenReturn(Set.of("CLIENTE"));
         when(accounts.findById(memberId)).thenReturn(Optional.of(member));
 
-        assertThrows(AccountNotFoundException.class, () -> service.getById(memberId));
+        when(accounts.findByEmailIgnoreCase("admin@gymvip.pe")).thenReturn(Optional.of(
+                new Account(UUID.randomUUID(), "admin@gymvip.pe", "hash", Set.of("ADMIN_EMPRESA"), "ACTIVO", false)));
+        assertThrows(AccountNotFoundException.class, () -> service.getById(memberId, "admin@gymvip.pe"));
         assertThrows(AccountNotFoundException.class, () -> service.revokeSessions(memberId, "admin@gymvip.pe"));
         verify(sessions, never()).deleteByAccountId(any());
         verify(accounts, never()).save(any());

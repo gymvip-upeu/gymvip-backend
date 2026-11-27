@@ -4,6 +4,11 @@ import com.gymvip.enterprise.*;
 import com.gymvip.entity.Account;
 import com.gymvip.repository.AccountRepository;
 import com.gymvip.security.PermissionCatalog;
+import com.gymvip.security.StaffAccessPolicy;
+import com.gymvip.repository.SessionRepository;
+import com.gymvip.service.AuditService;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
@@ -20,14 +25,20 @@ public class RbacController {
     private final UserPreferenceRepository preferenceRepository;
     private final BranchRepository branchRepository;
 
+    private final SessionRepository sessions;
+    private final AuditService audit;
+
+    @Autowired
     public RbacController(AccountRepository accountRepository,
                           AccountBranchAssignmentRepository branchAssignmentRepository,
                           UserPreferenceRepository preferenceRepository,
-                          BranchRepository branchRepository) {
+                          BranchRepository branchRepository, SessionRepository sessions, AuditService audit) {
         this.accountRepository = accountRepository;
         this.branchAssignmentRepository = branchAssignmentRepository;
         this.preferenceRepository = preferenceRepository;
         this.branchRepository = branchRepository;
+        this.sessions = sessions;
+        this.audit = audit;
     }
 
     @GetMapping("/me")
@@ -48,7 +59,7 @@ public class RbacController {
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("accountId", account.getId());
         body.put("email", account.getEmail());
-        body.put("roles", roles);
+        body.put("roles", roles.stream().map(PermissionCatalog::canonicalRole).distinct().toList());
         body.put("permissions", permissions);
         body.put("organizationId", account.getOrganizationId());
         body.put("primaryBranchId", account.getPrimaryBranchId());
@@ -74,51 +85,73 @@ public class RbacController {
         return ResponseEntity.ok(PermissionCatalog.allPermissionDefinitions());
     }
 
+    @GetMapping("/assignable-roles")
+    @PreAuthorize("hasAnyAuthority('employees.create','employees.assign_role')")
+    public List<PermissionCatalog.RoleDefinition> listAssignableRoles(Authentication authentication) {
+        return StaffAccessPolicy.delegable(StaffAccessPolicy.actor(accountRepository, authentication.getName()));
+    }
+
     @GetMapping("/accounts/{accountId}/branches")
     @PreAuthorize("hasAnyAuthority('employees.read','employees.assign_role')")
-    public ResponseEntity<List<AccountBranchAssignmentEntity>> getAccountBranches(@PathVariable UUID accountId) {
-        return ResponseEntity.ok(branchAssignmentRepository.findByAccountIdAndStatusIgnoreCase(accountId, "ACTIVO"));
+    public List<AccountBranchAssignmentEntity> getAccountBranches(@PathVariable UUID accountId, Authentication authentication) {
+        Account actor = StaffAccessPolicy.actor(accountRepository, authentication.getName());
+        Account target = accountRepository.findById(accountId).orElseThrow(StaffAccessPolicy::denied);
+        if (!StaffAccessPolicy.canSee(actor, target)) throw StaffAccessPolicy.denied();
+        return branchAssignmentRepository.findByAccountIdAndStatusIgnoreCase(accountId, "ACTIVO");
     }
 
     public record BranchAssignmentRequest(UUID branchId, String branchRole, boolean primary) {}
 
     @PutMapping("/accounts/{accountId}/branches")
     @PreAuthorize("hasAuthority('employees.assign_role')")
-    public ResponseEntity<?> assignAccountBranches(
-            @PathVariable UUID accountId,
-            @RequestBody List<BranchAssignmentRequest> assignments,
-            Authentication authentication
-    ) {
-        Account target = accountRepository.findById(accountId).orElse(null);
-        if (target == null) {
-            return ResponseEntity.status(404).body(Map.of("message", "Cuenta no encontrada"));
+    @Transactional
+    public List<AccountBranchAssignmentEntity> assignAccountBranches(
+            @PathVariable UUID accountId, @RequestBody List<BranchAssignmentRequest> assignments,
+            Authentication authentication) {
+        accountRepository.lockStaffRoleChanges();
+        Account actor = StaffAccessPolicy.actor(accountRepository, authentication.getName());
+        Account target = accountRepository.findById(accountId).orElseThrow(StaffAccessPolicy::denied);
+        StaffAccessPolicy.requireTarget(actor, target, false);
+        if (assignments == null || assignments.isEmpty() ||
+                assignments.stream().filter(Objects::nonNull).filter(BranchAssignmentRequest::primary).count() != 1) {
+            throw new IllegalArgumentException("Selecciona una sede principal.");
         }
-        branchAssignmentRepository.deleteByAccountId(accountId);
-        List<AccountBranchAssignmentEntity> saved = new ArrayList<>();
-        if (assignments != null) {
-            for (BranchAssignmentRequest req : assignments) {
-                if (req.branchId() == null) continue;
-                BranchEntity branch = branchRepository.findById(req.branchId()).orElse(null);
-                if (branch == null) continue;
-                String role = PermissionCatalog.normalizeRole(req.branchRole());
-                if (!PermissionCatalog.isAssignableStaffRole(role)) continue;
-                AccountBranchAssignmentEntity entity = new AccountBranchAssignmentEntity();
-                entity.setId(UUID.randomUUID());
-                entity.setAccountId(accountId);
-                entity.setOrganizationId(branch.getOrganizationId());
-                entity.setBranchId(branch.getId());
-                entity.setBranchRole(role);
-                entity.setPrimary(req.primary());
-                entity.setStatus("ACTIVO");
-                entity.setAssignedBy(authentication != null ? authentication.getName() : "sistema");
-                saved.add(branchAssignmentRepository.save(entity));
-                if (req.primary()) {
-                    target.setOrganizationId(branch.getOrganizationId());
-                    target.setPrimaryBranchId(branch.getId());
-                }
+        if (StaffAccessPolicy.hasRole(actor, "GERENTE_SEDE")) throw StaffAccessPolicy.denied();
+
+        Set<UUID> branchIds = new HashSet<>();
+        List<AccountBranchAssignmentEntity> validated = new ArrayList<>();
+        for (BranchAssignmentRequest request : assignments) {
+            if (request == null || request.branchId() == null || !branchIds.add(request.branchId())) {
+                throw new IllegalArgumentException("Las sedes deben existir y ser distintas.");
             }
+            BranchEntity branch = branchRepository.findById(request.branchId()).orElseThrow(StaffAccessPolicy::denied);
+            String code = PermissionCatalog.normalizeRole(request.branchRole());
+            if (!"ACTIVO".equalsIgnoreCase(branch.getStatus()) ||
+                    !StaffAccessPolicy.organization(target).equals(branch.getOrganizationId()) ||
+                    !code.equals(PermissionCatalog.canonicalRole(code)) ||
+                    !StaffAccessPolicy.canDelegate(actor, code) || !StaffAccessPolicy.hasRole(target, code)) {
+                throw StaffAccessPolicy.denied();
+            }
+            AccountBranchAssignmentEntity entity = new AccountBranchAssignmentEntity();
+            entity.setId(UUID.randomUUID());
+            entity.setAccountId(target.getId());
+            entity.setOrganizationId(branch.getOrganizationId());
+            entity.setBranchId(branch.getId());
+            entity.setBranchRole(code);
+            entity.setPrimary(request.primary());
+            entity.setStatus("ACTIVO");
+            entity.setAssignedBy(actor.getEmail());
+            validated.add(entity);
         }
+
+        branchAssignmentRepository.deleteByAccountId(accountId);
+        branchAssignmentRepository.flush();
+        target.setPrimaryBranchId(validated.stream().filter(AccountBranchAssignmentEntity::isPrimary)
+                .findFirst().orElseThrow().getBranchId());
         accountRepository.save(target);
-        return ResponseEntity.ok(saved);
+        sessions.deleteByAccountId(accountId);
+        audit.recordEvent(actor.getEmail(), "UPDATE_STAFF_BRANCHES", "Account", accountId.toString(),
+                "Sedes autorizadas actualizadas");
+        return branchAssignmentRepository.saveAll(validated);
     }
 }

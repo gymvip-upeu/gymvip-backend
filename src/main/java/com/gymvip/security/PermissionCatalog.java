@@ -146,7 +146,7 @@ public final class PermissionCatalog {
                 true, true, SUPER_ADMIN_PERMS);
         register("SOPORTE_PLATAFORMA", "Soporte de Plataforma", "PLATFORM",
                 "Diagnóstico técnico controlado de integraciones, incidencias y cuentas con auditoría estricta.",
-                true, true, Set.of("platform.manage", "branches.read", "integrations.read", "integrations.test", "incidents.read", "reports.read", "preferences.manage"));
+                true, true, Set.of("branches.read", "integrations.read", "integrations.test", "incidents.read", "reports.read", "preferences.manage"));
 
         register("ADMIN_EMPRESA", "Administrador de Empresa", "ORGANIZATION",
                 "Administrador general de la empresa o cadena de gimnasios contratante.",
@@ -188,7 +188,7 @@ public final class PermissionCatalog {
                 false, true, COACH_PERMS);
         register("MARKETING", "Marketing y Promociones", "BRANCH",
                 "Gestión de campañas, promociones y comunicados institucionales.",
-                false, false, Set.of("branches.read", "inventory.read", "inventory.adjust", "communications.read", "communications.configure", "preferences.manage"));
+                false, false, Set.of("branches.read", "communications.read", "communications.configure", "preferences.manage"));
         register("ATENCION_CLIENTE", "Atención al Cliente", "BRANCH",
                 "Soporte a socios, FAQs y seguimiento de incidencias básicas.",
                 false, false, Set.of("branches.read", "members.read", "memberships.read", "communications.read", "incidents.read", "preferences.manage"));
@@ -285,12 +285,35 @@ public final class PermissionCatalog {
         return clean.startsWith("ROLE_") ? clean.substring(5) : clean;
     }
 
+    public static String canonicalRole(String role) {
+        return switch (normalizeRole(role)) {
+            case "ADMIN" -> "ADMIN_EMPRESA";
+            case "GERENTE" -> "GERENTE_GENERAL";
+            case "AUDITOR" -> "AUDITOR_EMPRESA";
+            default -> normalizeRole(role);
+        };
+    }
+
+    public static Set<String> compatibleRoles(Collection<String> roles) {
+        Set<String> compatible = new LinkedHashSet<>();
+        for (String role : roles) {
+            String canonical = canonicalRole(role);
+            compatible.add(canonical);
+            switch (canonical) {
+                case "ADMIN_EMPRESA" -> compatible.add("ADMIN");
+                case "GERENTE_GENERAL" -> compatible.add("GERENTE");
+                case "AUDITOR_EMPRESA" -> compatible.add("AUDITOR");
+            }
+        }
+        return Set.copyOf(compatible);
+    }
+
     public static RoleDefinition resolveRoleDefinition(String role) {
         return ROLES.get(normalizeRole(role));
     }
 
     public static List<RoleDefinition> allRoleDefinitions() {
-        return List.copyOf(ROLES.values());
+        return ROLES.values().stream().filter(role -> role.code().equals(canonicalRole(role.code()))).toList();
     }
 
     public static List<PermissionDefinition> allPermissionDefinitions() {

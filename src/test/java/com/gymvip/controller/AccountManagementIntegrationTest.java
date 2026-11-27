@@ -158,13 +158,13 @@ public class AccountManagementIntegrationTest {
 
         String accountId = objectMapper.readTree(createResp).get("id").asText();
 
-        // Ascender a ADMIN
+        // Asignar otro rol operativo
         mockMvc.perform(patch("/api/v1/accounts/" + accountId + "/role")
                         .header("Authorization", "Bearer " + adminToken)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(new UpdateStaffRoleRequest("ADMIN"))))
+                        .content(objectMapper.writeValueAsString(new UpdateStaffRoleRequest("CAJERO"))))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.roles", hasItem("ADMIN")));
+                .andExpect(jsonPath("$.roles", hasItem("CAJERO")));
 
         // Inactivar cuenta
         mockMvc.perform(patch("/api/v1/accounts/" + accountId + "/status")
@@ -189,7 +189,7 @@ public class AccountManagementIntegrationTest {
         for (var node : nodes) {
             boolean isAdmin = false;
             for (var role : node.get("roles")) {
-                if (role.asText().equals("ADMIN")) {
+                if (role.asText().equals("ADMIN_EMPRESA")) {
                     isAdmin = true;
                     break;
                 }

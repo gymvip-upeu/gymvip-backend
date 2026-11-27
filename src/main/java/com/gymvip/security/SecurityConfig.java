@@ -124,7 +124,7 @@ public class SecurityConfig {
                         .requestMatchers("/api/v1/reports", "/api/v1/reports/**").hasAnyRole("SUPER_ADMIN", "ADMIN", "ADMIN_EMPRESA", "GERENTE", "GERENTE_GENERAL", "GERENTE_SEDE", "AUDITOR", "AUDITOR_EMPRESA", "CONTADOR")
                         .requestMatchers("/api/v1/incidents", "/api/v1/incidents/**").hasAnyRole("SUPER_ADMIN", "ADMIN", "ADMIN_EMPRESA", "GERENTE", "GERENTE_GENERAL", "GERENTE_SEDE", "AUDITOR", "AUDITOR_EMPRESA", "MANTENIMIENTO")
                         .requestMatchers("/api/v1/enterprise/ops/**", "/api/v1/enterprise/branches/**").authenticated()
-                        .requestMatchers("/api/v1/auth/me", "/api/v1/auth/revoke-other-sessions").authenticated()
+                        .requestMatchers("/api/v1/auth/me", "/api/v1/auth/first-password", "/api/v1/auth/revoke-other-sessions").authenticated()
                         .anyRequest().hasAnyRole("SUPER_ADMIN", "ADMIN", "ADMIN_EMPRESA", "GERENTE", "GERENTE_GENERAL", "GERENTE_SEDE", "RECEPCION", "CAJERO", "INVENTARIO", "ENTRENADOR_JEFE", "ENTRENADOR")
                 )
                 .addFilterBefore(tokenAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);

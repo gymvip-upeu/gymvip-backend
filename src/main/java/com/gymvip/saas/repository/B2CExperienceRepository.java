@@ -43,6 +43,11 @@ public class B2CExperienceRepository {
     }
 
     public List<Map<String, Object>> listPublicGymsShowcase(String q, String city, String district) {
+        return listPublicGymsShowcase(q, city, district, null, null, null);
+    }
+
+    public List<Map<String, Object>> listPublicGymsShowcase(String q, String city, String district,
+            BigDecimal minPrice, BigDecimal maxPrice, String amenity) {
         List<Map<String, Object>> orgs = jdbc.queryForList(
                 "SELECT o.id, o.code, o.name, o.description, o.plan_tier, " +
                         "cp.slug, cp.headline, cp.tagline, cp.about_text, cp.amenities_json, cp.schedule_json, " +
@@ -84,8 +89,12 @@ public class B2CExperienceRepository {
             ).map(this::camelizeMap).toList();
 
             if (!branches.isEmpty()) {
-                Map<String, Object> dto = camelizeMap(org);
                 List<BigDecimal> prices = publishedPrices(org.get("reference_plans_json"));
+                if ((minPrice != null || maxPrice != null) && prices.stream().noneMatch(price ->
+                        (minPrice == null || minPrice.compareTo(price) <= 0) &&
+                        (maxPrice == null || maxPrice.compareTo(price) >= 0))) continue;
+                if (!hasAmenity(org.get("amenities_json"), amenity)) continue;
+                Map<String, Object> dto = camelizeMap(org);
                 dto.put("minPricePen", prices.stream().min(BigDecimal::compareTo).orElse(null));
                 dto.put("maxPricePen", prices.stream().max(BigDecimal::compareTo).orElse(null));
                 dto.put("branches", branches);
@@ -100,6 +109,22 @@ public class B2CExperienceRepository {
             }
         }
         return result;
+    }
+
+    private boolean hasAmenity(Object raw, String filter) {
+        if (filter == null || filter.isBlank()) return true;
+        if (!(raw instanceof String json)) return false;
+        try {
+            var amenities = mapper.readTree(json);
+            if (amenities == null || !amenities.isArray()) return false;
+            String searched = filter.trim().toLowerCase(Locale.ROOT);
+            for (var item : amenities) {
+                if (item.isTextual() && item.asText().toLowerCase(Locale.ROOT).contains(searched)) return true;
+            }
+            return false;
+        } catch (JsonProcessingException invalidProfile) {
+            return false;
+        }
     }
 
     private List<BigDecimal> publishedPrices(Object raw) {

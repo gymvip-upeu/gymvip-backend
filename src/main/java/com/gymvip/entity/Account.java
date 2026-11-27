@@ -57,6 +57,11 @@ public class Account {
     @Column(name = "must_change_password", nullable = false)
     private boolean mustChangePassword = false;
 
+    @Column(name = "first_access_password", nullable = false)
+    private boolean firstAccessPassword;
+
+    public boolean isFirstAccessPassword() { return firstAccessPassword; }
+
     @Column(name = "temporary_password_expires_at")
     private LocalDateTime temporaryPasswordExpiresAt;
 

@@ -94,11 +94,11 @@ public class DataInitializer implements CommandLineRunner {
                         UUID.randomUUID(),
                         "admin@vipcenterfit.pe",
                         passwordEncoder.encode(pwd),
-                        Set.of(Role.ADMIN.name()),
+                        Set.of("ADMIN_EMPRESA"),
                         "ACTIVO",
                         false
                 ));
-                log.info("Semilla de personal creada: admin@vipcenterfit.pe (Rol: ADMIN / Soporte TI)");
+                log.info("Semilla de personal creada: admin@vipcenterfit.pe (Rol: ADMIN_EMPRESA)");
             }
         }
 
