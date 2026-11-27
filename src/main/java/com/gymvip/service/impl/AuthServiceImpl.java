@@ -174,7 +174,7 @@ public class AuthServiceImpl implements AuthService {
         String jwtToken = jwtService.generateToken(account, sessionId, expiresAt);
         return new AuthResponse(jwtToken, account.getId(), account.getEmail(), account.getRoles(), false, null, null,
                 com.gymvip.security.PermissionCatalog.isSuperAdmin(account.getRoles()) && !account.isMfaEnabled(),
-                account.isFirstAccessPassword());
+                account.isFirstAccessPassword(), account.isDirectoryOnly());
     }
 
     @Override

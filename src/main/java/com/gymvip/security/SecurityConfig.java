@@ -92,7 +92,8 @@ public class SecurityConfig {
                         .requestMatchers("/", "/api/v1/health", "/api/v1/health/**", "/health", "/health/**", "/actuator/health", "/actuator/health/**", "/actuator/info").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/v1/payments/culqi/webhook").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/v1/enterprise/gyms", "/api/v1/public/**", "/api/v1/legal/documents", "/api/v1/app/releases/latest", "/api/v1/gyms/*/reviews", "/api/v1/group-promotions").permitAll()
-                        .requestMatchers(HttpMethod.POST, "/api/v1/public/company-requests", "/api/v1/public/company-activation").permitAll()
+                        .requestMatchers(HttpMethod.POST, "/api/v1/public/company-requests", "/api/v1/public/company-activation",
+                                "/api/v1/public/member-signups", "/api/v1/public/member-signups/*/verify").permitAll()
                         .requestMatchers("/error").permitAll()
                         .requestMatchers("/api/v1/platform/export/**").hasAnyRole("SUPER_ADMIN", "ADMIN_EMPRESA", "GERENTE_GENERAL", "AUDITOR_EMPRESA", "ADMIN", "GERENTE", "AUDITOR")
                         .requestMatchers("/api/v1/platform/**").hasRole("SUPER_ADMIN")

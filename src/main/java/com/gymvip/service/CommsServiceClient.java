@@ -116,6 +116,18 @@ public class CommsServiceClient {
         }
     }
 
+    public boolean sendSignupWhatsAppCode(String phone, String code) {
+        try {
+            var result = restClient.post().uri("/api/v1/messages/whatsapp/signup-code")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .body(Map.of("phone", phone, "code", code))
+                    .retrieve().body(Map.class);
+            return result != null && "ACEPTADO_PROVEEDOR".equals(result.get("status"));
+        } catch (Exception ignored) {
+            return false;
+        }
+    }
+
     public CommsDispatchResult sendWhatsAppReminder(
             String requestId,
             String phone,
