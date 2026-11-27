@@ -396,7 +396,7 @@ public class SaasPlatformRepository {
                 passwordEncoder.encode(UUID.randomUUID().toString()),
                 Set.of("ADMIN_EMPRESA", "GERENTE_GENERAL"), "PENDIENTE_ACTIVACION", false);
         managerAccount.setOrganizationId(orgId);
-        accountRepository.save(managerAccount);
+        accountRepository.saveAndFlush(managerAccount);
 
         jdbc.update(
                 "UPDATE organization_requests SET status = 'APROBADA', approved_organization_id = ?, reviewed_by = ?, updated_at_utc = NOW() WHERE id = ?",
