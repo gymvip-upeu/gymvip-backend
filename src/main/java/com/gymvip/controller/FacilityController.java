@@ -156,9 +156,10 @@ public class FacilityController {
 
             UUID noticeId = UUID.randomUUID();
             jdbc.update("""
-                INSERT INTO gym_announcements (id, title, message, category, target_audience, is_active, facility_id, created_by)
-                VALUES (?, ?, ?, 'MANTENIMIENTO', 'TODOS', true, ?, ?)
-            """, noticeId, noticeTitle, noticeMessage, id, auth.getName());
+                INSERT INTO gym_announcements (id, title, message, category, target_audience, is_active, facility_id, created_by, organization_id)
+                SELECT ?, ?, ?, 'MANTENIMIENTO', 'TODOS', true, s.id, ?, b.organization_id
+                FROM gym_services s JOIN branches b ON b.id=COALESCE(s.branch_id, CAST(? AS uuid)) WHERE s.id=?
+            """, noticeId, noticeTitle, noticeMessage, auth.getName(), com.gymvip.security.TenantScopeResolver.DEFAULT_BRANCH_ID, id);
 
             // Registro en Notification Outbox para envío push
             String idempotencyKey = "notice_facility_" + id + "_" + System.currentTimeMillis();

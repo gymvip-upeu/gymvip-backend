@@ -5,6 +5,9 @@ import com.gymvip.repository.SessionRepository;
 import com.gymvip.security.JwtService;
 import com.gymvip.security.SecurityConfig;
 import com.gymvip.security.TokenAuthenticationFilter;
+import com.gymvip.security.TenantScopeResolver;
+import com.gymvip.service.SupplementStockService;
+import org.springframework.security.core.Authentication;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
@@ -36,20 +39,27 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 class CatalogSecurityTest {
     @Autowired MockMvc mvc;
     @MockitoBean CatalogService service;
+    @MockitoBean TenantScopeResolver tenants;
+    @MockitoBean SupplementStockService stock;
     @MockitoBean SessionRepository sessions;
     @MockitoBean AccountRepository accounts;
     @MockitoBean JwtService jwt;
 
     private static final UUID ID = UUID.fromString("00000000-0000-0000-0000-000000000001");
     private static final UUID IMAGE = UUID.fromString("00000000-0000-0000-0000-000000000002");
+    private static final MemberSupplementStock BRANCH = new MemberSupplementStock(TenantScopeResolver.DEFAULT_BRANCH_ID, true);
     private static final String BASE = "/api/v1/catalog";
     private Supplement product() {
         return new Supplement(ID, "Proteína", "Marca", "PROTEINA", "Bolsa", "1 kg", null, "Descripción", null,
                 new BigDecimal("100.00"), "DISPONIBLE", true, 0, LocalDateTime.of(2026, 11, 9, 12, 0), List.of());
     }
     private void reads() {
+        when(tenants.resolveActor(any(Authentication.class))).thenReturn(new com.gymvip.entity.Account());
+        when(tenants.effectiveBranchId(any(), nullable(UUID.class))).thenReturn(BRANCH.branchId());
+        when(stock.productBranch(ID)).thenReturn(BRANCH.branchId());
+        when(service.memberStock("lector")).thenReturn(BRANCH);
         when(service.supplements(anyString(), anyString(), anyString(), nullable(Boolean.class), nullable(BigDecimal.class),
-                nullable(BigDecimal.class), anyBoolean(), anyInt(), anyInt(), anyBoolean()))
+                nullable(BigDecimal.class), anyBoolean(), anyInt(), anyInt(), anyBoolean(), eq(BRANCH)))
                 .thenReturn(new Page<>(List.of(product()), 1, 0, 1));
         when(service.supplement(eq(ID), anyBoolean())).thenReturn(product());
         when(service.image(eq(ID), eq(IMAGE), anyBoolean(), anyBoolean()))
@@ -57,7 +67,7 @@ class CatalogSecurityTest {
         var offer = new Promotion(ID, product(), "Oferta", "Descripción", "Condiciones", new BigDecimal("100.00"),
                 new BigDecimal("90.00"), BigDecimal.TEN, LocalDate.of(2026, 11, 1), LocalDate.of(2026, 11, 30),
                 "VIGENTE", true, 0, LocalDateTime.of(2026, 11, 9, 12, 0));
-        when(service.promotions(anyString(), nullable(UUID.class), anyInt(), anyInt(), anyBoolean()))
+        when(service.promotions(anyString(), nullable(UUID.class), anyInt(), anyInt(), anyBoolean(), eq(BRANCH)))
                 .thenReturn(new Page<>(List.of(offer), 1, 0, 1));
         when(service.promotion(eq(ID), anyBoolean())).thenReturn(offer);
     }
@@ -73,10 +83,10 @@ class CatalogSecurityTest {
         mvc.perform(get(BASE + "/promotions").with(user)).andExpect(status().isOk());
         mvc.perform(get(BASE + "/promotions/" + ID).with(user)).andExpect(status().isOk());
         boolean customer = role.equals("CLIENTE");
-        verify(service).supplements("", "", "", customer, null, null, false, 0, 12, customer);
+        verify(service).supplements("", "", "", customer, null, null, false, 0, 12, customer, BRANCH);
         verify(service).supplement(ID, customer);
         verify(service).image(ID, IMAGE, true, customer);
-        verify(service).promotions("VIGENTE", null, 0, 12, customer);
+        verify(service).promotions("VIGENTE", null, 0, 12, customer, BRANCH);
         verify(service).promotion(ID, customer);
     }
 
@@ -91,7 +101,7 @@ class CatalogSecurityTest {
     void staffMayOmitPublishedFilterWithoutUnboxingNull(String role) throws Exception {
         reads();
         mvc.perform(get(BASE + "/supplements").with(user("personal").roles(role))).andExpect(status().isOk());
-        verify(service).supplements("", "", "", null, null, null, false, 0, 12, false);
+        verify(service).supplements("", "", "", null, null, null, false, 0, 12, false, BRANCH);
     }
 
     @ParameterizedTest @ValueSource(strings = {"CLIENTE", "RECEPCION"})
@@ -116,6 +126,7 @@ class CatalogSecurityTest {
     }
 
     @Test void adminKeepsStateWriteAndHistoryAccess() throws Exception {
+        reads();
         var admin = user("admin").roles("ADMIN");
         when(service.state(eq(ID), any(StateInput.class), eq("admin"))).thenReturn(product());
         mvc.perform(patch(BASE + "/supplements/" + ID + "/state").with(admin).contentType(MediaType.APPLICATION_JSON)

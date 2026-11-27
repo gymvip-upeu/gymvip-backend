@@ -65,6 +65,13 @@ public final class PermissionCatalog {
             new PermissionDefinition("employees.inactivate", "Personal", "inactivacion", "Revocar acceso e inactivar cuentas no críticas"),
 
             // Entrenamiento y Reservas
+            new PermissionDefinition("supplements.stock.read", "Suplementos", "lectura", "Consultar las existencias y el kardex de la sede"),
+            new PermissionDefinition("supplements.stock.receive", "Suplementos", "entrada", "Registrar entradas de stock vendible"),
+            new PermissionDefinition("supplements.stock.adjust", "Suplementos", "ajuste", "Registrar salidas y ajustes de stock vendible"),
+            new PermissionDefinition("training.exercises.edit", "Entrenamiento", "edicion", "Crear y editar borradores de ejercicios de la sede"),
+            new PermissionDefinition("training.exercises.publish", "Entrenamiento", "publicacion", "Publicar fichas de ejercicios revisadas"),
+            new PermissionDefinition("training.classes.roster", "Reservas", "lectura", "Consultar la lista de reservas de clases autorizadas"),
+            new PermissionDefinition("training.classes.notifications", "Reservas", "avisos", "Recibir avisos de reservas de clases asignadas"),
             new PermissionDefinition("training.routines.read", "Entrenamiento", "lectura", "Consultar catálogo de ejercicios y rutinas"),
             new PermissionDefinition("training.routines.create", "Entrenamiento", "creacion", "Crear rutinas estructuradas"),
             new PermissionDefinition("training.routines.assign", "Entrenamiento", "asignacion", "Asignar rutinas a socios autorizados"),
@@ -86,7 +93,7 @@ public final class PermissionCatalog {
     private static final Set<String> STAFF_CORE_READ = Set.of(
             "members.read", "memberships.read", "payments.read", "attendance.read",
             "plans.read", "inventory.read", "communications.read", "branches.read",
-            "training.routines.read", "preferences.manage"
+            "training.routines.read", "training.classes.roster", "supplements.stock.read", "preferences.manage"
     );
 
     private static final Set<String> RECEPTION_PERMS = union(STAFF_CORE_READ, Set.of(
@@ -97,7 +104,8 @@ public final class PermissionCatalog {
     private static final Set<String> COACH_PERMS = Set.of(
             "branches.read", "members.read", "training.routines.read", "training.routines.create",
             "training.routines.assign", "training.progress.read", "training.sessions.log",
-            "training.classes.manage", "communications.read", "preferences.manage"
+            "training.classes.manage", "training.classes.roster", "training.classes.notifications",
+            "training.exercises.edit", "communications.read", "preferences.manage"
     );
 
     private static final Set<String> AUDITOR_PERMS = Set.of(
@@ -106,7 +114,8 @@ public final class PermissionCatalog {
     );
 
     private static final Set<String> MANAGER_BRANCH_PERMS = union(RECEPTION_PERMS, Set.of(
-            "inventory.adjust", "training.routines.read", "training.routines.create",
+            "inventory.adjust", "supplements.stock.receive", "supplements.stock.adjust",
+            "training.exercises.edit", "training.classes.notifications", "training.routines.read", "training.routines.create",
             "training.routines.assign", "training.progress.read", "training.classes.manage",
             "reports.read", "reports.export", "incidents.read", "incidents.manage",
             "employees.read", "communications.configure"
@@ -115,7 +124,7 @@ public final class PermissionCatalog {
     private static final Set<String> CORP_ADMIN_PERMS = union(MANAGER_BRANCH_PERMS, Set.of(
             "members.import", "plans.manage", "payments.refund", "employees.create",
             "employees.assign_role", "employees.inactivate", "branches.manage",
-            "integrations.read", "integrations.test", "security.roles.manage"
+            "integrations.read", "integrations.test", "security.roles.manage", "training.exercises.publish"
     ));
 
     private static final Set<String> SUPER_ADMIN_PERMS = union(CORP_ADMIN_PERMS, Set.of(
@@ -144,7 +153,7 @@ public final class PermissionCatalog {
                 true, true, CORP_ADMIN_PERMS);
         register("GERENTE_GENERAL", "Gerente General", "ORGANIZATION",
                 "Dirección ejecutiva y financiera multi-sede.",
-                false, true, union(MANAGER_BRANCH_PERMS, Set.of("plans.manage", "employees.create", "employees.assign_role", "employees.inactivate", "branches.manage", "integrations.read")));
+                false, true, union(MANAGER_BRANCH_PERMS, Set.of("plans.manage", "employees.create", "employees.assign_role", "employees.inactivate", "branches.manage", "integrations.read", "training.exercises.publish")));
         register("AUDITOR_EMPRESA", "Auditor Empresarial", "ORGANIZATION",
                 "Supervisión contable, operativa y de auditoría en solo lectura.",
                 false, true, AUDITOR_PERMS);
@@ -166,13 +175,14 @@ public final class PermissionCatalog {
                 false, false, Set.of("branches.read", "members.read", "memberships.read", "memberships.create", "memberships.renew", "payments.read", "payments.create", "preferences.manage"));
         register("INVENTARIO", "Encargado de Inventario", "BRANCH",
                 "Control de catálogo, ajuste de kardex y transferencias de suplementos.",
-                false, false, Set.of("branches.read", "inventory.read", "inventory.adjust", "inventory.transfer", "preferences.manage"));
+                false, true, Set.of("branches.read", "inventory.read", "inventory.adjust", "inventory.transfer",
+                        "supplements.stock.read", "supplements.stock.receive", "preferences.manage"));
         register("COMPRAS", "Compras y Abastecimiento", "BRANCH",
                 "Reposición de inventario y seguimiento de proveedores (planificado).",
                 false, false, Set.of("branches.read", "inventory.read", "preferences.manage"));
         register("ENTRENADOR_JEFE", "Entrenador Jefe", "BRANCH",
                 "Supervisión metodológica de entrenadores, clases y rutinas de la sede.",
-                false, true, union(COACH_PERMS, Set.of("reports.read")));
+                false, true, union(COACH_PERMS, Set.of("reports.read", "training.exercises.publish")));
         register("ENTRENADOR", "Entrenador", "BRANCH",
                 "Creación de rutinas, seguimiento de progreso de socios asignados y dictado de clases.",
                 false, true, COACH_PERMS);
@@ -192,7 +202,7 @@ public final class PermissionCatalog {
                 true, true, CORP_ADMIN_PERMS);
         register("GERENTE", "Gerente (Legacy)", "ORGANIZATION",
                 "Rol gerencial heredado equivalente a GERENTE_GENERAL.",
-                false, true, union(MANAGER_BRANCH_PERMS, Set.of("plans.manage", "employees.create", "employees.assign_role", "employees.inactivate", "branches.manage", "integrations.read")));
+                false, true, union(MANAGER_BRANCH_PERMS, Set.of("plans.manage", "employees.create", "employees.assign_role", "employees.inactivate", "branches.manage", "integrations.read", "training.exercises.publish")));
         register("AUDITOR", "Auditor (Legacy)", "ORGANIZATION",
                 "Rol auditor heredado equivalente a AUDITOR_EMPRESA.",
                 false, true, AUDITOR_PERMS);

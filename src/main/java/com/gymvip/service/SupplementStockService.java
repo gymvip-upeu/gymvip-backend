@@ -2,6 +2,7 @@ package com.gymvip.service;
 
 import com.gymvip.dto.supplement.SupplementStockDtos.*;
 import com.gymvip.exception.ConflictException;
+import com.gymvip.security.TenantScopeResolver;
 import com.gymvip.exception.ResourceNotFoundException;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Service;
@@ -79,7 +80,41 @@ public class SupplementStockService {
                 .list();
     }
 
+    @Transactional(readOnly = true)
+    public List<SupplementStockSummaryDto> listBranchStock(UUID branchId, boolean alertsOnly) {
+        return jdbc.sql("""
+                SELECT id, name, brand, presentation, stock, min_stock, availability FROM supplements
+                WHERE COALESCE(branch_id, :legacy) = :branch
+                AND (:allStock OR (published AND stock <= min_stock))
+                ORDER BY name, brand, id
+                """)
+                .param("legacy", TenantScopeResolver.DEFAULT_BRANCH_ID)
+                .param("branch", branchId)
+                .param("allStock", !alertsOnly)
+                .query((rs, n) -> {
+                    int stock = rs.getInt("stock");
+                    int minimum = rs.getInt("min_stock");
+                    return new SupplementStockSummaryDto(rs.getObject("id", UUID.class),
+                            rs.getString("name"), rs.getString("brand"), rs.getString("presentation"),
+                            stock, minimum, stock > 0 && stock <= minimum, stock == 0, rs.getString("availability"));
+                }).list();
+    }
+
+    public UUID productBranch(UUID supplementId) {
+        return jdbc.sql("SELECT COALESCE(branch_id, :legacy) AS branch_id FROM supplements WHERE id = :id")
+                .param("id", supplementId).param("legacy", TenantScopeResolver.DEFAULT_BRANCH_ID)
+                .query(UUID.class).optional().orElseThrow(() -> new ResourceNotFoundException("Suplemento no encontrado."));
+    }
+
+    public StockMovementDto recordEntry(UUID supplementId, StockEntryRequest request, String actor) {
+        return recordMovement(supplementId, new StockMovementRequest("ENTRADA", request.quantity(), request.reason()), actor, request.requestId());
+    }
+
     public StockMovementDto recordMovement(UUID supplementId, StockMovementRequest req, String actor) {
+        return recordMovement(supplementId, req, actor, null);
+    }
+
+    private StockMovementDto recordMovement(UUID supplementId, StockMovementRequest req, String actor, UUID requestId) {
         Instant now = clock.instant();
 
         // 1. Bloqueo pesimista para concurrencia estricta (FASE 10)
@@ -98,12 +133,31 @@ public class SupplementStockService {
                 .optional()
                 .orElseThrow(() -> new ResourceNotFoundException("Suplemento no encontrado."));
 
+        if (requestId != null) {
+            var previous = jdbc.sql("""
+                    SELECT id, supplement_id, movement_type, quantity, previous_stock, new_stock, reason, actor, created_at_utc
+                    FROM supplement_stock_movements WHERE id = :id
+                    """).param("id", requestId).query(SupplementStockService::mapMovement).optional();
+            if (previous.isPresent()) {
+                StockMovementDto existing = previous.get();
+                if (!existing.supplementId().equals(supplementId) || !existing.movementType().equals("ENTRADA")
+                        || existing.quantity() != req.quantity() || !existing.actor().equals(actor)
+                        || !existing.reason().equals(req.reason().trim())) {
+                    throw new ConflictException("La solicitud de entrada ya se usó con otros datos.");
+                }
+                return existing;
+            }
+        }
+
         int previousStock = row[0];
         int movementQty = req.quantity();
         int newStock;
 
         switch (req.movementType().toUpperCase()) {
-            case "ENTRADA" -> newStock = previousStock + movementQty;
+            case "ENTRADA" -> {
+                if (movementQty > Integer.MAX_VALUE - previousStock) throw new ConflictException("La entrada supera el stock máximo.");
+                newStock = previousStock + movementQty;
+            }
             case "SALIDA" -> {
                 if (movementQty > previousStock) {
                     throw new ConflictException("Stock insuficiente para realizar la salida solicitada. Existencias disponibles: " + previousStock);
@@ -132,7 +186,7 @@ public class SupplementStockService {
                 .update();
 
         // 3. Registrar movimiento en kardex/historial
-        UUID movementId = UUID.randomUUID();
+        UUID movementId = requestId != null ? requestId : UUID.randomUUID();
         jdbc.sql("""
                 INSERT INTO supplement_stock_movements (
                     id, supplement_id, movement_type, quantity, previous_stock, new_stock, reason, actor, created_at_utc
@@ -171,17 +225,14 @@ public class SupplementStockService {
                 LIMIT 100
                 """)
                 .param("id", supplementId)
-                .query((rs, rowNum) -> new StockMovementDto(
-                        rs.getObject("id", UUID.class),
-                        rs.getObject("supplement_id", UUID.class),
-                        rs.getString("movement_type"),
-                        rs.getInt("quantity"),
-                        rs.getInt("previous_stock"),
-                        rs.getInt("new_stock"),
-                        rs.getString("reason"),
-                        rs.getString("actor"),
-                        rs.getTimestamp("created_at_utc").toInstant()
-                ))
+                .query(SupplementStockService::mapMovement)
                 .list();
+    }
+
+    private static StockMovementDto mapMovement(java.sql.ResultSet rs, int row) throws java.sql.SQLException {
+        return new StockMovementDto(rs.getObject("id", UUID.class), rs.getObject("supplement_id", UUID.class),
+                rs.getString("movement_type"), rs.getInt("quantity"), rs.getInt("previous_stock"),
+                rs.getInt("new_stock"), rs.getString("reason"), rs.getString("actor"),
+                rs.getTimestamp("created_at_utc").toInstant());
     }
 }

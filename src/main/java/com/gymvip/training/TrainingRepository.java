@@ -3,7 +3,7 @@ package com.gymvip.training;
 import com.gymvip.entity.Account;
 import com.gymvip.exception.ConflictException;
 import com.gymvip.repository.AccountRepository;
-import com.gymvip.repository.MembershipRepository;
+import com.gymvip.security.TenantScopeResolver;
 import com.gymvip.service.MemberWorkspaceService;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
@@ -20,82 +20,92 @@ public class TrainingRepository {
     private final JdbcTemplate jdbc;
     private final AccountRepository accountRepository;
     private final MemberWorkspaceService memberWorkspaceService;
-    private final MembershipRepository membershipRepository;
+    private final TenantScopeResolver scope;
 
-    public TrainingRepository(JdbcTemplate jdbc,
-                              AccountRepository accountRepository,
-                              MemberWorkspaceService memberWorkspaceService,
-                              MembershipRepository membershipRepository) {
+    public TrainingRepository(JdbcTemplate jdbc, AccountRepository accountRepository,
+                              MemberWorkspaceService memberWorkspaceService, TenantScopeResolver scope) {
         this.jdbc = jdbc;
         this.accountRepository = accountRepository;
         this.memberWorkspaceService = memberWorkspaceService;
-        this.membershipRepository = membershipRepository;
+        this.scope = scope;
     }
 
-    public List<Map<String, Object>> listExercises(String muscleGroup, String query) {
-        List<Map<String, Object>> rows = jdbc.queryForList(
-                "SELECT id, name, muscle_group, equipment, difficulty, technique, warnings FROM exercises WHERE is_active = TRUE ORDER BY name ASC"
-        );
-        String mg = muscleGroup != null ? muscleGroup.trim().toLowerCase(Locale.ROOT) : "";
-        String q = query != null ? query.trim().toLowerCase(Locale.ROOT) : "";
-        return rows.stream().filter(r ->
-                (mg.isEmpty() || String.valueOf(r.get("muscle_group")).toLowerCase(Locale.ROOT).contains(mg))
-                        && (q.isEmpty() || String.valueOf(r.get("name")).toLowerCase(Locale.ROOT).contains(q)
-                        || String.valueOf(r.get("equipment")).toLowerCase(Locale.ROOT).contains(q))
-        ).map(this::normalizeKeys).toList();
-    }
-
+    @Transactional(readOnly = true)
     public List<Map<String, Object>> listRoutinesForAccount(String email) {
-        Account account = accountRepository.findByEmailIgnoreCase(email).orElse(null);
+        Account account = scope.resolveActorByEmail(email);
         UUID clientId = memberWorkspaceService.findOwnClient(email).orElse(null);
-
-        List<Map<String, Object>> routines = jdbc.queryForList(
-                "SELECT id, title, goal, level, duration_minutes, is_personal, assigned_client_id, notes, status FROM workout_routines WHERE status = 'ACTIVO' ORDER BY created_at DESC"
-        );
-        List<Map<String, Object>> items = jdbc.queryForList(
-                "SELECT i.id, i.routine_id, i.exercise_id, e.name AS exercise_name, e.muscle_group, e.equipment, " +
-                        "i.sort_order, i.sets_count, i.reps_target, i.rest_seconds, i.trainer_notes " +
-                        "FROM workout_routine_items i JOIN exercises e ON e.id = i.exercise_id ORDER BY i.sort_order ASC"
-        );
+        UUID organization = scope.effectiveOrganizationId(account, null);
+        UUID branch = clientId == null ? account.getPrimaryBranchId()
+                : scope.memberBranch(account, memberWorkspaceService.registeredBranch(clientId));
+        boolean companyWide = !account.getRoles().contains("CLIENTE") && scope.isCompanyWideRole(account);
+        boolean staffCanAssign = com.gymvip.security.PermissionCatalog.resolvePermissions(account.getRoles()).contains("training.routines.assign");
+        List<Map<String, Object>> routines = jdbc.queryForList("""
+                SELECT r.id,r.title,r.goal,r.level,r.duration_minutes,r.is_personal,r.assigned_client_id,r.notes,r.status
+                FROM workout_routines r LEFT JOIN accounts creator ON creator.id=r.trainer_account_id
+                WHERE r.status='ACTIVO' AND COALESCE(r.organization_id,creator.organization_id,?)=?
+                AND (r.assigned_client_id=? OR r.trainer_account_id=? OR
+                     (r.assigned_client_id IS NULL AND NOT r.is_personal AND
+                        (? OR r.branch_id IS NULL OR r.branch_id=?)) OR
+                     (? AND NOT r.is_personal AND (? OR r.branch_id=?)))
+                ORDER BY r.created_at DESC
+                """, TenantScopeResolver.DEFAULT_ORG_ID, organization, clientId, account.getId(), companyWide,
+                branch, staffCanAssign, companyWide, branch);
+        if (routines.isEmpty()) return List.of();
+        UUID[] ids = routines.stream().map(r -> (UUID) r.get("id")).toArray(UUID[]::new);
+        List<Map<String, Object>> items = jdbc.queryForList("""
+                SELECT i.id,i.routine_id,i.exercise_id,e.name AS exercise_name,e.muscle_group,e.equipment,
+                       i.sort_order,i.sets_count,i.reps_target,i.rest_seconds,i.trainer_notes
+                FROM workout_routine_items i JOIN exercises e ON e.id=i.exercise_id
+                WHERE i.routine_id=ANY(?) ORDER BY i.sort_order
+                """, (Object) ids);
         Map<String, List<Map<String, Object>>> itemsByRoutine = new HashMap<>();
         for (Map<String, Object> item : items) {
             itemsByRoutine.computeIfAbsent(String.valueOf(item.get("routine_id")), k -> new ArrayList<>())
                     .add(normalizeKeys(item));
         }
-        List<Map<String, Object>> result = new ArrayList<>();
-        for (Map<String, Object> r : routines) {
-            Object assigned = r.get("assigned_client_id");
-            boolean isPublicTemplate = assigned == null && !Boolean.TRUE.equals(r.get("is_personal"));
-            boolean assignedToSelf = assigned != null && clientId != null && assigned.equals(clientId);
-            boolean isTrainer = account != null && account.getRoles().stream().anyMatch(role ->
-                    role.equals("ENTRENADOR") || role.equals("ENTRENADOR_JEFE") || role.equals("ADMIN") || role.equals("SUPER_ADMIN") || role.equals("GERENTE_SEDE"));
-            if (isPublicTemplate || assignedToSelf || isTrainer) {
-                Map<String, Object> dto = normalizeKeys(r);
-                dto.put("items", itemsByRoutine.getOrDefault(String.valueOf(r.get("id")), List.of()));
-                result.add(dto);
-            }
-        }
-        return result;
+        return routines.stream().map(row -> {
+            var result = normalizeKeys(row);
+            result.put("items", itemsByRoutine.getOrDefault(String.valueOf(row.get("id")), List.of()));
+            return result;
+        }).toList();
     }
 
     @Transactional
     public Map<String, Object> createRoutine(String email, String title, String goal, String level, int durationMinutes,
                                              boolean isPersonal, UUID assignedClientId, String notes,
                                              List<Map<String, Object>> items) {
-        Account actor = accountRepository.findByEmailIgnoreCase(email).orElseThrow();
+        Account actor = scope.resolveActorByEmail(email);
+        UUID organization = scope.effectiveOrganizationId(actor, null);
+        UUID branch = actor.getRoles().contains("CLIENTE")
+                ? scope.memberBranch(actor, memberWorkspaceService.findOwnClient(email).map(memberWorkspaceService::registeredBranch).orElse(null))
+                : scope.effectiveBranchId(actor, null);
+        if (assignedClientId != null && !Boolean.TRUE.equals(jdbc.queryForObject("""
+                SELECT EXISTS(SELECT 1 FROM clients c LEFT JOIN accounts a ON a.id=c.account_id
+                WHERE c.id=? AND c.status='ACTIVO' AND COALESCE(a.organization_id,?)=?
+                AND COALESCE(c.branch_id,a.primary_branch_id,?)=?)
+                """, Boolean.class, assignedClientId, TenantScopeResolver.DEFAULT_ORG_ID, organization,
+                TenantScopeResolver.DEFAULT_BRANCH_ID, branch))) {
+            throw new org.springframework.security.access.AccessDeniedException("El socio no está asignado a esta sede.");
+        }
         UUID routineId = UUID.randomUUID();
-        jdbc.update(
-                "INSERT INTO workout_routines(id, title, goal, level, duration_minutes, trainer_account_id, assigned_client_id, is_personal, notes, status) " +
-                        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'ACTIVO')",
-                routineId, title.trim(), goal.trim(), level != null ? level : "INTERMEDIO",
-                Math.max(10, durationMinutes), actor.getId(), assignedClientId, isPersonal, notes
-        );
+        jdbc.update("""
+                INSERT INTO workout_routines(id,organization_id,branch_id,title,goal,level,duration_minutes,trainer_account_id,
+                    assigned_client_id,is_personal,notes,status)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,'ACTIVO')
+                """, routineId, organization, branch, title.trim(), goal.trim(), level != null ? level : "INTERMEDIO",
+                Math.max(10, durationMinutes), actor.getId(), assignedClientId, isPersonal, notes);
         int idx = 1;
         if (items != null) {
             for (Map<String, Object> item : items) {
                 Object exIdObj = item.get("exerciseId");
                 if (exIdObj == null) continue;
                 UUID exerciseId = UUID.fromString(String.valueOf(exIdObj));
+                if (!Boolean.TRUE.equals(jdbc.queryForObject("""
+                        SELECT EXISTS(SELECT 1 FROM exercises WHERE id=? AND is_active AND
+                            (organization_id IS NULL OR (organization_id=? AND branch_id=?)))
+                        """, Boolean.class, exerciseId, organization, branch))) {
+                    throw new IllegalArgumentException("El ejercicio no está publicado para la sede de esta rutina.");
+                }
                 int sets = item.get("setsCount") instanceof Number n ? Math.max(1, n.intValue()) : 3;
                 String reps = item.get("repsTarget") != null ? String.valueOf(item.get("repsTarget")) : "10-12";
                 int rest = item.get("restSeconds") instanceof Number n ? Math.max(15, n.intValue()) : 90;
@@ -118,8 +128,8 @@ public class TrainingRepository {
         Account account = accountRepository.findByEmailIgnoreCase(email).orElseThrow();
         if (clientSyncId != null && !clientSyncId.isBlank()) {
             List<Map<String, Object>> existing = jdbc.queryForList(
-                    "SELECT id, routine_title, total_volume_kg, completed_at FROM workout_sessions WHERE client_sync_id = ?",
-                    clientSyncId.trim()
+                    "SELECT id, routine_title, total_volume_kg, completed_at FROM workout_sessions WHERE client_sync_id = ? AND account_id = ?",
+                    clientSyncId.trim(), account.getId()
             );
             if (!existing.isEmpty()) {
                 Map<String, Object> dup = normalizeKeys(existing.get(0));
@@ -190,89 +200,6 @@ public class TrainingRepository {
                 "recentSessions", sessions.stream().map(this::normalizeKeys).toList(),
                 "personalRecords", records.stream().map(this::normalizeKeys).toList()
         );
-    }
-
-    public List<Map<String, Object>> listClasses(String email) {
-        UUID clientId = memberWorkspaceService.findOwnClient(email).orElse(null);
-        List<Map<String, Object>> classes = jdbc.queryForList(
-                        "SELECT c.id, c.branch_id, b.name AS branch_name, c.title, c.category, c.trainer_name, c.starts_at::text AS starts_at, c.duration_minutes, c.capacity, c.status, " +
-                        "(SELECT COUNT(*) FROM class_reservations r WHERE r.class_id = c.id AND r.status = 'RESERVADA') AS reserved_count " +
-                        "FROM gym_classes c LEFT JOIN branches b ON b.id = c.branch_id WHERE c.status = 'PROGRAMADA' ORDER BY c.starts_at ASC"
-        );
-        Set<String> myClassIds = new HashSet<>();
-        if (clientId != null) {
-            jdbc.queryForList(
-                    "SELECT class_id FROM class_reservations WHERE client_id = ? AND status IN ('RESERVADA','LISTA_ESPERA')",
-                    clientId
-            ).forEach(r -> myClassIds.add(String.valueOf(r.get("class_id"))));
-        }
-        return classes.stream().map(row -> {
-            Map<String, Object> dto = normalizeKeys(row);
-            LocalDateTime scheduled = LocalDateTime.parse(row.get("starts_at").toString().replace(' ', 'T'));
-            dto.put("startsAt", scheduled.atZone(java.time.ZoneId.of("America/Lima")).toOffsetDateTime().toString());
-            dto.put("reservedByMe", myClassIds.contains(String.valueOf(row.get("id"))));
-            return dto;
-        }).toList();
-    }
-
-    @Transactional
-    public Map<String, Object> reserveClass(String email, UUID classId) {
-        UUID clientId = memberWorkspaceService.ownClient(email);
-        boolean activeMembership = membershipRepository.contract(clientId)
-                .map(c -> "VIGENTE".equalsIgnoreCase(c.status()))
-                .orElse(false);
-        if (!activeMembership) {
-            throw new ConflictException("Se requiere una membresía vigente para reservar clases.");
-        }
-
-        List<Map<String, Object>> existing = jdbc.queryForList(
-                "SELECT id, status FROM class_reservations WHERE class_id = ? AND client_id = ? AND status IN ('RESERVADA','LISTA_ESPERA')",
-                classId, clientId
-        );
-        if (!existing.isEmpty()) {
-            throw new ConflictException("Ya cuentas con una reserva activa para esta clase.");
-        }
-
-        Integer capacity = jdbc.queryForObject("SELECT capacity FROM gym_classes WHERE id = ? FOR UPDATE", Integer.class, classId);
-        Integer taken = jdbc.queryForObject("SELECT COUNT(*) FROM class_reservations WHERE class_id = ? AND status = 'RESERVADA'", Integer.class, classId);
-        if (capacity == null) {
-            throw new IllegalArgumentException("Clase no encontrada.");
-        }
-        String status = (taken != null && taken >= capacity) ? "LISTA_ESPERA" : "RESERVADA";
-        UUID reservationId = UUID.randomUUID();
-        jdbc.update(
-                "INSERT INTO class_reservations(id, class_id, client_id, status, reserved_at) VALUES (?, ?, ?, ?, NOW())",
-                reservationId, classId, clientId, status
-        );
-        return Map.of("reservationId", reservationId, "classId", classId, "status", status);
-    }
-
-    @Transactional
-    public Map<String, Object> createClass(String actorEmail, UUID branchId, String title, String category,
-                                           String trainerName, LocalDateTime startsAt, int durationMinutes, int capacity) {
-        Account actor = accountRepository.findByEmailIgnoreCase(actorEmail).orElseThrow();
-        UUID classId = UUID.randomUUID();
-        UUID effectiveBranch = branchId != null ? branchId : actor.getPrimaryBranchId();
-        jdbc.update(
-                "INSERT INTO gym_classes(id, organization_id, branch_id, title, category, trainer_name, trainer_account_id, starts_at, duration_minutes, capacity, status) " +
-                        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'PROGRAMADA')",
-                classId, actor.getOrganizationId(), effectiveBranch,
-                title.trim(), category != null ? category.trim() : "FUNCIONAL",
-                trainerName != null && !trainerName.isBlank() ? trainerName.trim() : actorEmail,
-                actor.getId(), startsAt,
-                Math.max(15, durationMinutes), Math.max(1, capacity)
-        );
-        return Map.of("id", classId, "title", title.trim(), "capacity", Math.max(1, capacity), "status", "PROGRAMADA");
-    }
-
-    @Transactional
-    public Map<String, Object> cancelReservation(String email, UUID classId) {
-        UUID clientId = memberWorkspaceService.ownClient(email);
-        int updated = jdbc.update(
-                "UPDATE class_reservations SET status = 'CANCELADA', cancelled_at = NOW() WHERE class_id = ? AND client_id = ? AND status IN ('RESERVADA','LISTA_ESPERA')",
-                classId, clientId
-        );
-        return Map.of("cancelled", updated > 0, "classId", classId);
     }
 
     private UUID tryUuid(String raw) {

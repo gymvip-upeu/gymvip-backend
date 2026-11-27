@@ -123,14 +123,20 @@ public class MemberAppController {
     }
 
     @GetMapping("/inbox")
-    public Object inbox(Authentication auth) {
+    public Object inbox(@RequestParam(defaultValue = "false") boolean archived, Authentication auth) {
         if (service.mustChange(auth.getName())) {
             throw new org.springframework.security.access.AccessDeniedException("Cambia la contraseña temporal antes de continuar.");
         }
-        var clientOpt = service.findOwnClient(auth.getName());
-        return clientOpt.isPresent()
-                ? service.listInbox(clientOpt.get())
-                : service.listGeneralAnnouncements(auth.getName());
+        return service.inboxForAccount(auth.getName(), archived);
+    }
+
+    @PostMapping("/inbox/{id}/archive")
+    public ResponseEntity<Void> archiveInbox(@PathVariable String id, Authentication auth) {
+        if (service.mustChange(auth.getName())) {
+            throw new org.springframework.security.access.AccessDeniedException("Cambia la contraseña temporal antes de continuar.");
+        }
+        service.archiveInboxItem(auth.getName(), id);
+        return ResponseEntity.noContent().build();
     }
 
     @PostMapping("/inbox/{id}/read")

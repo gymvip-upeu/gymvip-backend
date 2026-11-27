@@ -5,6 +5,7 @@ import com.gymvip.dto.response.*;
 import com.gymvip.exception.*;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.*;
+import com.gymvip.security.TenantScopeResolver;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -43,7 +44,17 @@ public class MemberWorkspaceService {
         }
     }
     public record GymFaqItem(String id, String question, String answer, String category, int orderIndex) {}
-    public record MemberInboxItem(String id, String accountId, String title, String message, String category, String createdAt, boolean isRead) {}
+    public record MemberInboxItem(String id, String accountId, String title, String message, String category,
+                                  String createdAt, boolean isRead, boolean archived, boolean archivable) {
+        public MemberInboxItem(String id, String accountId, String title, String message, String category, String createdAt, boolean isRead) {
+            this(id, accountId, title, message, category, createdAt, isRead, false,
+                    !Set.of("CRITICO", "CRÍTICO", "SEGURIDAD", "VENCIMIENTO").contains(category == null ? "" : category.toUpperCase(java.util.Locale.ROOT)));
+        }
+
+        MemberInboxItem archivedState(boolean value) {
+            return new MemberInboxItem(id, accountId, title, message, category, createdAt, isRead, value, archivable);
+        }
+    }
     @jakarta.persistence.PersistenceContext private jakarta.persistence.EntityManager em;
     private final JdbcTemplate jdbc;
     private final ClientService clients;
@@ -170,6 +181,12 @@ public class MemberWorkspaceService {
     @Transactional(readOnly=true) public Optional<UUID> findOwnClient(String email) {
         return jdbc.query("SELECT c.id FROM clients c JOIN accounts a ON a.id=c.account_id WHERE a.email=? AND c.status='ACTIVO'",(r,n)->r.getObject(1,UUID.class),email)
             .stream().findFirst();
+    }
+
+    @Transactional(readOnly = true)
+    public UUID registeredBranch(UUID clientId) {
+        return jdbc.query("SELECT branch_id FROM clients WHERE id=?", (rs, n) -> rs.getObject(1, UUID.class), clientId)
+                .getFirst();
     }
 
     @Transactional
@@ -383,6 +400,42 @@ public class MemberWorkspaceService {
     }
 
     @Transactional(readOnly = true)
+    public List<MemberInboxItem> inboxForAccount(String email, boolean archived) {
+        UUID accountId = jdbc.queryForObject("SELECT id FROM accounts WHERE email=?", UUID.class, email);
+        Set<String> dismissed = new HashSet<>(jdbc.query("SELECT item_id FROM inbox_archives WHERE account_id=?",
+                (rs, n) -> rs.getString(1), accountId));
+        return accountNotices(email).stream()
+                .map(item -> item.archivedState(dismissed.contains(item.id()) || automaticallyArchived(item)))
+                .filter(item -> item.archived() == archived)
+                .sorted(java.util.Comparator.comparing(MemberInboxItem::createdAt).reversed())
+                .limit(100).toList();
+    }
+
+    @Transactional
+    public void archiveInboxItem(String email, String itemId) {
+        UUID accountId = jdbc.queryForObject("SELECT id FROM accounts WHERE email=?", UUID.class, email);
+        MemberInboxItem item = accountNotices(email).stream().filter(notice -> notice.id().equals(itemId)).findFirst()
+                .orElseThrow(() -> new ResourceNotFoundException("Aviso no encontrado."));
+        if (!item.isRead() || !item.archivable()) {
+            throw new com.gymvip.exception.ConflictException("Este aviso debe estar leído y ser archivable.");
+        }
+        jdbc.update("INSERT INTO inbox_archives(account_id,item_id) VALUES (?,?) ON CONFLICT DO NOTHING", accountId, itemId);
+    }
+
+    private List<MemberInboxItem> accountNotices(String email) {
+        return findOwnClient(email).map(this::listInbox).orElseGet(() -> listGeneralAnnouncements(email));
+    }
+
+    private boolean automaticallyArchived(MemberInboxItem item) {
+        if (!item.archivable() || item.createdAt() == null) return false;
+        try {
+            return !Instant.parse(item.createdAt()).isAfter(clock.instant().minus(java.time.Duration.ofDays(30)));
+        } catch (java.time.format.DateTimeParseException ex) {
+            return false;
+        }
+    }
+
+    @Transactional(readOnly = true)
     public List<MemberInboxItem> listGeneralAnnouncements(String email) {
         UUID accountId = jdbc.queryForObject("SELECT id FROM accounts WHERE email=?", UUID.class, email);
         Set<String> readIds = new HashSet<>(jdbc.query(
@@ -392,6 +445,7 @@ public class MemberWorkspaceService {
                 SELECT id::text, title, message, category, created_at_utc
                 FROM gym_announcements
                 WHERE is_active = true AND target_audience = 'TODOS'
+                  AND organization_id = (SELECT COALESCE(organization_id, ?) FROM accounts WHERE id=?)
                 ORDER BY created_at_utc DESC LIMIT 50
             """, (r, n) -> new MemberInboxItem(
                     r.getString("id"),
@@ -401,7 +455,7 @@ public class MemberWorkspaceService {
                     r.getString("category") != null ? r.getString("category") : "COMUNICADO",
                     r.getTimestamp("created_at_utc") != null ? r.getTimestamp("created_at_utc").toInstant().toString() : now().toString(),
                     readIds.contains(r.getString("id"))
-            ));
+            ), TenantScopeResolver.DEFAULT_ORG_ID, accountId);
             if (!items.isEmpty()) return items;
         } catch (Exception ignored) {}
         return List.of(
@@ -415,8 +469,10 @@ public class MemberWorkspaceService {
         UUID accountId = jdbc.queryForObject("SELECT id FROM accounts WHERE email=?", UUID.class, email);
         boolean legacy = itemId.equals("ann-welcome") || itemId.equals("ann-hygiene");
         Boolean exists = jdbc.queryForObject(
-                "SELECT EXISTS(SELECT 1 FROM gym_announcements WHERE id::text=? AND is_active=true AND target_audience='TODOS')",
-                Boolean.class, itemId);
+                """
+                SELECT EXISTS(SELECT 1 FROM gym_announcements WHERE id::text=? AND is_active=true AND target_audience='TODOS'
+                    AND organization_id = (SELECT COALESCE(organization_id, ?) FROM accounts WHERE id=?))
+                """, Boolean.class, itemId, TenantScopeResolver.DEFAULT_ORG_ID, accountId);
         if (!legacy && !Boolean.TRUE.equals(exists)) throw new ResourceNotFoundException("Aviso no encontrado.");
         jdbc.update("""
             INSERT INTO staff_inbox_reads(id, account_id, item_id, read_at_utc) VALUES (?, ?, ?, ?)
@@ -437,7 +493,9 @@ public class MemberWorkspaceService {
             items.addAll(jdbc.query("""
                 SELECT id::text, title, message, category, created_at_utc
                 FROM gym_announcements
-                WHERE is_active = true
+                WHERE is_active = true AND organization_id = (
+                    SELECT COALESCE(a.organization_id, ?) FROM clients c LEFT JOIN accounts a ON a.id=c.account_id WHERE c.id=?
+                )
                 ORDER BY created_at_utc DESC LIMIT 50
             """, (r, n) -> new MemberInboxItem(
                     r.getString("id"),
@@ -447,7 +505,7 @@ public class MemberWorkspaceService {
                     r.getString("category") != null ? r.getString("category") : "COMUNICADO",
                     r.getTimestamp("created_at_utc") != null ? r.getTimestamp("created_at_utc").toInstant().toString() : now().toString(),
                     readIds.contains(r.getString("id"))
-            )));
+            ), TenantScopeResolver.DEFAULT_ORG_ID, clientId));
         } catch (Exception ignored) {}
 
         // 2. Avisos de recordatorios individuales del socio
@@ -465,6 +523,14 @@ public class MemberWorkspaceService {
                 r.getTimestamp("created_at").toInstant().toString(),
                 readIds.contains(r.getString("id"))
         ), clientId));
+
+        items.addAll(jdbc.query("""
+            SELECT e.id,e.title,e.message,e.created_at FROM class_reservation_events e
+            JOIN class_reservations r ON r.id=e.reservation_id WHERE r.client_id=?
+            ORDER BY e.created_at DESC LIMIT 100
+        """, (row, n) -> new MemberInboxItem(row.getString("id"), clientId.toString(), row.getString("title"),
+                row.getString("message"), "RESERVA", row.getTimestamp("created_at").toInstant().toString(),
+                readIds.contains(row.getString("id"))), clientId));
 
         if (items.isEmpty()) {
             String welcomeId = "announcement_welcome_" + clientId;
@@ -489,7 +555,12 @@ public class MemberWorkspaceService {
         boolean existsAnnouncement = false;
         try {
             existsAnnouncement = Boolean.TRUE.equals(jdbc.queryForObject(
-                "SELECT EXISTS(SELECT 1 FROM gym_announcements WHERE id::text=?)", Boolean.class, itemId));
+                """
+                SELECT EXISTS(SELECT 1 FROM gym_announcements WHERE id::text=? AND is_active
+                    AND organization_id = (
+                        SELECT COALESCE(a.organization_id, ?) FROM clients c LEFT JOIN accounts a ON a.id=c.account_id WHERE c.id=?
+                    ))
+                """, Boolean.class, itemId, TenantScopeResolver.DEFAULT_ORG_ID, clientId));
         } catch (Exception ignored) {}
         boolean existsReminder = false;
         try {
@@ -499,7 +570,11 @@ public class MemberWorkspaceService {
             """, Boolean.class, itemId, clientId));
         } catch (Exception ignored) {}
 
-        if (!legacy && !existsAnnouncement && !existsReminder) {
+        boolean existsReservation = Boolean.TRUE.equals(jdbc.queryForObject("""
+                SELECT EXISTS(SELECT 1 FROM class_reservation_events e JOIN class_reservations r ON r.id=e.reservation_id
+                    WHERE e.id::text=? AND r.client_id=?)
+                """, Boolean.class, itemId, clientId));
+        if (!legacy && !existsAnnouncement && !existsReminder && !existsReservation) {
             throw new ResourceNotFoundException("Aviso no encontrado.");
         }
         jdbc.update("""

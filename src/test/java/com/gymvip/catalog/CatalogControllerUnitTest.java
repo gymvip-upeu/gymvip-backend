@@ -10,7 +10,8 @@ import org.springframework.security.core.Authentication;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 
 import java.math.BigDecimal;
-import java.util.Collection;
+import com.gymvip.security.TenantScopeResolver;
+import com.gymvip.service.SupplementStockService;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -24,24 +25,27 @@ class CatalogControllerUnitTest {
         CatalogService service = mock(CatalogService.class);
         ObjectMapper json = new ObjectMapper();
         Validator validator = Validation.buildDefaultValidatorFactory().getValidator();
-        CatalogController controller = new CatalogController(service, json, validator);
+        var tenants = mock(TenantScopeResolver.class);
+        var branch = new MemberSupplementStock(TenantScopeResolver.DEFAULT_BRANCH_ID, true);
+        CatalogController controller = new CatalogController(service, json, validator, tenants, mock(SupplementStockService.class));
 
         Authentication auth = mock(Authentication.class);
         doReturn(List.of(new SimpleGrantedAuthority("ROLE_ADMIN"))).when(auth).getAuthorities();
+        when(tenants.effectiveBranchId(null, null)).thenReturn(branch.branchId());
 
-        when(service.supplements(anyString(), anyString(), anyString(), isNull(), any(), any(), anyBoolean(), anyInt(), anyInt(), eq(false)))
+        when(service.supplements(anyString(), anyString(), anyString(), isNull(), any(), any(), anyBoolean(), anyInt(), anyInt(), eq(false), eq(branch)))
                 .thenReturn(new CatalogDtos.Page<>(List.of(), 0, 0, 0));
 
         // Invocación con published = null (exactamente como lo envía la UI de React en SupplementsPage.jsx)
         assertDoesNotThrow(() -> {
             CatalogDtos.Page<CatalogDtos.Supplement> result = controller.list(
-                    "", "", "", null, null, null, false, 0, 12, auth
+                    "", "", "", null, null, null, false, 0, 12, null, auth
             );
             assertNotNull(result);
             assertEquals(0, result.totalElements());
         });
 
-        verify(service).supplements("", "", "", null, null, null, false, 0, 12, false);
+        verify(service).supplements("", "", "", null, null, null, false, 0, 12, false, branch);
     }
 
     @Test
@@ -50,22 +54,26 @@ class CatalogControllerUnitTest {
         CatalogService service = mock(CatalogService.class);
         ObjectMapper json = new ObjectMapper();
         Validator validator = Validation.buildDefaultValidatorFactory().getValidator();
-        CatalogController controller = new CatalogController(service, json, validator);
+        var tenants = mock(TenantScopeResolver.class);
+        var branch = new MemberSupplementStock(TenantScopeResolver.DEFAULT_BRANCH_ID, true);
+        CatalogController controller = new CatalogController(service, json, validator, tenants, mock(SupplementStockService.class));
 
         Authentication auth = mock(Authentication.class);
         doReturn(List.of(new SimpleGrantedAuthority("ROLE_CLIENTE"))).when(auth).getAuthorities();
+        when(auth.getName()).thenReturn("member@example.test");
+        when(service.memberStock(auth.getName())).thenReturn(branch);
 
-        when(service.supplements(anyString(), anyString(), anyString(), eq(Boolean.TRUE), any(), any(), anyBoolean(), anyInt(), anyInt(), eq(true)))
+        when(service.supplements(anyString(), anyString(), anyString(), eq(Boolean.TRUE), any(), any(), anyBoolean(), anyInt(), anyInt(), eq(true), eq(branch)))
                 .thenReturn(new CatalogDtos.Page<>(List.of(), 0, 0, 0));
 
         assertDoesNotThrow(() -> {
             CatalogDtos.Page<CatalogDtos.Supplement> result = controller.list(
-                    "", "", "", null, null, null, false, 0, 12, auth
+                    "", "", "", null, null, null, false, 0, 12, null, auth
             );
             assertNotNull(result);
         });
 
-        verify(service).supplements("", "", "", Boolean.TRUE, null, null, false, 0, 12, true);
+        verify(service).supplements("", "", "", Boolean.TRUE, null, null, false, 0, 12, true, branch);
     }
 
     @Test

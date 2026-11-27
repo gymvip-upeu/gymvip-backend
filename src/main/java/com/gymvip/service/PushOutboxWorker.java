@@ -114,9 +114,13 @@ public class PushOutboxWorker {
             AND (? IN ('ALL_MEMBERS','ALL_ACTIVE_MEMBERS') OR c.id::text=? OR d.device_token=?)
             AND (CAST(? AS uuid) IS NULL OR (c.id=CAST(? AS uuid) AND d.session_token=? AND d.device_token=?))
             AND (EXISTS(SELECT 1 FROM sent_reminder_dispatches n WHERE n.id::text=? AND n.client_id=c.id AND n.channel='APP' AND n.status='DISPONIBLE')
-                OR EXISTS(SELECT 1 FROM gym_announcements g WHERE g.id::text=? AND g.is_active=true) OR ?='ORDERS')
+                OR EXISTS(SELECT 1 FROM class_reservation_events e JOIN class_reservations r ON r.id=e.reservation_id
+                    WHERE e.id::text=? AND r.client_id=c.id)
+                OR EXISTS(SELECT 1 FROM gym_announcements g WHERE g.id::text=? AND g.is_active=true
+                    AND g.organization_id=COALESCE(a.organization_id, CAST(? AS uuid))) OR ?='ORDERS')
         """, (r, n) -> new Binding(r.getString(1), r.getObject(2, UUID.class), r.getObject(3, UUID.class), r.getString(4)),
-                job.recipient(), job.recipient(), job.recipient(), job.owner(), job.owner(), job.session(), job.recipient(), job.itemId(), job.itemId(), job.itemId());
+                job.recipient(), job.recipient(), job.recipient(), job.owner(), job.owner(), job.session(), job.recipient(), job.itemId(), job.itemId(), job.itemId(),
+                com.gymvip.security.TenantScopeResolver.DEFAULT_ORG_ID, job.itemId());
     }
 
     private void skip(Pending job, String reason) {
