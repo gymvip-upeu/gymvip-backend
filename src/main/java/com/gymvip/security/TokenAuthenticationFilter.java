@@ -91,6 +91,12 @@ public class TokenAuthenticationFilter extends OncePerRequestFilter {
                                 response.getWriter().write("{\"code\":\"MFA_ENROLLMENT_REQUIRED\",\"message\":\"Configura MFA para continuar.\"}");
                                 return;
                             }
+                            if (account.isDirectoryOnly() && !directoryRequestAllowed(request)) {
+                                response.setStatus(403);
+                                response.setContentType("application/json");
+                                response.getWriter().write("{\"code\":\"MEMBERSHIP_REQUIRED\",\"message\":\"Necesitas una membresía para esta función.\"}");
+                                return;
+                            }
                             java.util.List<SimpleGrantedAuthority> authorities = new java.util.ArrayList<>();
                             PermissionCatalog.compatibleRoles(account.getRoles()).stream()
                                     .map(role -> new SimpleGrantedAuthority("ROLE_" + role.toUpperCase()))
@@ -122,6 +128,17 @@ public class TokenAuthenticationFilter extends OncePerRequestFilter {
         }
 
         filterChain.doFilter(request, response);
+    }
+
+    private boolean directoryRequestAllowed(HttpServletRequest request) {
+        String path = request.getRequestURI();
+        return ("GET".equals(request.getMethod()) && (
+                    path.equals("/api/v1/auth/me") || path.startsWith("/api/v1/public/")
+                    || path.equals("/api/v1/enterprise/gyms") || path.equals("/api/v1/legal/documents")
+                    || path.equals("/api/v1/app/releases/latest")
+                    || path.matches("/api/v1/gyms/[^/]+/reviews")))
+                || ("POST".equals(request.getMethod()) && List.of("/api/v1/auth/first-password",
+                    "/api/v1/auth/logout", "/api/v1/auth/revoke-all-sessions").contains(path));
     }
 
     private String resolveToken(HttpServletRequest request) {

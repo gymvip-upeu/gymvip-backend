@@ -60,6 +60,11 @@ public class Account {
     @Column(name = "first_access_password", nullable = false)
     private boolean firstAccessPassword;
 
+    @Column(name = "directory_only", nullable = false)
+    private boolean directoryOnly;
+
+    public boolean isDirectoryOnly() { return directoryOnly; }
+
     public boolean isFirstAccessPassword() { return firstAccessPassword; }
 
     @Column(name = "temporary_password_expires_at")

@@ -105,7 +105,8 @@ public class PasswordResetServiceImpl implements PasswordResetService {
         Account account = memberAccounts.size() == 1 ? memberAccounts.getFirst() : null;
         if (account == null && memberAccounts.isEmpty()) {
             account = accountRepository.findByEmailIgnoreCase(email)
-                    .filter(candidate -> !candidate.getRoles().contains("CLIENTE")).orElse(null);
+                    .filter(candidate -> !candidate.getRoles().contains("CLIENTE")
+                            || (candidate.isDirectoryOnly() && !candidate.isFirstAccessPassword())).orElse(null);
         }
 
         // Anti-enumeración: si no existe o está inactivo, responder con mensaje neutro sin error

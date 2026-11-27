@@ -199,6 +199,7 @@ public class AuthController {
         profile.put("status", account.getStatus());
         profile.put("mfaEnabled", account.isMfaEnabled());
         profile.put("mfaEnrollmentRequired", com.gymvip.security.PermissionCatalog.isSuperAdmin(account.getRoles()) && !account.isMfaEnabled());
+        profile.put("directoryOnly", account.isDirectoryOnly());
         profile.put("firstAccessPasswordRequired", account.isFirstAccessPassword() && account.isMustChangePassword());
         profile.put("createdAt", account.getCreatedAt());
         profile.put("updatedAt", account.getUpdatedAt());
