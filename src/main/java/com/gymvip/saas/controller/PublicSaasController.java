@@ -11,6 +11,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.math.BigDecimal;
 import java.util.List;
 import java.util.Map;
 
@@ -32,9 +33,16 @@ public class PublicSaasController {
     public ResponseEntity<List<Map<String, Object>>> publicGyms(
             @RequestParam(required = false) String q,
             @RequestParam(required = false) String city,
-            @RequestParam(required = false) String district
+            @RequestParam(required = false) String district,
+            @RequestParam(required = false) BigDecimal minPricePen,
+            @RequestParam(required = false) BigDecimal maxPricePen,
+            @RequestParam(required = false) String amenity
     ) {
-        return ResponseEntity.ok(b2cRepository.listPublicGymsShowcase(q, city, district));
+        if (minPricePen != null && minPricePen.signum() < 0 || maxPricePen != null && maxPricePen.signum() < 0
+                || minPricePen != null && maxPricePen != null && minPricePen.compareTo(maxPricePen) > 0) {
+            throw new IllegalArgumentException("Selecciona un rango de precios válido.");
+        }
+        return ResponseEntity.ok(b2cRepository.listPublicGymsShowcase(q, city, district, minPricePen, maxPricePen, amenity));
     }
 
     @GetMapping("/api/v1/public/gyms/{slugOrId}")
