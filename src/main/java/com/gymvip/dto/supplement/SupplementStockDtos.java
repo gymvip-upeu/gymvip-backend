@@ -1,6 +1,9 @@
 package com.gymvip.dto.supplement;
 
 import jakarta.validation.constraints.Min;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Size;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Pattern;
 import java.time.Instant;
@@ -18,6 +21,13 @@ public class SupplementStockDtos {
 
             @NotBlank(message = "El motivo o justificativo del movimiento es obligatorio")
             String reason
+    ) {}
+
+    public record StockEntryRequest(
+            @NotNull UUID branchId,
+            @NotNull UUID requestId,
+            @Min(1) @Max(100000) int quantity,
+            @NotBlank @Size(max = 400) String reason
     ) {}
 
     public record StockMovementDto(

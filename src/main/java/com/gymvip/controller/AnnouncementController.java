@@ -1,5 +1,7 @@
 package com.gymvip.controller;
 
+import com.gymvip.security.TenantScopeResolver;
+import com.gymvip.exception.ResourceNotFoundException;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
@@ -22,8 +24,11 @@ public class AnnouncementController {
 
     private final JdbcTemplate jdbc;
 
-    public AnnouncementController(JdbcTemplate jdbc) {
+    private final TenantScopeResolver scope;
+
+    public AnnouncementController(JdbcTemplate jdbc, TenantScopeResolver scope) {
         this.jdbc = jdbc;
+        this.scope = scope;
     }
 
     public record AnnouncementDto(
@@ -48,11 +53,12 @@ public class AnnouncementController {
     ) {}
 
     @GetMapping
-    public List<AnnouncementDto> listAnnouncements() {
+    public List<AnnouncementDto> listAnnouncements(Authentication auth) {
+        UUID organization = scope.effectiveOrganizationId(scope.resolveActor(auth), null);
         return jdbc.query("""
             SELECT id, title, message, category, target_audience, is_active, facility_id, created_by, created_at_utc
             FROM gym_announcements
-            WHERE is_active = true
+            WHERE is_active = true AND organization_id=?
             ORDER BY created_at_utc DESC LIMIT 50
         """, (r, n) -> new AnnouncementDto(
                 r.getObject("id", UUID.class),
@@ -64,22 +70,30 @@ public class AnnouncementController {
                 r.getObject("facility_id", UUID.class),
                 r.getString("created_by"),
                 r.getTimestamp("created_at_utc") != null ? r.getTimestamp("created_at_utc").toInstant().toString() : ""
-        ));
+        ), organization);
     }
 
     @PostMapping
-    @PreAuthorize("hasAnyRole('ADMIN','GERENTE')")
+    @PreAuthorize("hasAnyRole('ADMIN','ADMIN_EMPRESA','GERENTE','GERENTE_GENERAL','GERENTE_SEDE')")
     @Transactional
     public ResponseEntity<AnnouncementDto> createAnnouncement(@Valid @RequestBody CreateAnnouncementRequest request, Authentication auth) {
         UUID id = UUID.randomUUID();
         String category = (request.category() != null && !request.category().isBlank()) ? request.category().toUpperCase() : "COMUNICADO";
         String audience = (request.targetAudience() != null && !request.targetAudience().isBlank()) ? request.targetAudience().toUpperCase() : "TODOS";
-        String author = (auth != null) ? auth.getName() : "ADMIN";
+        String author = auth.getName();
+        var actor = scope.resolveActor(auth);
+        UUID organization = scope.effectiveOrganizationId(actor, null);
+        if (request.facilityId() != null) {
+            UUID branch = jdbc.query("SELECT COALESCE(branch_id, ?) FROM gym_services WHERE id=?",
+                    (row, index) -> row.getObject(1, UUID.class), TenantScopeResolver.DEFAULT_BRANCH_ID, request.facilityId())
+                    .stream().findFirst().orElseThrow(() -> new ResourceNotFoundException("Área no encontrada."));
+            scope.effectiveBranchId(actor, branch);
+        }
 
         jdbc.update("""
-            INSERT INTO gym_announcements (id, title, message, category, target_audience, is_active, facility_id, created_by)
-            VALUES (?, ?, ?, ?, ?, true, ?, ?)
-        """, id, request.title(), request.message(), category, audience, request.facilityId(), author);
+            INSERT INTO gym_announcements (id, title, message, category, target_audience, is_active, facility_id, created_by, organization_id)
+            VALUES (?, ?, ?, ?, ?, true, ?, ?, ?)
+        """, id, request.title(), request.message(), category, audience, request.facilityId(), author, organization);
 
         if (request.sendPush()) {
             String idempotencyKey = "announcement_push_" + id;

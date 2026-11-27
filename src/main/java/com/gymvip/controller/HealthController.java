@@ -1,5 +1,6 @@
 package com.gymvip.controller;
 
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -20,6 +21,12 @@ import java.util.Map;
 public class HealthController {
 
     private final JdbcTemplate jdbcTemplate;
+
+    @Value("${app.apiperudev.enabled:true}")
+    private boolean identityLookupEnabled;
+
+    @Value("${app.apiperudev.token:}")
+    private String identityLookupToken;
 
     public HealthController(JdbcTemplate jdbcTemplate) {
         this.jdbcTemplate = jdbcTemplate;
@@ -125,6 +132,8 @@ public class HealthController {
         features.put("rateLimiting", "ACTIVE");
         features.put("caching", "ENABLED");
         features.put("sentry", com.gymvip.config.BackendErrorTelemetry.configured() ? "CONFIGURED_REAL" : "UNCONFIGURED");
+        features.put("identityLookup", !identityLookupEnabled ? "DISABLED"
+                : identityLookupToken == null || identityLookupToken.isBlank() ? "UNCONFIGURED" : "CONFIGURED_REAL");
         body.put("features", features);
         String platform = System.getenv("CONTAINER_APP_REVISION") != null ? "AZURE_CONTAINER_APPS"
                 : System.getenv("RENDER") != null ? "RENDER" : "OTHER";

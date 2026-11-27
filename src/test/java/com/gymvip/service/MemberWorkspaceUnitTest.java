@@ -296,6 +296,7 @@ class MemberWorkspaceUnitTest {
         lenient().when(jdbc.query(contains("sent_reminder_dispatches"), any(RowMapper.class), any())).thenReturn(List.of());
         lenient().when(jdbc.queryForObject(contains("EXISTS"), eq(Boolean.class), eq("item-123"), eq(clientId))).thenReturn(true);
 
+        when(jdbc.query(contains("class_reservation_events"), any(RowMapper.class), eq(clientId))).thenReturn(List.of());
         var inbox = service.listInbox(clientId);
         assertNotNull(inbox);
         assertFalse(inbox.isEmpty());

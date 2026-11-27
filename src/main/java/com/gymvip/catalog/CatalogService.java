@@ -45,7 +45,8 @@ public class CatalogService {
     @Transactional(readOnly=true) public Page<Supplement> supplements(String query,String category,String availability,Boolean published,BigDecimal minPrice,BigDecimal maxPrice,boolean withPromotion,int page,int size,boolean customer) {
         return supplements(query, category, availability, published, minPrice, maxPrice, withPromotion, page, size, customer, null);
     }
-    private Page<Supplement> supplements(String query,String category,String availability,Boolean published,BigDecimal minPrice,BigDecimal maxPrice,boolean withPromotion,int page,int size,boolean customer,MemberSupplementStock scope) {
+    @Transactional(readOnly = true)
+    public Page<Supplement> supplements(String query,String category,String availability,Boolean published,BigDecimal minPrice,BigDecimal maxPrice,boolean withPromotion,int page,int size,boolean customer,MemberSupplementStock scope) {
         paging(page,size);
         if(minPrice!=null&&minPrice.signum()<0||maxPrice!=null&&maxPrice.signum()<0||minPrice!=null&&maxPrice!=null&&minPrice.compareTo(maxPrice)>0)throw new IllegalArgumentException("Rango de precios inválido.");
         StringBuilder where=new StringBuilder(" WHERE 1=1");List<Object> args=new ArrayList<>();
@@ -75,6 +76,16 @@ public class CatalogService {
     @Transactional(readOnly = true)
     public List<MobileProduct> mobileProducts(int page, int size, boolean customer, String memberEmail) {
         var scope = memberEmail == null ? null : MemberSupplementStock.forAccount(jdbc, memberEmail);
+        return mobileProductsForBranch(page, size, customer, scope);
+    }
+
+    @Transactional(readOnly = true)
+    public MemberSupplementStock memberStock(String email) {
+        return MemberSupplementStock.forAccount(jdbc, email);
+    }
+
+    @Transactional(readOnly = true)
+    public List<MobileProduct> mobileProductsForBranch(int page, int size, boolean customer, MemberSupplementStock scope) {
         List<Supplement> items = supplements("", "", "", null, null, null, false, page, size, customer, scope).content();
         if (items.isEmpty()) return List.of();
 
@@ -123,6 +134,11 @@ public class CatalogService {
         audit.recordEvent(actor,"UPDATE_SUPPLEMENT_CATALOG","Supplement",item.id().toString(),"Versión "+item.version());
     }
     @Transactional public Supplement saveSupplement(UUID id,SupplementInput input,List<MultipartFile> files,String actor) {
+        return saveSupplement(id, input, files, actor, null);
+    }
+
+    @Transactional
+    public Supplement saveSupplement(UUID id, SupplementInput input, List<MultipartFile> files, String actor, UUID branchId) {
         if(!input.reviewed())throw new IllegalArgumentException("Confirma que la información coincide con el rotulado antes de guardar.");
         List<UUID> keep=input.keepImageIds()==null?List.of():input.keepImageIds();
         if(new HashSet<>(keep).size()!=keep.size())throw new IllegalArgumentException("Hay imágenes repetidas.");
@@ -141,9 +157,9 @@ public class CatalogService {
             if(input.pricePen().compareTo(largestDiscount)<=0)throw new ConflictException("El precio debe superar el descuento de S/ "+largestDiscount+" de las promociones habilitadas. Modifica primero la promoción.");
         }
         if(creating)jdbc.update("""
-            INSERT INTO supplements(id,name,brand,category,presentation,net_content,flavor,description,ingredients,price_pen,availability,published,created_at_utc,updated_at_utc)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-            """,id,clean(input.name()),clean(input.brand()),input.category(),clean(input.presentation()),clean(input.netContent()),clean(input.flavor()),clean(input.description()),clean(input.ingredients()),input.pricePen(),input.availability(),input.published(),now(),now());
+            INSERT INTO supplements(id,name,brand,category,presentation,net_content,flavor,description,ingredients,price_pen,availability,published,created_at_utc,updated_at_utc,branch_id)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            """,id,clean(input.name()),clean(input.brand()),input.category(),clean(input.presentation()),clean(input.netContent()),clean(input.flavor()),clean(input.description()),clean(input.ingredients()),input.pricePen(),input.availability(),input.published(),now(),now(),branchId);
         else jdbc.update("""
             UPDATE supplements SET name=?,brand=?,category=?,presentation=?,net_content=?,flavor=?,description=?,ingredients=?,price_pen=?,availability=?,published=?,version=version+1,updated_at_utc=? WHERE id=?
             """,clean(input.name()),clean(input.brand()),input.category(),clean(input.presentation()),clean(input.netContent()),clean(input.flavor()),clean(input.description()),clean(input.ingredients()),input.pricePen(),input.availability(),input.published(),now(),id);
@@ -189,7 +205,18 @@ public class CatalogService {
         return jdbc.query("SELECT p.* FROM supplement_promotions p JOIN supplements s ON s.id=p.supplement_id WHERE p.id=?"+(customer?" AND p.enabled AND p.start_date<=? AND p.end_date>=? AND s.published":""),this::mapPromotion,customer?new Object[]{id,today(),today()}:new Object[]{id}).stream().findFirst().orElseThrow(()->new ResourceNotFoundException("Promoción no encontrada o fuera de vigencia."));
     }
     @Transactional(readOnly=true) public Page<Promotion> promotions(String state,UUID supplementId,int page,int size,boolean customer) {
+        return promotions(state, supplementId, page, size, customer, null);
+    }
+
+    @Transactional(readOnly=true)
+    public Page<Promotion> promotions(String state, UUID supplementId, int page, int size, boolean customer, MemberSupplementStock scope) {
         paging(page,size);List<Object> args=new ArrayList<>();StringBuilder where=new StringBuilder(" WHERE 1=1");
+        if (scope != null) {
+            if (scope.branchId() == null) return new Page<>(List.of(), 0, page, 0);
+            where.append(" AND (s.branch_id=? OR (s.branch_id IS NULL AND ?))");
+            args.add(scope.branchId());
+            args.add(scope.legacyInventory());
+        }
         String mode=clean(state);
         if(customer||mode.equals("VIGENTE")){where.append(" AND p.enabled AND p.start_date<=? AND p.end_date>=?");args.add(today());args.add(today());}
         else if(mode.equals("PROGRAMADA")){where.append(" AND p.enabled AND p.start_date>?");args.add(today());}

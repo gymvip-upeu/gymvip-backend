@@ -1,12 +1,14 @@
 package com.gymvip.performance;
 
 import com.gymvip.entity.Account;
-import com.gymvip.repository.AccountRepository;
 import com.gymvip.repository.MembershipRepository;
 import com.gymvip.security.JwtService;
 import com.gymvip.security.TotpService;
 import com.gymvip.service.MemberWorkspaceService;
-import com.gymvip.training.TrainingRepository;
+import com.gymvip.training.ClassReservationsService;
+import com.gymvip.security.TenantScopeResolver;
+import com.gymvip.entity.Account;
+import org.springframework.jdbc.core.RowMapper;
 import org.junit.jupiter.api.Test;
 import org.springframework.jdbc.core.JdbcTemplate;
 
@@ -82,47 +84,46 @@ class EnterprisePerformanceAndConcurrencyBenchmarkTest {
     @Test
     void classReservationHandles25ConcurrentRequestsWithoutOverselling() throws Exception {
         JdbcTemplate jdbc = mock(JdbcTemplate.class);
-        AccountRepository accountRepo = mock(AccountRepository.class);
+        TenantScopeResolver scope = mock(TenantScopeResolver.class);
         MemberWorkspaceService workspace = mock(MemberWorkspaceService.class);
         MembershipRepository membershipRepo = mock(MembershipRepository.class);
-
+        UUID branchId = UUID.randomUUID();
+        UUID organizationId = UUID.randomUUID();
         UUID classId = UUID.randomUUID();
         AtomicInteger confirmedCount = new AtomicInteger(0);
         Object dbRowLock = new Object();
 
+        when(scope.resolveActorByEmail(anyString())).thenReturn(new Account());
+        when(scope.memberBranch(any(Account.class), isNull())).thenReturn(branchId);
         when(workspace.ownClient(anyString())).thenAnswer(inv -> UUID.randomUUID());
         when(membershipRepo.contract(any(UUID.class))).thenReturn(
                 Optional.of(new MembershipRepository.Contract(UUID.randomUUID(), LocalDate.now().plusDays(15), "VIGENTE"))
         );
-        when(jdbc.queryForList(contains("FROM class_reservations"), eq(classId), any(UUID.class)))
-                .thenReturn(List.of());
-        when(jdbc.queryForObject(contains("FROM gym_classes WHERE id = ? FOR UPDATE"), eq(Integer.class), eq(classId)))
-                .thenReturn(5);
+        when(jdbc.query(contains("FROM gym_classes c JOIN branches"), any(RowMapper.class), eq(classId)))
+                .thenAnswer(inv -> {
+                    var row = mock(java.sql.ResultSet.class);
+                    when(row.getObject(1, UUID.class)).thenReturn(classId);
+                    when(row.getObject(2, UUID.class)).thenReturn(organizationId);
+                    when(row.getObject(3, UUID.class)).thenReturn(branchId);
+                    when(row.getString(5)).thenReturn("Clase de prueba");
+                    when(row.getObject(6, java.time.LocalDateTime.class)).thenReturn(java.time.LocalDateTime.now().plusDays(1));
+                    when(row.getInt(7)).thenReturn(5);
+                    when(row.getString(8)).thenReturn("PROGRAMADA");
+                    return List.of(((RowMapper<?>) inv.getArgument(1)).mapRow(row, 0));
+                });
         when(jdbc.queryForObject(contains("SELECT COUNT(*) FROM class_reservations"), eq(Integer.class), eq(classId)))
+                .thenAnswer(inv -> confirmedCount.get());
+        when(jdbc.update(contains("INSERT INTO class_reservations"), any(), eq(classId), any(), eq("RESERVADA"), any()))
                 .thenAnswer(inv -> {
-                    synchronized (dbRowLock) {
-                        return confirmedCount.get();
-                    }
+                    if (confirmedCount.get() >= 5) throw new IllegalStateException("Sobrecupo detectado");
+                    confirmedCount.incrementAndGet();
+                    return 1;
                 });
-        when(jdbc.update(contains("INSERT INTO class_reservations"), any(), eq(classId), any(), eq("RESERVADA")))
-                .thenAnswer(inv -> {
-                    synchronized (dbRowLock) {
-                        if (confirmedCount.get() >= 5) {
-                            throw new IllegalStateException("Oversell detectado");
-                        }
-                        confirmedCount.incrementAndGet();
-                        return 1;
-                    }
-                });
-        when(jdbc.update(contains("INSERT INTO class_reservations"), any(), eq(classId), any(), eq("LISTA_ESPERA")))
-                .thenReturn(1);
-
-        // Serializa llamadas simulando el bloqueo de fila SELECT FOR UPDATE de PostgreSQL
-        TrainingRepository repo = new TrainingRepository(jdbc, accountRepo, workspace, membershipRepo) {
+        ClassReservationsService repo = new ClassReservationsService(jdbc, scope, workspace, membershipRepo, java.time.Clock.systemUTC()) {
             @Override
-            public Map<String, Object> reserveClass(String email, UUID cid) {
+            public Map<String, Object> reserve(String email, UUID cid) {
                 synchronized (dbRowLock) {
-                    return super.reserveClass(email, cid);
+                    return super.reserve(email, cid);
                 }
             }
         };
@@ -137,7 +138,7 @@ class EnterprisePerformanceAndConcurrencyBenchmarkTest {
             futures.add(pool.submit(() -> {
                 ready.countDown();
                 start.await(5, TimeUnit.SECONDS);
-                return String.valueOf(repo.reserveClass(memberEmail, classId).get("status"));
+                return String.valueOf(repo.reserve(memberEmail, classId).get("status"));
             }));
         }
 

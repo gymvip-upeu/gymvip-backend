@@ -94,8 +94,9 @@ public class EnterpriseController {
         var actor = scope.resolveActor(auth);
         UUID orgId = scope.effectiveOrganizationId(actor, organizationId);
         var ownBranches = branchRepository.findByOrganizationIdOrderByNameAsc(orgId);
-        return ResponseEntity.ok(scope.isCompanyWideRole(actor) ? ownBranches : ownBranches.stream()
-                .filter(branch -> branch.getId().equals(actor.getPrimaryBranchId())).toList());
+        if (scope.isCompanyWideRole(actor)) return ResponseEntity.ok(ownBranches);
+        UUID assignedBranch = scope.effectiveBranchId(actor, null);
+        return ResponseEntity.ok(ownBranches.stream().filter(branch -> branch.getId().equals(assignedBranch)).toList());
     }
 
     public record CreateBranchRequest(

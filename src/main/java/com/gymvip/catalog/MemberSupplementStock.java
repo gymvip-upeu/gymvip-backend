@@ -15,7 +15,8 @@ public record MemberSupplementStock(UUID branchId, boolean legacyInventory) {
                     CASE WHEN COALESCE(a.organization_id, ?) = ? THEN CAST(? AS uuid) END)
                     AND b.organization_id = COALESCE(a.organization_id, ?) AND b.status = 'ACTIVO'
                 WHERE LOWER(a.email) = LOWER(?)
-                """, (rs, row) -> new MemberSupplementStock(rs.getObject("id", UUID.class), rs.getBoolean("legacy")),
+                """, (rs, row) -> new MemberSupplementStock(rs.getObject("id", UUID.class),
+                        rs.getBoolean("legacy") && TenantScopeResolver.DEFAULT_BRANCH_ID.equals(rs.getObject("id", UUID.class))),
                 TenantScopeResolver.DEFAULT_ORG_ID, TenantScopeResolver.DEFAULT_ORG_ID,
                 TenantScopeResolver.DEFAULT_ORG_ID, TenantScopeResolver.DEFAULT_ORG_ID,
                 TenantScopeResolver.DEFAULT_BRANCH_ID, TenantScopeResolver.DEFAULT_ORG_ID, email)

@@ -106,6 +106,7 @@ public class SecurityConfig {
                         .requestMatchers("/api/v1/security/mfa/**").authenticated()
                         .requestMatchers("/api/v1/security/privileged/**").hasRole("SUPER_ADMIN")
                         .requestMatchers("/api/v1/training/**").authenticated()
+                        .requestMatchers("/api/v1/supplements/stock", "/api/v1/supplements/stock/**", "/api/v1/supplements/*/stock/**").authenticated()
                         .requestMatchers("/api/v1/member-app/faqs", "/api/v1/member-app/services").authenticated()
                         .requestMatchers("/api/v1/member-app/**").hasAnyRole("CLIENTE", "SUPER_ADMIN", "ADMIN", "ADMIN_EMPRESA", "GERENTE", "GERENTE_GENERAL", "GERENTE_SEDE", "RECEPCION", "AUDITOR", "AUDITOR_EMPRESA")
                         .requestMatchers(HttpMethod.GET,
