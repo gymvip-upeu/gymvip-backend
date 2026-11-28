@@ -10,7 +10,7 @@ import java.util.UUID;
 
 @RestController
 @RequestMapping("/api/v1/coverage")
-@PreAuthorize("hasAnyRole('ADMIN','GERENTE','RECEPCION')")
+@PreAuthorize("hasAnyRole('ADMIN','GERENTE','RECEPCION','SUPER_ADMIN','ADMIN_EMPRESA','GERENTE_GENERAL','GERENTE_SEDE','AUDITOR','AUDITOR_EMPRESA')")
 public class CoverageController {
     private final CoverageService service;
     private final com.gymvip.security.TenantScopeResolver scopes;
@@ -21,7 +21,7 @@ public class CoverageController {
     @GetMapping("/clients/{id}")
     public CoverageResponse verify(@PathVariable UUID id) {return service.verify(id);}
     @GetMapping
-    @PreAuthorize("hasAuthority('memberships.read') and !hasRole('CLIENTE')")
+    @PreAuthorize("(hasAuthority('memberships.read') or hasAnyRole('ADMIN','GERENTE','RECEPCION','SUPER_ADMIN','ADMIN_EMPRESA','GERENTE_GENERAL','GERENTE_SEDE','AUDITOR','AUDITOR_EMPRESA')) and !hasRole('CLIENTE')")
     public PageResponse<CoverageResponse> list(@RequestParam(defaultValue="") String query,@RequestParam(defaultValue="ALERTAS") String state,
             @RequestParam(required=false) UUID planId,@RequestParam(required=false) LocalDate from,
             @RequestParam(required=false) LocalDate to,@RequestParam(defaultValue="0") int page,@RequestParam(defaultValue="20") int size,

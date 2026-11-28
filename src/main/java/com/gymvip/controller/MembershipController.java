@@ -15,7 +15,7 @@ import java.util.*;
 public class MembershipController {
     private final MembershipService service;
     public MembershipController(MembershipService service) { this.service = service; }
-    @PreAuthorize("hasAuthority('payments.read')")
+    @PreAuthorize("hasAuthority('payments.read') or hasAnyRole('ADMIN','GERENTE','RECEPCION','SUPER_ADMIN','ADMIN_EMPRESA','GERENTE_GENERAL','CAJERO')")
     @GetMapping("/payment-methods") public List<String> methods() { return service.paymentMethods(); }
     @PostMapping("/quote") public MembershipQuoteResponse quote(@Valid @RequestBody MembershipQuoteRequest request) {
         return service.quote(request);

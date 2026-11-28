@@ -114,7 +114,8 @@ public class TenantScopeResolver {
         }
         BranchEntity assigned = branchRepository.findById(branch)
                 .orElseThrow(() -> new AccessDeniedException("Sede operativa no asignada."));
-        if (!"ACTIVO".equalsIgnoreCase(assigned.getStatus()) || !organizationId.equals(assigned.getOrganizationId())) {
+        if (!"ACTIVO".equalsIgnoreCase(assigned.getStatus())
+                || (!isGlobalPlatformRole(actor) && !organizationId.equals(assigned.getOrganizationId()))) {
             throw new AccessDeniedException("Acceso denegado: la sede pertenece a otra empresa.");
         }
         return branch;

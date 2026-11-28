@@ -19,7 +19,7 @@ import java.util.UUID;
 
 @RestController
 @RequestMapping("/api/v1/clients")
-@PreAuthorize("hasAnyRole('ADMIN', 'GERENTE', 'RECEPCION')")
+@PreAuthorize("hasAnyRole('ADMIN', 'GERENTE', 'RECEPCION', 'SUPER_ADMIN', 'ADMIN_EMPRESA', 'GERENTE_GENERAL', 'GERENTE_SEDE', 'AUDITOR', 'AUDITOR_EMPRESA')")
 public class ClientController {
 
     private final ClientService clientService;
@@ -31,7 +31,7 @@ public class ClientController {
     }
 
     @PostMapping
-    @PreAuthorize("hasAuthority('members.create')")
+    @PreAuthorize("hasAuthority('members.create') or hasAnyRole('ADMIN', 'GERENTE', 'RECEPCION', 'SUPER_ADMIN', 'ADMIN_EMPRESA', 'GERENTE_GENERAL', 'GERENTE_SEDE')")
     public ResponseEntity<ClientResponse> registerClient(
             @Valid @RequestBody RegisterClientRequest request,
             Authentication authentication, @RequestParam(required=false) UUID organizationId, @RequestParam(required=false) UUID branchId
@@ -49,7 +49,7 @@ public class ClientController {
     }
 
     @GetMapping
-    @PreAuthorize("hasAuthority('members.read') and !hasRole('CLIENTE')")
+    @PreAuthorize("(hasAuthority('members.read') or hasAnyRole('ADMIN', 'GERENTE', 'RECEPCION', 'SUPER_ADMIN', 'ADMIN_EMPRESA', 'GERENTE_GENERAL', 'GERENTE_SEDE', 'AUDITOR', 'AUDITOR_EMPRESA')) and !hasRole('CLIENTE')")
     public ResponseEntity<PageResponse<ClientResponse>> searchClients(
             @RequestParam(required = false) String query,
             @PageableDefault(size = 20) Pageable pageable, Authentication authentication,
