@@ -54,6 +54,15 @@ class OperationalRolePolicyTest {
                 () -> StaffAccessPolicy.requireTarget(companyAdmin, account("SUPER_ADMIN", organization), false));
     }
 
+    @Test
+    void platformSupportCanDiagnoseButCannotReadCompanyOperations() {
+        var roles = Set.of("SOPORTE_PLATAFORMA");
+        assertTrue(PermissionCatalog.hasPermission(roles, "integrations.read"));
+        for (var permission : Set.of("platform.manage", "employees.read", "reports.read", "incidents.read", "payments.read", "integrations.test")) {
+            assertFalse(PermissionCatalog.hasPermission(roles, permission));
+        }
+    }
+
     private Account account(String role, UUID organization) {
         var account = new Account();
         account.setId(UUID.randomUUID());
