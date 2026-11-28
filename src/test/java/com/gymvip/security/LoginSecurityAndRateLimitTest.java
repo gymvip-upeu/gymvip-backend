@@ -292,10 +292,10 @@ class LoginSecurityAndRateLimitTest {
         when(accountRepository.findById(accountId)).thenReturn(Optional.of(account));
         when(accountRepository.save(any(Account.class))).thenReturn(account);
         when(accountMapper.toResponse(any(Account.class))).thenReturn(
-                new StaffAccountResponse(accountId, "staff@gymvip.com", Set.of("CAJERO"), "ACTIVO", false, LocalDateTime.now(), LocalDateTime.now())
+                new StaffAccountResponse(accountId, "staff@gymvip.com", Set.of("ENTRENADOR"), "ACTIVO", false, LocalDateTime.now(), LocalDateTime.now())
         );
 
-        UpdateStaffRoleRequest request = new UpdateStaffRoleRequest("CAJERO");
+        UpdateStaffRoleRequest request = new UpdateStaffRoleRequest("ENTRENADOR");
         accountService.updateRole(accountId, request, "admin@gymvip.com");
 
         verify(sessionRepository, times(1)).deleteByAccountId(accountId);

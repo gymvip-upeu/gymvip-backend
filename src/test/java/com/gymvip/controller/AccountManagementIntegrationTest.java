@@ -162,9 +162,9 @@ public class AccountManagementIntegrationTest {
         mockMvc.perform(patch("/api/v1/accounts/" + accountId + "/role")
                         .header("Authorization", "Bearer " + adminToken)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(new UpdateStaffRoleRequest("CAJERO"))))
+                        .content(objectMapper.writeValueAsString(new UpdateStaffRoleRequest("ENTRENADOR"))))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.roles", hasItem("CAJERO")));
+                .andExpect(jsonPath("$.roles", hasItem("ENTRENADOR")));
 
         // Inactivar cuenta
         mockMvc.perform(patch("/api/v1/accounts/" + accountId + "/status")

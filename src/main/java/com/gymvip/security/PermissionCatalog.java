@@ -56,7 +56,11 @@ public final class PermissionCatalog {
             new PermissionDefinition("plans.manage", "Catálogo", "edicion", "Crear y desactivar versiones de planes tarifarios"),
             new PermissionDefinition("inventory.read", "Inventario", "lectura", "Consultar suplementos, precios y stock"),
             new PermissionDefinition("inventory.adjust", "Inventario", "edicion", "Ajustar kardex, stock, promociones y catálogo"),
-            new PermissionDefinition("inventory.transfer", "Inventario", "transferencia", "Despachar pedidos QR y transferir stock entre sedes"),
+            new PermissionDefinition("inventory.transfer", "Inventario", "transferencia", "Transferir stock entre sedes"),
+            new PermissionDefinition("orders.dispatch", "Pedidos", "edicion", "Preparar y entregar pedidos en la sede"),
+            new PermissionDefinition("communications.drafts", "Comunicaciones", "edicion", "Preparar anuncios de la sede para revisión"),
+            new PermissionDefinition("incidents.close", "Operación", "edicion", "Cerrar incidencias con motivo registrado"),
+            new PermissionDefinition("facilities.update_status", "Operación", "edicion", "Cambiar la disponibilidad de áreas de su sede"),
 
             // Personal
             new PermissionDefinition("employees.read", "Personal", "lectura", "Consultar nómina de colaboradores"),
@@ -98,23 +102,24 @@ public final class PermissionCatalog {
 
     private static final Set<String> RECEPTION_PERMS = union(STAFF_CORE_READ, Set.of(
             "members.create", "members.update", "memberships.create", "memberships.renew",
-            "payments.create", "attendance.manage", "inventory.transfer"
+            "payments.create", "attendance.manage", "orders.dispatch", "facilities.update_status",
+            "incidents.read", "incidents.manage", "communications.drafts"
     ));
 
     private static final Set<String> COACH_PERMS = Set.of(
             "branches.read", "members.read", "training.routines.read", "training.routines.create",
             "training.routines.assign", "training.progress.read", "training.sessions.log",
             "training.classes.manage", "training.classes.roster", "training.classes.notifications",
-            "training.exercises.edit", "communications.read", "preferences.manage"
+            "training.exercises.edit", "training.exercises.publish", "communications.read", "preferences.manage"
     );
 
     private static final Set<String> AUDITOR_PERMS = Set.of(
-            "branches.read", "reports.read", "reports.export", "incidents.read",
+            "branches.read", "reports.read", "reports.export", "incidents.read", "incidents.close",
             "payments.read", "attendance.read", "employees.read", "preferences.manage"
     );
 
     private static final Set<String> MANAGER_BRANCH_PERMS = union(RECEPTION_PERMS, Set.of(
-            "inventory.adjust", "supplements.stock.receive", "supplements.stock.adjust",
+            "inventory.adjust", "inventory.transfer", "supplements.stock.receive", "supplements.stock.adjust",
             "training.exercises.edit", "training.classes.notifications", "training.routines.read", "training.routines.create",
             "training.routines.assign", "training.progress.read", "training.classes.manage",
             "reports.read", "reports.export", "incidents.read", "incidents.manage",
@@ -138,6 +143,9 @@ public final class PermissionCatalog {
             "training.classes.reserve", "preferences.manage"
     );
 
+    private static final Set<String> RETIRED_ROLES = Set.of("CAJERO", "INVENTARIO", "COMPRAS", "ENTRENADOR_JEFE",
+            "MARKETING", "ATENCION_CLIENTE", "MANTENIMIENTO");
+
     private static final Map<String, RoleDefinition> ROLES = new LinkedHashMap<>();
 
     static {
@@ -155,7 +163,7 @@ public final class PermissionCatalog {
                 "Dirección ejecutiva y financiera multi-sede.",
                 false, true, union(MANAGER_BRANCH_PERMS, Set.of("plans.manage", "employees.create", "employees.assign_role", "employees.inactivate", "branches.manage", "integrations.read", "training.exercises.publish")));
         register("AUDITOR_EMPRESA", "Auditor Empresarial", "ORGANIZATION",
-                "Supervisión contable, operativa y de auditoría en solo lectura.",
+                "Consulta de operaciones y finanzas y cierre motivado de incidencias.",
                 false, true, AUDITOR_PERMS);
         register("CONTADOR", "Contador", "ORGANIZATION",
                 "Control tributario, recaudación y exportación de reportes financieros.",
@@ -164,15 +172,15 @@ public final class PermissionCatalog {
                 "Gestión de nómina de personal, altas y asignaciones por sede.",
                 false, false, Set.of("branches.read", "employees.read", "employees.create", "employees.inactivate", "preferences.manage"));
 
-        register("GERENTE_SEDE", "Gerente de Sede", "BRANCH",
+        register("GERENTE_SEDE", "Responsable de sede", "BRANCH",
                 "Gestión integral de una sede asignada: operaciones, personal local, clases e inventario.",
                 false, true, MANAGER_BRANCH_PERMS);
-        register("RECEPCION", "Recepción", "BRANCH",
-                "Atención diaria en mostrador, registro de socios, cobros, validación QR y despacho.",
+        register("RECEPCION", "Colaborador", "BRANCH",
+                "Atención y caja de la sede, asistencia, entrega de pedidos, incidencias, estado de áreas y borradores de avisos.",
                 false, true, RECEPTION_PERMS);
         register("CAJERO", "Cajero", "BRANCH",
                 "Cobros presenciales, emisión de enlaces de pago y cierre de caja.",
-                false, false, Set.of("branches.read", "members.read", "memberships.read", "memberships.create", "memberships.renew", "payments.read", "payments.create", "preferences.manage"));
+                false, false, Set.of("branches.read", "members.read", "memberships.read", "memberships.create", "memberships.renew", "payments.read", "payments.create", "orders.dispatch", "preferences.manage"));
         register("INVENTARIO", "Encargado de Inventario", "BRANCH",
                 "Control de catálogo, ajuste de kardex y transferencias de suplementos.",
                 false, true, Set.of("branches.read", "inventory.read", "inventory.adjust", "inventory.transfer",
@@ -184,7 +192,7 @@ public final class PermissionCatalog {
                 "Supervisión metodológica de entrenadores, clases y rutinas de la sede.",
                 false, true, union(COACH_PERMS, Set.of("reports.read", "training.exercises.publish")));
         register("ENTRENADOR", "Entrenador", "BRANCH",
-                "Creación de rutinas, seguimiento de progreso de socios asignados y dictado de clases.",
+                "Rutinas, clases propias, seguimiento de socios asignados y publicación de ejercicios de su sede.",
                 false, true, COACH_PERMS);
         register("MARKETING", "Marketing y Promociones", "BRANCH",
                 "Gestión de campañas, promociones y comunicados institucionales.",
@@ -252,9 +260,11 @@ public final class PermissionCatalog {
     }
 
     public static boolean isAssignableStaffRole(String role) {
-        String normalized = normalizeRole(role);
-        RoleDefinition def = ROLES.get(normalized);
-        return def != null && !"CLIENT".equals(def.level());
+        return isStaffRole(role) && !isRetiredRole(role);
+    }
+
+    public static boolean isRetiredRole(String role) {
+        return RETIRED_ROLES.contains(normalizeRole(role));
     }
 
     public static boolean isSuperAdmin(Collection<String> roles) {
@@ -313,7 +323,9 @@ public final class PermissionCatalog {
     }
 
     public static List<RoleDefinition> allRoleDefinitions() {
-        return ROLES.values().stream().filter(role -> role.code().equals(canonicalRole(role.code()))).toList();
+        return ROLES.values().stream()
+                .filter(role -> role.code().equals(canonicalRole(role.code())) && !isRetiredRole(role.code()))
+                .toList();
     }
 
     public static List<PermissionDefinition> allPermissionDefinitions() {
