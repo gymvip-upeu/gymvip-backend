@@ -72,6 +72,32 @@ public class TenantScopeResolver {
         return actorOrg;
     }
 
+    public record OperationalScope(UUID organizationId, UUID branchId) {
+        public Object[] parameters(Object... remaining) {
+            Object[] values = new Object[remaining.length + 3];
+            values[0] = organizationId;
+            values[1] = branchId;
+            values[2] = branchId;
+            System.arraycopy(remaining, 0, values, 3, remaining.length);
+            return values;
+        }
+    }
+
+    public OperationalScope operationalScope(Authentication auth, UUID requestedOrg, UUID requestedBranch) {
+        Account actor = resolveActor(auth);
+        if (isGlobalPlatformRole(actor) && requestedOrg == null) {
+            throw new IllegalArgumentException("Selecciona una empresa para consultar su operación.");
+        }
+        UUID org = effectiveOrganizationId(actor, requestedOrg);
+        UUID branch = isCompanyWideRole(actor) ? requestedBranch : effectiveBranchId(actor, requestedBranch);
+        if (branch != null) {
+            branchRepository.findById(branch)
+                    .filter(b -> org.equals(b.getOrganizationId()) && "ACTIVO".equals(b.getStatus()))
+                    .orElseThrow(StaffAccessPolicy::denied);
+        }
+        return new OperationalScope(org, branch);
+    }
+
     public UUID effectiveBranchId(Account actor, UUID requestedBranchId) {
         UUID organizationId = effectiveOrganizationId(actor, null);
         UUID primary = actor.getPrimaryBranchId();
@@ -88,7 +114,7 @@ public class TenantScopeResolver {
         }
         BranchEntity assigned = branchRepository.findById(branch)
                 .orElseThrow(() -> new AccessDeniedException("Sede operativa no asignada."));
-        if (!"ACTIVO".equalsIgnoreCase(assigned.getStatus()) || (!isGlobalPlatformRole(actor) && !organizationId.equals(assigned.getOrganizationId()))) {
+        if (!"ACTIVO".equalsIgnoreCase(assigned.getStatus()) || !organizationId.equals(assigned.getOrganizationId())) {
             throw new AccessDeniedException("Acceso denegado: la sede pertenece a otra empresa.");
         }
         return branch;

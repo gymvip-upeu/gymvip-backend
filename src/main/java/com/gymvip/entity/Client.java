@@ -12,6 +12,11 @@ import java.util.UUID;
 @Table(name = "clients")
 public class Client {
 
+    @Column(name = "branch_id")
+    private UUID branchId;
+
+    public void setBranchId(UUID branchId) { this.branchId = branchId; }
+
     @Version
     private long version;
 

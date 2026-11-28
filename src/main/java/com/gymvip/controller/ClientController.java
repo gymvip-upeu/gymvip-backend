@@ -24,26 +24,38 @@ public class ClientController {
 
     private final ClientService clientService;
 
-    public ClientController(ClientService clientService) {
+    private final com.gymvip.security.TenantScopeResolver scopes;
+    public ClientController(ClientService clientService, com.gymvip.security.TenantScopeResolver scopes) {
         this.clientService = clientService;
+        this.scopes = scopes;
     }
 
     @PostMapping
+    @PreAuthorize("hasAuthority('members.create')")
     public ResponseEntity<ClientResponse> registerClient(
             @Valid @RequestBody RegisterClientRequest request,
-            Authentication authentication
+            Authentication authentication, @RequestParam(required=false) UUID organizationId, @RequestParam(required=false) UUID branchId
     ) {
         String actor = authentication != null ? authentication.getName() : "recepcion_sistema";
-        ClientResponse response = clientService.registerClient(request, actor);
+        var scope = scopes.operationalScope(authentication, organizationId, branchId);
+        var operator = scopes.resolveActor(authentication);
+        UUID assigned = scope.branchId();
+        if (assigned == null) {
+            if (scopes.isGlobalPlatformRole(operator)) throw new IllegalArgumentException("Selecciona la sede de alta.");
+            assigned = scopes.effectiveBranchId(operator, null);
+        }
+        ClientResponse response = clientService.registerClient(request, actor, assigned);
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
 
     @GetMapping
+    @PreAuthorize("hasAuthority('members.read') and !hasRole('CLIENTE')")
     public ResponseEntity<PageResponse<ClientResponse>> searchClients(
             @RequestParam(required = false) String query,
-            @PageableDefault(size = 20) Pageable pageable
+            @PageableDefault(size = 20) Pageable pageable, Authentication authentication,
+            @RequestParam(required=false) UUID organizationId, @RequestParam(required=false) UUID branchId
     ) {
-        return ResponseEntity.ok(PageResponse.from(clientService.searchClients(query, pageable)));
+        return ResponseEntity.ok(PageResponse.from(clientService.searchClients(query, pageable, scopes.operationalScope(authentication, organizationId, branchId))));
     }
 
     @GetMapping("/{id}")

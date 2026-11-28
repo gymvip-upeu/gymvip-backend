@@ -1,6 +1,7 @@
 package com.gymvip.controller;
 
 import com.gymvip.dto.response.*;
+import com.gymvip.security.TenantScopeResolver;
 import com.gymvip.service.ClientEditingService;
 import com.gymvip.service.ClientService;
 import com.gymvip.service.CoverageService;
@@ -34,6 +35,9 @@ class PaginationContractTest {
     @Mock
     private ClientService clientService;
 
+    @Mock
+    private TenantScopeResolver tenantScopeResolver;
+
     @InjectMocks
     private CoverageController coverageController;
 
@@ -50,10 +54,12 @@ class PaginationContractTest {
         when(item.memberCode()).thenReturn("VIP-101");
         PageImpl<CoverageResponse> pageImpl = new PageImpl<>(List.of(item), PageRequest.of(0, 20), 1L);
 
-        when(coverageService.list(anyString(), anyString(), any(), any(), any(), anyInt(), anyInt()))
+        TenantScopeResolver.OperationalScope scope = new TenantScopeResolver.OperationalScope(UUID.randomUUID(), null);
+        when(tenantScopeResolver.operationalScope(isNull(), isNull(), isNull())).thenReturn(scope);
+        when(coverageService.list(anyString(), anyString(), any(), any(), any(), anyInt(), anyInt(), eq(scope)))
                 .thenReturn(pageImpl);
 
-        PageResponse<CoverageResponse> response = coverageController.list("", "ALERTAS", null, null, null, 0, 20);
+        PageResponse<CoverageResponse> response = coverageController.list("", "ALERTAS", null, null, null, 0, 20, null, null, null);
 
         assertNotNull(response);
         assertEquals(1, response.content().size());
@@ -97,10 +103,12 @@ class PaginationContractTest {
         when(client.memberCode()).thenReturn("VIP-001");
         PageImpl<ClientResponse> pageImpl = new PageImpl<>(List.of(client), PageRequest.of(0, 20), 1L);
 
-        when(clientService.searchClients(any(), any()))
+        TenantScopeResolver.OperationalScope scope = new TenantScopeResolver.OperationalScope(UUID.randomUUID(), null);
+        when(tenantScopeResolver.operationalScope(isNull(), isNull(), isNull())).thenReturn(scope);
+        when(clientService.searchClients(any(), any(), eq(scope)))
                 .thenReturn(pageImpl);
 
-        ResponseEntity<PageResponse<ClientResponse>> entity = clientController.searchClients("Carlos", PageRequest.of(0, 20));
+        ResponseEntity<PageResponse<ClientResponse>> entity = clientController.searchClients("Carlos", PageRequest.of(0, 20), null, null, null);
 
         assertNotNull(entity);
         assertTrue(entity.getStatusCode().is2xxSuccessful());

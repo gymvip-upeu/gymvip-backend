@@ -13,4 +13,6 @@ public interface ClientService {
     Page<ClientResponse> searchClients(String query, Pageable pageable);
     ClientDetailResponse getClientById(UUID id);
     ClientDetailResponse getClientByMemberCode(String memberCode);
+    Page<ClientResponse> searchClients(String query, Pageable pageable, com.gymvip.security.TenantScopeResolver.OperationalScope scope);
+    ClientResponse registerClient(RegisterClientRequest request, String actorEmail, UUID branchId);
 }

@@ -18,6 +18,7 @@ import static org.mockito.Mockito.when;
 
 @DisplayName("Pruebas Unitarias de Dashboard y Métricas Analíticas")
 class DashboardUnitTest {
+    final com.gymvip.security.TenantScopeResolver.OperationalScope scope = new com.gymvip.security.TenantScopeResolver.OperationalScope(java.util.UUID.randomUUID(), null);
 
     @Test
     @DisplayName("Admin y Auditor reciben métricas completas incluyendo resumen financiero")
@@ -28,7 +29,7 @@ class DashboardUnitTest {
         when(jdbc.queryForObject(anyString(), eq(BigDecimal.class), any(Object[].class))).thenReturn(new BigDecimal("1500.50"));
 
         DashboardService service = new DashboardService(jdbc);
-        DashboardMetricsResponse metrics = service.getMetrics(true);
+        DashboardMetricsResponse metrics = service.getMetrics(true, scope);
 
         assertNotNull(metrics);
         assertNotNull(metrics.financialSummary(), "El resumen financiero no debe ser nulo para administradores");
@@ -46,7 +47,7 @@ class DashboardUnitTest {
         when(jdbc.queryForObject(anyString(), eq(Long.class))).thenReturn(12L);
 
         DashboardService service = new DashboardService(jdbc);
-        DashboardMetricsResponse metrics = service.getMetrics(false);
+        DashboardMetricsResponse metrics = service.getMetrics(false, scope);
 
         assertNotNull(metrics);
         assertNull(metrics.financialSummary(), "El resumen financiero DEBE ser nulo para roles sin privilegios contables");
@@ -67,22 +68,24 @@ class DashboardUnitTest {
                 java.util.Map.of(),
                 null
         );
-        when(service.getMetrics(anyBoolean())).thenReturn(mockResp);
+        when(service.getMetrics(anyBoolean(), any())).thenReturn(mockResp);
 
-        DashboardController controller = new DashboardController(service);
+        var resolver = Mockito.mock(com.gymvip.security.TenantScopeResolver.class);
+        when(resolver.operationalScope(any(), any(), any())).thenReturn(scope);
+        DashboardController controller = new DashboardController(service, resolver);
 
         // Caso 1: Recepcionista
         var authRecepcion = new UsernamePasswordAuthenticationToken(
                 "recepcion@vipcenterfit.pe", "pwd", List.of(new SimpleGrantedAuthority("ROLE_RECEPCION"))
         );
-        controller.getMetrics(authRecepcion);
-        Mockito.verify(service).getMetrics(false);
+        controller.getMetrics(authRecepcion, null, null);
+        Mockito.verify(service).getMetrics(false, scope);
 
         // Caso 2: Administrador
         var authAdmin = new UsernamePasswordAuthenticationToken(
-                "admin@vipcenterfit.pe", "pwd", List.of(new SimpleGrantedAuthority("ROLE_ADMIN"))
+                "admin@vipcenterfit.pe", "pwd", List.of(new SimpleGrantedAuthority("reports.read"))
         );
-        controller.getMetrics(authAdmin);
-        Mockito.verify(service).getMetrics(true);
+        controller.getMetrics(authAdmin, null, null);
+        Mockito.verify(service).getMetrics(true, scope);
     }
 }

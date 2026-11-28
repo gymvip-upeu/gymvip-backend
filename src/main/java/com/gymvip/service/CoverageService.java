@@ -23,14 +23,18 @@ public class CoverageService {
         this.repository=repository;this.clock=clock;this.threshold=threshold;
     }
     public CoverageResponse verify(UUID id) {
-        return calculate(id,"").stream().findFirst().orElseThrow(()->new ClientNotFoundException("Cliente no encontrado."));
+        return calculate(id,"",null).stream().findFirst().orElseThrow(()->new ClientNotFoundException("Cliente no encontrado."));
     }
     public Page<CoverageResponse> list(String query,String state,UUID planId,LocalDate from,LocalDate to,int page,int size) {
+        return list(query,state,planId,from,to,page,size,null);
+    }
+    public Page<CoverageResponse> list(String query,String state,UUID planId,LocalDate from,LocalDate to,int page,int size,
+                                       com.gymvip.security.TenantScopeResolver.OperationalScope scope) {
         if(page<0 || size<1 || size>100) throw new IllegalArgumentException("Paginación inválida.");
         if(from!=null && to!=null && from.isAfter(to)) throw new IllegalArgumentException("El inicio del rango supera el fin.");
         var states=Set.of("TODOS","VIGENTE","POR_VENCER","VENCIDO","CANCELADA","PENDIENTE","SIN_MEMBRESIA","ALERTAS");
         if(!states.contains(state)) throw new IllegalArgumentException("Estado inválido.");
-        var rows=calculate(null,query==null?"":query.trim()).stream()
+        var rows=calculate(null,query==null?"":query.trim(),scope).stream()
                 .filter(r->state.equals("TODOS") || (state.equals("ALERTAS") ? Set.of("POR_VENCER","VENCIDO").contains(r.state()):state.equals(r.state())))
                 .filter(r->planId==null || planId.equals(r.planId()))
                 .filter(r->from==null || r.lastIncludedDate()!=null && !r.lastIncludedDate().isBefore(from))
@@ -40,11 +44,11 @@ public class CoverageService {
         int start=(int)Math.min((long)page*size,rows.size());
         return new PageImpl<>(rows.subList(start,Math.min(start+size,rows.size())),PageRequest.of(page,size),rows.size());
     }
-    private List<CoverageResponse> calculate(UUID id,String query) {
+    private List<CoverageResponse> calculate(UUID id,String query,com.gymvip.security.TenantScopeResolver.OperationalScope scope) {
         Clock snapshot=Clock.fixed(clock.instant(),ZoneOffset.UTC);
-        var paid=repository.paid(id).stream().collect(Collectors.groupingBy(CoverageRepository.PaidRow::clientId,
+        var paid=(scope==null ? repository.paid(id) : repository.paid(id,scope)).stream().collect(Collectors.groupingBy(CoverageRepository.PaidRow::clientId,
                 Collectors.mapping(CoverageRepository.PaidRow::period,Collectors.toList())));
-        return repository.clients(id,query).stream().map(c->{
+        return (scope==null ? repository.clients(id,query) : repository.clients(id,query,scope)).stream().map(c->{
             var result=CoveragePolicy.evaluate(paid.getOrDefault(c.id(),List.of()),c.contractStatus(),c.status(),snapshot,threshold);
             return new CoverageResponse(c.id(),c.code(),c.name(),c.document(),c.status(),c.contractStatus(),result.state(),
                     result.allowed(),result.reason(),result.planId(),result.planName(),result.start(),

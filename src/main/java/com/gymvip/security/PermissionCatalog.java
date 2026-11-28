@@ -123,7 +123,7 @@ public final class PermissionCatalog {
             "training.exercises.edit", "training.classes.notifications", "training.routines.read", "training.routines.create",
             "training.routines.assign", "training.progress.read", "training.classes.manage",
             "reports.read", "reports.export", "incidents.read", "incidents.manage",
-            "employees.read", "communications.configure"
+            "employees.read", "employees.create", "employees.assign_role", "communications.configure"
     ));
 
     private static final Set<String> CORP_ADMIN_PERMS = union(MANAGER_BRANCH_PERMS, Set.of(
@@ -170,7 +170,7 @@ public final class PermissionCatalog {
                 false, false, Set.of("branches.read", "payments.read", "reports.read", "reports.export", "preferences.manage"));
         register("RECURSOS_HUMANOS", "Recursos Humanos", "ORGANIZATION",
                 "Gestión de nómina de personal, altas y asignaciones por sede.",
-                false, false, Set.of("branches.read", "employees.read", "employees.create", "employees.inactivate", "preferences.manage"));
+                false, false, Set.of("branches.read", "employees.read", "employees.create", "employees.assign_role", "employees.inactivate", "preferences.manage"));
 
         register("GERENTE_SEDE", "Responsable de sede", "BRANCH",
                 "Gestión integral de una sede asignada: operaciones, personal local, clases e inventario.",

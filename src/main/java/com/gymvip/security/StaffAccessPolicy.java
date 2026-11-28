@@ -51,6 +51,7 @@ public final class StaffAccessPolicy {
         if (hasRole(actor, "SUPER_ADMIN") || isCompanyAdmin(actor)) {
             return MANAGEMENT.contains(code) || OPERATIONS.contains(code);
         }
+        if (hasRole(actor, "GERENTE_GENERAL") && "GERENTE_SEDE".equals(code)) return true;
         return OPERATIONS.contains(code) && (hasRole(actor, "GERENTE_GENERAL")
                 || hasRole(actor, "GERENTE_SEDE") || hasRole(actor, "RECURSOS_HUMANOS"));
     }

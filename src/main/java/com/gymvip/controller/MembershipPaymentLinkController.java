@@ -21,7 +21,7 @@ public class MembershipPaymentLinkController {
     }
 
     @GetMapping("/api/v1/memberships/payment-links/config")
-    @PreAuthorize("hasAnyRole('ADMIN','GERENTE','RECEPCION')")
+    @PreAuthorize("hasAuthority('payments.read')")
     public Map<String, Object> config() { return Map.of("culqiEnabled", service.available(), "culqiMode", service.mode()); }
 
     @PostMapping("/api/v1/memberships/payment-links")

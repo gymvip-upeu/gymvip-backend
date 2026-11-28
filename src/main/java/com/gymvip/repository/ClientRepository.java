@@ -28,4 +28,16 @@ public interface ClientRepository extends JpaRepository<Client, UUID> {
            "LOWER(c.memberCode) LIKE LOWER(CONCAT('%', :query, '%')) OR " +
            "LOWER(d.documentNumber) LIKE LOWER(CONCAT('%', :query, '%')))")
     Page<Client> searchClients(@Param("query") String query, Pageable pageable);
+
+    @Query("SELECT DISTINCT c FROM Client c LEFT JOIN c.documents d WHERE c.branchId IN (SELECT b.id FROM BranchEntity b WHERE b.organizationId=:org AND (cast(:branch as uuid) IS NULL OR b.id=:branch)) AND " +
+           "(:query IS NULL OR :query = '' OR " +
+           "LOWER(c.firstName) LIKE LOWER(CONCAT('%', :query, '%')) OR " +
+           "LOWER(c.lastName) LIKE LOWER(CONCAT('%', :query, '%')) OR " +
+           "LOWER(CONCAT(c.firstName, ' ', c.lastName)) LIKE LOWER(CONCAT('%', :query, '%')) OR " +
+           "LOWER(c.email) LIKE LOWER(CONCAT('%', :query, '%')) OR " +
+           "LOWER(c.phone) LIKE LOWER(CONCAT('%', :query, '%')) OR " +
+           "LOWER(c.memberCode) LIKE LOWER(CONCAT('%', :query, '%')) OR " +
+           "LOWER(d.documentNumber) LIKE LOWER(CONCAT('%', :query, '%')))")
+    Page<Client> searchInCompany(@Param("query") String query, @Param("org") UUID organizationId,
+                                 @Param("branch") UUID branchId, Pageable pageable);
 }

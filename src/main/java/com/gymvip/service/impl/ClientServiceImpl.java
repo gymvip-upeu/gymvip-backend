@@ -43,6 +43,12 @@ public class ClientServiceImpl implements ClientService {
     @Override
     @Transactional
     public ClientResponse registerClient(RegisterClientRequest request, String actorEmail) {
+        return registerClient(request, actorEmail, null);
+    }
+
+    @Override
+    @Transactional
+    public ClientResponse registerClient(RegisterClientRequest request, String actorEmail, UUID branchId) {
         if (request.birthDate() == null) {
             throw new ClientValidationException("La fecha de nacimiento es obligatoria");
         }
@@ -95,6 +101,7 @@ public class ClientServiceImpl implements ClientService {
         } while (clientRepository.existsByMemberCode(memberCode));
 
         Client client = clientMapper.toEntity(request, memberCode);
+        client.setBranchId(branchId);
         Client saved = clientRepository.save(client);
 
         auditService.recordEvent(
@@ -113,6 +120,13 @@ public class ClientServiceImpl implements ClientService {
     public Page<ClientResponse> searchClients(String query, Pageable pageable) {
         String trimmedQuery = query != null ? query.trim() : "";
         return clientRepository.searchClients(trimmedQuery, pageable)
+                .map(clientMapper::toResponse);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Page<ClientResponse> searchClients(String query, Pageable pageable, com.gymvip.security.TenantScopeResolver.OperationalScope scope) {
+        return clientRepository.searchInCompany(query == null ? "" : query.trim(), scope.organizationId(), scope.branchId(), pageable)
                 .map(clientMapper::toResponse);
     }
 

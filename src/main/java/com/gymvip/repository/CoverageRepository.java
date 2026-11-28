@@ -12,7 +12,8 @@ public class CoverageRepository {
     public record PaidRow(UUID clientId,Period period) {}
     private final JdbcTemplate jdbc;
     public CoverageRepository(JdbcTemplate jdbc) {this.jdbc=jdbc;}
-    public List<ClientRow> clients(UUID id,String query) {
+    public List<ClientRow> clients(UUID id,String query) { return clients(id,query,null); }
+    public List<ClientRow> clients(UUID id,String query,com.gymvip.security.TenantScopeResolver.OperationalScope scope) {
         return jdbc.query("""
             SELECT c.id,c.member_code,c.first_name||' '||c.last_name AS name,c.status,m.status AS contract_status,
               (SELECT d.document_type||' '||d.document_number FROM documents d WHERE d.client_id=c.id AND d.is_primary ORDER BY d.id LIMIT 1) AS document
@@ -20,19 +21,22 @@ public class CoverageRepository {
             WHERE (?::uuid IS NULL OR c.id=?::uuid) AND
               (?='' OR position(lower(?) in lower(c.first_name||' '||c.last_name||' '||coalesce(c.member_code,'')))>0
                 OR EXISTS (SELECT 1 FROM documents d WHERE d.client_id=c.id AND position(lower(?) in lower(d.document_number))>0))
+              AND (?::uuid IS NULL OR EXISTS (SELECT 1 FROM branches b WHERE b.id=c.branch_id AND b.organization_id=? AND (?::uuid IS NULL OR b.id=?)))
             ORDER BY c.last_name,c.first_name,c.id
             """,(r,n)->new ClientRow(r.getObject("id",UUID.class),r.getString("member_code"),r.getString("name"),
-                r.getString("document"),r.getString("status"),r.getString("contract_status")),id,id,query,query,query);
+                r.getString("document"),r.getString("status"),r.getString("contract_status")),id,id,query,query,query,scope==null?null:scope.organizationId(),scope==null?null:scope.organizationId(),scope==null?null:scope.branchId(),scope==null?null:scope.branchId());
     }
-    public List<PaidRow> paid(UUID id) {
+    public List<PaidRow> paid(UUID id) { return paid(id,null); }
+    public List<PaidRow> paid(UUID id, com.gymvip.security.TenantScopeResolver.OperationalScope scope) {
         return jdbc.query("""
             SELECT m.client_id,v.plan_id,v.name,p.start_date,p.end_date
             FROM memberships m JOIN membership_periods p ON p.membership_id=m.id
             JOIN plan_versions v ON v.id=p.plan_version_id
             WHERE p.cancelled_at_utc IS NULL AND m.service_code='GYM' AND (?::uuid IS NULL OR m.client_id=?::uuid)
               AND EXISTS (SELECT 1 FROM payment_records r WHERE r.period_id=p.id AND r.membership_id=m.id AND r.amount_pen=v.price_pen AND r.currency='PEN')
+              AND (?::uuid IS NULL OR EXISTS (SELECT 1 FROM clients c JOIN branches b ON c.branch_id=b.id WHERE c.id=m.client_id AND b.organization_id=? AND (?::uuid IS NULL OR b.id=?)))
             ORDER BY p.start_date,p.end_date,p.id
             """,(r,n)->new PaidRow(r.getObject("client_id",UUID.class),new Period(r.getObject("plan_id",UUID.class),
-                r.getString("name"),r.getObject("start_date",LocalDate.class),r.getObject("end_date",LocalDate.class))),id,id);
+                r.getString("name"),r.getObject("start_date",LocalDate.class),r.getObject("end_date",LocalDate.class))),id,id,scope==null?null:scope.organizationId(),scope==null?null:scope.organizationId(),scope==null?null:scope.branchId(),scope==null?null:scope.branchId());
     }
 }
