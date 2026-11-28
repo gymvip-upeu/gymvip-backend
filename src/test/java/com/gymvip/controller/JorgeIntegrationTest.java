@@ -51,7 +51,7 @@ class JorgeIntegrationTest {
         clock.now=Instant.parse("2026-10-26T17:00:00Z");
         client=UUID.randomUUID();code="JOR-"+client.toString().substring(0,8);
         document=String.format("%08d",Math.floorMod(client.hashCode(),100000000));
-        jdbc.update("INSERT INTO clients(id,first_name,last_name,birth_date,member_code,phone,email) VALUES (?,'Jorge','Prueba','1990-01-01',?,'999888777','antes@example.com')",client,code);
+        jdbc.update("INSERT INTO clients(id,first_name,last_name,birth_date,member_code,phone,email,branch_id) VALUES (?,'Jorge','Prueba','1990-01-01',?,'999888777','antes@example.com','22222222-2222-4222-8222-222222222221')",client,code);
         jdbc.update("INSERT INTO documents(id,client_id,country_code,document_type,document_number) VALUES (?,?,'PE','DNI',?)",UUID.randomUUID(),client,document);
         plan=plans.createPlan(new CreatePlanRequest("Mensual Jorge "+UUID.randomUUID(),"Fixture",30,new BigDecimal("100.00"),"Base"),"admin@vipcenterfit.pe").id();
     }
