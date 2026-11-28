@@ -1,6 +1,7 @@
 package com.gymvip.service;
 
 import com.gymvip.exception.ConflictException;
+import com.gymvip.security.TenantScopeResolver;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -27,48 +28,61 @@ public class IncidentService {
     private final JdbcTemplate jdbc;
     private final AuditService audit;
     private final Clock clock;
+    private final TenantScopeResolver tenants;
+    private static final String SCOPE = "organization_id=? AND (CAST(? AS uuid) IS NULL OR branch_id=?)";
 
-    public IncidentService(JdbcTemplate jdbc, AuditService audit, Clock clock) {
+    public IncidentService(JdbcTemplate jdbc, AuditService audit, Clock clock, TenantScopeResolver tenants) {
         this.jdbc = jdbc;
         this.audit = audit;
         this.clock = clock;
+        this.tenants = tenants;
     }
 
     @Transactional(readOnly = true)
-    public List<Incident> list(String status) {
+    public List<Incident> list(String status, String actor) {
         if (status != null && !status.isBlank() && !List.of("ABIERTA", "CERRADA").contains(status))
             throw new IllegalArgumentException("Estado de incidencia no permitido.");
-        String sql = "SELECT id,title,description,status,reported_by,created_at_utc,closed_by,closed_at_utc,close_reason FROM operational_incidents "
-                + (status == null || status.isBlank() ? "" : "WHERE status=? ") + "ORDER BY created_at_utc DESC LIMIT 200";
-        return status == null || status.isBlank() ? jdbc.query(sql, this::map)
-                : jdbc.query(sql, this::map, status);
+        var scope = scope(actor);
+        String sql = "SELECT * FROM operational_incidents WHERE " + SCOPE
+                + " AND (CAST(? AS varchar) IS NULL OR status=?) ORDER BY created_at_utc DESC LIMIT 200";
+        return jdbc.query(sql, this::map, scope.organization(), scope.branch(), scope.branch(), status, status);
     }
 
     @Transactional
     public Incident create(CreateRequest request, String actor) {
         UUID id = UUID.randomUUID();
         LocalDateTime now = now();
-        jdbc.update("INSERT INTO operational_incidents(id,title,description,status,reported_by,created_at_utc) VALUES (?,?,?,'ABIERTA',?,?)",
-                id, request.title().trim(), request.description().trim(), actor, now);
+        var scope = scope(actor);
+        jdbc.update("INSERT INTO operational_incidents(id,title,description,status,reported_by,created_at_utc,organization_id,branch_id) VALUES (?,?,?,'ABIERTA',?,?,?,?)",
+                id, request.title().trim(), request.description().trim(), actor, now, scope.organization(), scope.branch());
         audit.recordEvent(actor, "CREATE_INCIDENT", "OperationalIncident", id.toString(), "Incidencia registrada.");
-        return find(id);
+        return find(id, scope);
     }
 
     @Transactional
     public Incident close(UUID id, CloseRequest request, String actor) {
         if (request.reason().trim().isEmpty()) throw new IllegalArgumentException("Indica el motivo de cierre.");
-        int changed = jdbc.update("UPDATE operational_incidents SET status='CERRADA',closed_by=?,closed_at_utc=?,close_reason=? WHERE id=? AND status='ABIERTA'",
-                actor, now(), request.reason().trim(), id);
+        var scope = scope(actor);
+        int changed = jdbc.update("UPDATE operational_incidents SET status='CERRADA',closed_by=?,closed_at_utc=?,close_reason=? WHERE id=? AND status='ABIERTA' AND " + SCOPE,
+                actor, now(), request.reason().trim(), id, scope.organization(), scope.branch(), scope.branch());
         if (changed != 1) throw new ConflictException("La incidencia no existe o ya fue cerrada.");
         audit.recordEvent(actor, "CLOSE_INCIDENT", "OperationalIncident", id.toString(), "Cierre registrado con motivo.");
-        return find(id);
+        return find(id, scope);
     }
 
-    @Transactional(readOnly = true)
-    public Incident find(UUID id) {
-        return jdbc.query("SELECT id,title,description,status,reported_by,created_at_utc,closed_by,closed_at_utc,close_reason FROM operational_incidents WHERE id=?",
-                this::map, id).stream().findFirst()
+    private Incident find(UUID id, Scope scope) {
+        return jdbc.query("SELECT * FROM operational_incidents WHERE id=? AND " + SCOPE,
+                this::map, id, scope.organization(), scope.branch(), scope.branch()).stream().findFirst()
                 .orElseThrow(() -> new com.gymvip.exception.ResourceNotFoundException("Incidencia no encontrada."));
+    }
+
+    private record Scope(UUID organization, UUID branch) {}
+
+    private Scope scope(String email) {
+        var actor = tenants.resolveActorByEmail(email);
+        var organization = tenants.effectiveOrganizationId(actor, null);
+        var branch = tenants.isCompanyWideRole(actor) ? null : tenants.effectiveBranchId(actor, null);
+        return new Scope(organization, branch);
     }
 
     private LocalDateTime now() { return LocalDateTime.ofInstant(clock.instant(), ZoneOffset.UTC); }

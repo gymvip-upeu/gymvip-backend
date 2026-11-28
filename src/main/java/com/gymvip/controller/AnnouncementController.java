@@ -1,6 +1,7 @@
 package com.gymvip.controller;
 
 import com.gymvip.security.TenantScopeResolver;
+import com.gymvip.service.AuditService;
 import com.gymvip.exception.ResourceNotFoundException;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
@@ -25,10 +26,12 @@ public class AnnouncementController {
     private final JdbcTemplate jdbc;
 
     private final TenantScopeResolver scope;
+    private final AuditService audit;
 
-    public AnnouncementController(JdbcTemplate jdbc, TenantScopeResolver scope) {
+    public AnnouncementController(JdbcTemplate jdbc, TenantScopeResolver scope, AuditService audit) {
         this.jdbc = jdbc;
         this.scope = scope;
+        this.audit = audit;
     }
 
     public record AnnouncementDto(
@@ -51,6 +54,58 @@ public class AnnouncementController {
             UUID facilityId,
             boolean sendPush
     ) {}
+
+    public record DraftRequest(@NotBlank @Size(max = 200) String title,
+                               @NotBlank @Size(max = 2000) String message) {}
+
+    public record Draft(UUID id, String title, String message, String category) {}
+
+    @GetMapping("/drafts")
+    @PreAuthorize("hasAuthority('communications.drafts')")
+    public List<Draft> listDrafts(Authentication auth) {
+        var actor = scope.resolveActor(auth);
+        UUID org = scope.effectiveOrganizationId(actor, null);
+        UUID branch = scope.isCompanyWideRole(actor) ? null : scope.effectiveBranchId(actor, null);
+        return jdbc.query("""
+            SELECT id, title, message, category FROM gym_announcements
+            WHERE NOT is_active AND draft_branch_id IS NOT NULL AND organization_id=?
+                AND (CAST(? AS uuid) IS NULL OR draft_branch_id=?)
+            ORDER BY created_at_utc DESC LIMIT 50
+        """, (row, index) -> new Draft(row.getObject("id", UUID.class), row.getString("title"),
+                row.getString("message"), row.getString("category")), org, branch, branch);
+    }
+
+    @PostMapping("/drafts")
+    @ResponseStatus(HttpStatus.CREATED)
+    @PreAuthorize("hasAuthority('communications.drafts')")
+    @Transactional
+    public Draft createDraft(@Valid @RequestBody DraftRequest request, Authentication auth) {
+        var actor = scope.resolveActor(auth);
+        UUID org = scope.effectiveOrganizationId(actor, null);
+        UUID branch = scope.effectiveBranchId(actor, null);
+        var draft = new Draft(UUID.randomUUID(), request.title().trim(), request.message().trim(), "COMUNICADO");
+        jdbc.update("""
+            INSERT INTO gym_announcements (id, title, message, category, target_audience, is_active, created_by, organization_id, draft_branch_id)
+            VALUES (?, ?, ?, ?, 'TODOS', false, ?, ?, ?)
+        """, draft.id(), draft.title(), draft.message(), draft.category(), auth.getName(), org, branch);
+        audit.recordEvent(auth.getName(), "CREATE_ANNOUNCEMENT_DRAFT", "Announcement", draft.id().toString(), "Borrador registrado.");
+        return draft;
+    }
+
+    @PatchMapping("/drafts/{id}/publish")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    @PreAuthorize("hasAnyRole('ADMIN','ADMIN_EMPRESA')")
+    @Transactional
+    public void publishDraft(@PathVariable UUID id, Authentication auth) {
+        UUID org = scope.effectiveOrganizationId(scope.resolveActor(auth), null);
+        if (jdbc.update("""
+            UPDATE gym_announcements SET is_active=true, created_at_utc=CURRENT_TIMESTAMP
+            WHERE id=? AND organization_id=? AND draft_branch_id IS NOT NULL AND NOT is_active
+        """, id, org) == 0) {
+            throw new ResourceNotFoundException("Borrador pendiente no encontrado.");
+        }
+        audit.recordEvent(auth.getName(), "PUBLISH_ANNOUNCEMENT_DRAFT", "Announcement", id.toString(), "Publicado en la bandeja de avisos.");
+    }
 
     @GetMapping
     public List<AnnouncementDto> listAnnouncements(Authentication auth) {

@@ -20,21 +20,24 @@ import java.util.UUID;
 
 @RestController
 @RequestMapping("/api/v1/incidents")
-@PreAuthorize("hasAnyRole('ADMIN','GERENTE','AUDITOR')")
+@PreAuthorize("hasAuthority('incidents.read')")
 public class IncidentController {
     private final IncidentService service;
     public IncidentController(IncidentService service) { this.service = service; }
 
-    @GetMapping public List<IncidentService.Incident> list(@RequestParam(required = false) String status) {
-        return service.list(status);
+    @GetMapping public List<IncidentService.Incident> list(@RequestParam(required = false) String status, Authentication auth) {
+        return service.list(status == null || status.isBlank() ? null : status, auth.getName());
     }
 
-    @PostMapping @ResponseStatus(HttpStatus.CREATED)
+    @PostMapping
+    @PreAuthorize("hasAuthority('incidents.manage')")
+    @ResponseStatus(HttpStatus.CREATED)
     public IncidentService.Incident create(@Valid @RequestBody IncidentService.CreateRequest request, Authentication auth) {
         return service.create(request, auth.getName());
     }
 
     @PatchMapping("/{id}/close")
+    @PreAuthorize("hasAnyAuthority('incidents.manage','incidents.close')")
     public IncidentService.Incident close(@PathVariable UUID id,
                                           @Valid @RequestBody IncidentService.CloseRequest request, Authentication auth) {
         return service.close(id, request, auth.getName());

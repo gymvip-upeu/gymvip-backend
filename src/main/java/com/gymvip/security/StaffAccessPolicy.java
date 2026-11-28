@@ -13,8 +13,7 @@ public final class StaffAccessPolicy {
     private static final Set<String> PLATFORM = Set.of("SUPER_ADMIN", "SOPORTE_PLATAFORMA");
     private static final Set<String> MANAGEMENT = Set.of("GERENTE_GENERAL", "GERENTE_SEDE", "AUDITOR_EMPRESA",
             "CONTADOR", "RECURSOS_HUMANOS");
-    private static final Set<String> OPERATIONS = Set.of("RECEPCION", "CAJERO", "INVENTARIO", "COMPRAS",
-            "ENTRENADOR_JEFE", "ENTRENADOR", "MARKETING", "ATENCION_CLIENTE", "MANTENIMIENTO");
+    private static final Set<String> OPERATIONS = Set.of("RECEPCION", "ENTRENADOR");
 
     private StaffAccessPolicy() {}
 
@@ -70,7 +69,8 @@ public final class StaffAccessPolicy {
         if (privileged && hasRole(actor, "SUPER_ADMIN")) return;
         if (isPlatform(target) || isCompanyAdmin(target)
                 || target.getRoles().stream().map(PermissionCatalog::canonicalRole)
-                        .anyMatch(code -> !canDelegate(actor, code))) {
+                        .anyMatch(code -> !canDelegate(actor, code)
+                                && !(PermissionCatalog.isRetiredRole(code) && canDelegate(actor, "RECEPCION")))) {
             throw denied();
         }
     }
