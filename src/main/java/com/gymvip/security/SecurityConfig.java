@@ -123,6 +123,8 @@ public class SecurityConfig {
                         .requestMatchers("/api/v1/clients/import/**", "/api/v1/data-import/**").hasAnyRole("SUPER_ADMIN", "ADMIN", "ADMIN_EMPRESA")
                         .requestMatchers("/api/v1/dashboard", "/api/v1/dashboard/**").hasAnyRole("SUPER_ADMIN", "ADMIN", "ADMIN_EMPRESA", "GERENTE", "GERENTE_GENERAL", "GERENTE_SEDE", "RECEPCION", "AUDITOR", "AUDITOR_EMPRESA")
                         .requestMatchers("/api/v1/reports", "/api/v1/reports/**").hasAnyRole("SUPER_ADMIN", "ADMIN", "ADMIN_EMPRESA", "GERENTE", "GERENTE_GENERAL", "GERENTE_SEDE", "AUDITOR", "AUDITOR_EMPRESA", "CONTADOR")
+                        .requestMatchers(HttpMethod.GET, "/api/v1/system/status", "/system/status", "/api/v1/channels/status")
+                            .hasAnyAuthority("integrations.read", "facilities.update_status")
                         .requestMatchers("/api/v1/accounts", "/api/v1/accounts/**").hasAuthority("employees.read")
                         .requestMatchers("/api/v1/incidents", "/api/v1/incidents/**").hasAuthority("incidents.read")
                         .requestMatchers("/api/v1/enterprise/ops/**", "/api/v1/enterprise/branches/**").authenticated()

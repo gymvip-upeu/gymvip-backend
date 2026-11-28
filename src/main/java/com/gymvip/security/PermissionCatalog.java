@@ -153,8 +153,8 @@ public final class PermissionCatalog {
                 "Responsable global del producto SaaS GYM VIP, empresas contratantes, políticas de seguridad e infraestructura.",
                 true, true, SUPER_ADMIN_PERMS);
         register("SOPORTE_PLATAFORMA", "Soporte de Plataforma", "PLATFORM",
-                "Diagnóstico técnico controlado de integraciones, incidencias y cuentas con auditoría estricta.",
-                true, true, Set.of("branches.read", "integrations.read", "integrations.test", "incidents.read", "reports.read", "preferences.manage"));
+                "Consulta el estado de la infraestructura y de las integraciones sin acceso a datos de empresas.",
+                true, true, Set.of("integrations.read", "preferences.manage"));
 
         register("ADMIN_EMPRESA", "Administrador de Empresa", "ORGANIZATION",
                 "Administrador general de la empresa o cadena de gimnasios contratante.",
