@@ -185,7 +185,8 @@ public class ClassReservationsService {
     public List<ClassNotice> notices(String email) {
         Account actor = scope.resolveActorByEmail(email);
         boolean companyWide = scope.isCompanyWideRole(actor);
-        boolean manager = companyWide || actor.getRoles().contains("GERENTE_SEDE");
+        boolean allBranchClasses = companyWide || actor.getRoles().contains("GERENTE_SEDE")
+                || actor.getRoles().contains("RECEPCION");
         UUID branch = companyWide ? null : scope.effectiveBranchId(actor, null);
         return jdbc.query("""
                 SELECT e.id,c.id AS class_id,c.title,b.name AS branch_name,e.event_type,e.created_at
@@ -199,7 +200,7 @@ public class ClassReservationsService {
                 """, (rs, row) -> new ClassNotice(rs.getObject("id", UUID.class), rs.getObject("class_id", UUID.class),
                 rs.getString("title"), rs.getString("branch_name"), rs.getString("event_type"),
                 rs.getObject("created_at", java.time.OffsetDateTime.class).atZoneSameInstant(LIMA).toOffsetDateTime().toString()),
-                scope.effectiveOrganizationId(actor, null), companyWide, branch, manager, actor.getId());
+                scope.effectiveOrganizationId(actor, null), companyWide, branch, allBranchClasses, actor.getId());
     }
 
     private void promoteNext(ClassRow course) {

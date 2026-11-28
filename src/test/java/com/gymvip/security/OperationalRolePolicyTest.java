@@ -63,6 +63,17 @@ class OperationalRolePolicyTest {
         }
     }
 
+    @Test
+    void reservationNoticesFollowOperationalDuties() {
+        for (String role : Set.of("RECEPCION", "GERENTE_SEDE", "ENTRENADOR", "ADMIN_EMPRESA")) {
+            assertTrue(PermissionCatalog.hasPermission(Set.of(role), "training.classes.notifications"), role);
+        }
+        for (String role : Set.of("CLIENTE", "CONTADOR", "RECURSOS_HUMANOS", "SOPORTE_PLATAFORMA")) {
+            assertFalse(PermissionCatalog.hasPermission(Set.of(role), "training.classes.notifications"), role);
+        }
+        assertFalse(PermissionCatalog.hasPermission(Set.of("RECEPCION"), "training.classes.manage"));
+    }
+
     private Account account(String role, UUID organization) {
         var account = new Account();
         account.setId(UUID.randomUUID());

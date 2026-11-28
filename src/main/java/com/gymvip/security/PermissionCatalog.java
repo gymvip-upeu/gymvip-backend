@@ -75,7 +75,7 @@ public final class PermissionCatalog {
             new PermissionDefinition("training.exercises.edit", "Entrenamiento", "edicion", "Crear y editar borradores de ejercicios de la sede"),
             new PermissionDefinition("training.exercises.publish", "Entrenamiento", "publicacion", "Publicar fichas de ejercicios revisadas"),
             new PermissionDefinition("training.classes.roster", "Reservas", "lectura", "Consultar la lista de reservas de clases autorizadas"),
-            new PermissionDefinition("training.classes.notifications", "Reservas", "avisos", "Recibir avisos de reservas de clases asignadas"),
+            new PermissionDefinition("training.classes.notifications", "Reservas", "avisos", "Consultar avisos de reservas de la empresa, sede o clases asignadas según el rol"),
             new PermissionDefinition("training.routines.read", "Entrenamiento", "lectura", "Consultar catálogo de ejercicios y rutinas"),
             new PermissionDefinition("training.routines.create", "Entrenamiento", "creacion", "Crear rutinas estructuradas"),
             new PermissionDefinition("training.routines.assign", "Entrenamiento", "asignacion", "Asignar rutinas a socios autorizados"),
@@ -103,7 +103,7 @@ public final class PermissionCatalog {
     private static final Set<String> RECEPTION_PERMS = union(STAFF_CORE_READ, Set.of(
             "members.create", "members.update", "memberships.create", "memberships.renew",
             "payments.create", "attendance.manage", "orders.dispatch", "facilities.update_status",
-            "incidents.read", "incidents.manage", "communications.drafts"
+            "incidents.read", "incidents.manage", "communications.drafts", "training.classes.notifications"
     ));
 
     private static final Set<String> COACH_PERMS = Set.of(
